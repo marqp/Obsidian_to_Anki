@@ -1,0 +1,7 @@
+# Pinned Python test dependencies: E2E suite (tests/anki) + fast unit suite (tests/py-unit).
+#
+# `anki` is intentionally range-pinned rather than exact-pinned: the AnkiConnect
+# wire protocol must stay compatible with the Anki desktop version baked into
+# the E2E Dockerfile (currently Anki 2.1.60). Bump both together.
+pytest>=8.3,<10
+anki

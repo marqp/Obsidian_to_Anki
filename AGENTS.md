@@ -19,6 +19,23 @@ via BRAT. Fork remote: `marqp/Obsidian_to_Anki`.
 - **StrykerJS** mutation testing, nightly + `src/**` PRs (`mutation.yml`), break threshold 60.
 - **Rollup 2.x** still bundles `main.ts` → `main.js` (esbuild migration is parking lot).
 - E2E: **WebdriverIO + Docker** (Anki 2.1.60 + Obsidian 1.5.3 images). Python suite for the CLI script.
+- **Python CLI** (`obsidian_to_anki.py`, standalone): surgical parity with the TS engine
+  (stat fast-path, `START[ ]*` blocks, linear `string_insert`). Fast unit suite in
+  `tests/py-unit/` (stdlib + pytest only; third-party imports stubbed in `conftest.py`).
+
+## Obsidian CLI workflow (manual, agent-friendly)
+
+The plugin needs no protocol handler: the official `obsidian` CLI can execute any
+registered command by ID (confirm prefix with `obsidian commands filter=anki`).
+
+```bash
+obsidian "vault=My Vault" command id="obsidian-to-anki-plugin:anki-scan-vault"
+```
+
+- The app must be running (first command auto-launches it); Anki + AnkiConnect must be up —
+  pre-check with `curl -sf localhost:8765` because scan failures surface as Notices, not CLI errors.
+- Every scan ends with a machine-readable line on the app console for agents/log scraping:
+  `[Obsidian_to_Anki] scan complete: files_changed=2/120 added=5 updated=1 deleted=0`.
 
 ## Commands
 
@@ -54,7 +71,9 @@ with `sudo env "PATH=$PATH"` so pnpm is visible under sudo.
 ## tests/ map (generated vs. source)
 
 - **Fixtures (commit):** `tests/defaults/` (vault, config, suites, spec template), `tests/specs/`
-  (`ng_` files only — everything else there is generated), `tests/unit/`, `tests/anki/`, `tests/mocks/`.
+  (`ng_` files only — everything else there is generated), `tests/unit/`, `tests/anki/`
+  (E2E validators of the `.anki2` DB, `scope="module"` fixtures — read-only, never write),
+  `tests/py-unit/` (fast CLI-script unit tests, no Anki/Docker), `tests/mocks/`.
 - **Generated at runtime (never commit, gitignored):** `tests/test_config/`, `tests/test_vault/`,
   `tests/specs_gen/`, `tests/test_outputs/`. Created by `prepare-wdio.sh` / `wdio.conf.ts`.
 - `wdio.conf.ts` is excluded from `tsc` and ESLint. Python E2E pins live in `requirements-dev.txt`
