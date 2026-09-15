@@ -13,6 +13,10 @@ const MATH_REPLACE: string = 'OBSTOANKIMATH'
 const INLINE_CODE_REPLACE: string = 'OBSTOANKICODEINLINE'
 const DISPLAY_CODE_REPLACE: string = 'OBSTOANKICODEDISPLAY'
 
+const MATH_MASK_REGEXP: RegExp = new RegExp(MATH_REPLACE, 'g')
+const INLINE_CODE_MASK_REGEXP: RegExp = new RegExp(INLINE_CODE_REPLACE, 'g')
+const DISPLAY_CODE_MASK_REGEXP: RegExp = new RegExp(DISPLAY_CODE_REPLACE, 'g')
+
 const CLOZE_REGEXP: RegExp = /(?:(?<!{){(?:c?(\d+)[:|])?(?!{))((?:[^\n][\n]?)+?)(?:(?<!})}(?!}))/g
 
 const IMAGE_EXTS: string[] = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.tiff']
@@ -145,12 +149,15 @@ export class FormatConverter {
 	}
 
 	censor(note_text: string, regexp: RegExp, mask: string): [string, string[]] {
-		/*Take note_text and replace every match of regexp with mask, simultaneously adding it to a string array*/
+		/*Take note_text and replace every match of regexp with mask, simultaneously adding it to a string array.
+		Callers must pass a global regexp; a single replace() pass both collects
+		and substitutes, so the text is scanned once instead of twice.*/
 		const matches: string[] = []
-		for (const match of note_text.matchAll(regexp)) {
-			matches.push(match[0])
-		}
-		return [note_text.replace(regexp, mask), matches]
+		const censored = note_text.replace(regexp, (match) => {
+			matches.push(match)
+			return mask
+		})
+		return [censored, matches]
 	}
 
 	decensor(note_text: string, mask: string, replacements: string[], escape: boolean): string {
@@ -158,22 +165,32 @@ export class FormatConverter {
 
 		// note_text example: "The OBSTOANKICODEDISPLAY is worth OBSTOANKICODEDISPLAY today"
 		// maskGlobalReg example: /OBSTOANKICODEDISPLAY/g
-		const maskGlobalRegex: RegExp = new RegExp(mask, 'g')
-
-		const matchCount: number = (note_text.match(maskGlobalRegex) || []).length
-
-		// Validate that we have exactly enough replacements
-		if (matchCount !== replacements.length) {
-			throw new Error(`Mismatch between placeholders (${matchCount}) and replacements (${replacements.length})`)
-		}
+		const maskGlobalRegex: RegExp =
+			mask === DISPLAY_CODE_REPLACE
+				? DISPLAY_CODE_MASK_REGEXP
+				: mask === INLINE_CODE_REPLACE
+					? INLINE_CODE_MASK_REGEXP
+					: mask === MATH_REPLACE
+						? MATH_MASK_REGEXP
+						: new RegExp(mask, 'g')
 
 		// replacements example: ["10", "15"]
 		note_text = note_text.replace(maskGlobalRegex, () => {
-			const replacement: string = replacements[index++]
+			const replacement: string | undefined = replacements[index++]
+			// note_text expected: "The 10 is worth 15 today"
+			if (replacement === undefined) {
+				throw new Error(
+					`Mismatch between placeholders and replacements (${index - 1} of ${replacements.length} consumed)`
+				)
+			}
 			return escape ? escapeHtml(replacement) : replacement
 		})
 
-		// note_text expected: "The 10 is worth 15 today"
+		// Validate that we have exactly enough replacements
+		if (index !== replacements.length) {
+			throw new Error(`Mismatch between placeholders (${index}) and replacements (${replacements.length})`)
+		}
+
 		return note_text
 	}
 
