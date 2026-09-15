@@ -12,9 +12,9 @@ on:
 
 jobs:
   build:
-   runs-on: ubuntu-latest
-   permissions:
-     contents: write
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -30,11 +30,11 @@ jobs:
           node-version: "22.x" # You might need to adjust this value to your own version.
           cache: 'pnpm'
 
-     # Get the version number and put it in an environment file
-     - name: Get Version
-       id: version
-       run: |
-         echo "tag=$(git describe --tags $(git rev-list --tags --max-count=1))" >> $GITHUB_ENV
+      # Get the version number and put it in an environment file
+      - name: Get Version
+        id: version
+        run: |
+          echo "tag=$(git describe --tags $(git rev-list --tags --max-count=1))" >> $GITHUB_ENV
 
       # Build the plugin
       - name: Build
@@ -43,21 +43,21 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm run build
 
-     # Package the required files into a zip
-     - name: Package
-       run: |
-         mkdir ${{ env.PLUGIN_NAME }}
-         cp main.js manifest.json styles.css README.md ${{ env.PLUGIN_NAME }}
-         zip -r ${{ env.PLUGIN_NAME }}-${{ env.tag }}.zip ${{ env.PLUGIN_NAME }}
+      # Package the required files into a zip
+      - name: Package
+        run: |
+          mkdir ${{ env.PLUGIN_NAME }}
+          cp main.js manifest.json styles.css README.md ${{ env.PLUGIN_NAME }}
+          zip -r ${{ env.PLUGIN_NAME }}-${{ env.tag }}.zip ${{ env.PLUGIN_NAME }}
 
       - name: Release
         uses: softprops/action-gh-release@v2
-       with:
-         # main.css
-         generate_release_notes: true
-         draft: true
-         files: |
-           main.js
-           manifest.json
-           styles.css
-           ${{ env.PLUGIN_NAME }}-${{ env.tag }}.zip
+        with:
+          # main.css
+          generate_release_notes: true
+          draft: true
+          files: |
+            main.js
+            manifest.json
+            styles.css
+            ${{ env.PLUGIN_NAME }}-${{ env.tag }}.zip

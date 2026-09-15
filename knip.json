@@ -5,5 +5,14 @@
 	"ignore": ["tests/**", "wdio.conf.ts", "prepare-wdio.sh", "vitest.config.mjs", "eslint.config.mjs", "stryker.config.mjs", "rollup.config.js", "knip.json"],
 	"ignoreBinaries": ["pip", "pytest"],
 	"ignoreDependencies": ["byte-base64", "glob", "@vitest/coverage-v8", "@wdio/cli", "@wdio/junit-reporter", "@wdio/local-runner", "@wdio/mocha-framework", "@wdio/spec-reporter", "wdio-chromedriver-service", "wdio-docker-service", "wdio-wait-for", "webdriver", "showdown-highlight", "showdown", "multimatch", "ts-md5"],
-	"treatConfigHintsAsErrors": false
+	"treatConfigHintsAsErrors": false,
+	"ignoreIssues": {
+		// Public AnkiConnect builders: kept as API surface for present/future call sites.
+		"src/anki.ts": ["exports", "types"],
+		// Same-file-consumed helpers (Knip ignores tests/** by design, where they are also used).
+		"src/scan-optimizations.ts": ["exports"],
+		// Cross-module contracts consumed via setTransport mocks in tests/**.
+		"src/anki-launch.ts": ["types"],
+		"src/dry-run.ts": ["types"]
+	}
 }
