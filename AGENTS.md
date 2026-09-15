@@ -20,7 +20,7 @@ behavior intentionally diverged (orphan deletion, updateNote, dry-run — see RE
 - **ESLint 9 flat** (`no-explicit-any: error`) + **Prettier** (`useTabs: true`).
 - **StrykerJS** mutation testing, nightly + `src/**` PRs (`mutation.yml`), break threshold 60.
 - **esbuild** bundles `main.ts` → `main.js` (`esbuild.config.mjs`, CJS, browser platform, `es2022` target).
-- E2E: **WebdriverIO + Docker** (Anki 2.1.60 + Obsidian 1.5.3 images). Python suite for the CLI script.
+- E2E: **WebdriverIO + Docker** (Anki 2.1.60 + Obsidian 1.13.7 images, matching desktop Chrome 150; the npm `chromedriver` pin must track the AppImage's Chromium). Python suite for the CLI script.
 - **Python CLI** (`obsidian_to_anki.py`, standalone): surgical parity with the TS engine
   (stat fast-path, `START[ ]*` blocks, linear `string_insert`). Fast unit suite in
   `tests/py-unit/` (stdlib + pytest only; third-party imports stubbed in `conftest.py`).

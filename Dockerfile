@@ -79,8 +79,10 @@ ENV QT_DEBUG_PLUGINS 1
 # CMD /bin/bash -c "/usr/bin/anki"
 # CMD /bin/bash -c "anki"
 
-# # set version label
-ARG OBSIDIAN_VERSION=1.5.3
+# # set version label (must match the user's desktop Obsidian: the bundled
+# Electron/Chromium is what chromedriver talks to via CDP, so the npm
+# chromedriver pin in package.json must track this version's Chromium)
+ARG OBSIDIAN_VERSION=1.13.7
 
 RUN \
     echo "**** download obsidian ****" && \

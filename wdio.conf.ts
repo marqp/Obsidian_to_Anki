@@ -311,7 +311,12 @@ export const config/* : Options.Testrunner */ = {
         // TODO: Maybe we can do the last spec file's test delay here ?
         (async () => {
             try {
-                let test_outputs_dir = 'tests/test_config/.local/share/test_outputs';                
+                let test_outputs_dir = 'tests/test_config/.local/share/test_outputs';
+                // The container only creates test_outputs after a successful
+                // sync; a failed spec reaches this hook with nothing to move.
+                if (!fs.existsSync(test_outputs_dir)) {
+                    return
+                }
                 const files = await fs.promises.readdir( test_outputs_dir );
 
                 // Loop them all with the new for...of
