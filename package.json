@@ -16,12 +16,7 @@
         "test:unit": "vitest run",
         "test:parity": "vitest run --config tests/parity/vitest.parity.mjs",
         "test:bench": "vitest run --config tests/parity/vitest.bench.mjs",
-        "test:mutation": "stryker run",
-        "copy": "rm -rf tests/defaults/test_vault/.obsidian/plugins/obsidian-to-anki-plugin && mkdir -p tests/defaults/test_vault/.obsidian/plugins/obsidian-to-anki-plugin && cp manifest.json styles.css main.js tests/defaults/test_vault/.obsidian/plugins/obsidian-to-anki-plugin/",
-        "prep-wdio": "bash prepare-wdio.sh",
-        "test-wdio": "pnpm run prep-wdio && docker build -t anki-obsidian . && wdio run ./wdio.conf.ts",
-        "test-py": "pip install -r requirements-dev.txt && pytest -vvvs tests/anki/ --junitxml logs/test-reports/pytest.xml",
-        "test:e2e": "pnpm run test-wdio && pnpm run test-py"
+        "test:mutation": "stryker run"
     },
     "packageManager": "pnpm@11.21.0",
     "keywords": [],
@@ -35,11 +30,6 @@
         "@types/showdown": "^2.0.6",
         "@typescript/native": "npm:typescript@^7.0.2",
         "@vitest/coverage-v8": "^5.0.0",
-        "@wdio/cli": "^9.31.9",
-        "@wdio/junit-reporter": "^9.31.2",
-        "@wdio/local-runner": "^9.31.9",
-        "@wdio/mocha-framework": "^9.31.9",
-        "@wdio/spec-reporter": "^9.31.2",
         "esbuild": "^0.28.2",
         "eslint": "^10.10.0",
         "eslint-config-prettier": "^10.1.8",
@@ -49,11 +39,7 @@
         "showdown-highlight": "^3.1.0",
         "typescript": "npm:@typescript/typescript6@^6.0.2",
         "typescript-eslint": "^8.70.0",
-        "vitest": "^5.0.0",
-        "wdio-chromedriver-service": "^8.1.1",
-        "wdio-docker-service": "^3.2.1",
-        "wdio-wait-for": "^3.1.1",
-        "webdriver": "^9.31.9"
+        "vitest": "^5.0.0"
     },
     "dependencies": {
         "byte-base64": "^1.1.0",

@@ -13,13 +13,8 @@ export default tsPlugin.config(
 			'coverage/**',
 			'.stryker-tmp/**',
 			'reports/**',
-			'tests/defaults/**',
 			'tests/mocks/**',
-			'tests/anki/**',
-			'tests/specs/**',
 			'tests/parity/**',
-			'wdio.conf.ts',
-			'prepare-wdio.sh',
 			'*.js'
 		]
 	},
