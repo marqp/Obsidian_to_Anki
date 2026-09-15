@@ -1,0 +1,1 @@
+{"files": ["custom-regexp.md"], "existingIds": [], "customRegexps": {"Basic": "Q: (.*?)\nA: (.*?)(\\n|$)"}}

@@ -283,3 +283,6 @@ tests/specs_gen/*
 tests/test_outputs/*
 reports/
 .stryker-tmp/
+tests/parity/.helpers.mjs
+tests/parity/.build-*/
+.parity-*

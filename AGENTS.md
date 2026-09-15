@@ -70,6 +70,7 @@ pnpm run test:unit  # vitest without coverage (fast loop)
 pnpm run lint       # 0 errors; the 2 no-non-null-assertion warnings in note.ts are known
 pnpm run format:check
 pnpm run test:mutation  # ~30s, needs the pnpm patch applied
+pnpm run test:parity  # fork-vs-upstream parse parity (own vitest config + CI job)
 pnpm run test:e2e   # docker + wdio + pytest (heavy, needs Anki/Obsidian images)
 pnpm exec tsc --noEmit
 ```
@@ -116,6 +117,11 @@ with `sudo env "PATH=$PATH"` so pnpm is visible under sudo.
   `tests/py-unit/` (fast CLI-script unit tests, no Anki/Docker), `tests/mocks/`.
 - **Generated at runtime (never commit, gitignored):** `tests/test_config/`, `tests/test_vault/`,
   `tests/specs_gen/`, `tests/test_outputs/`. Created by `prepare-wdio.sh` / `wdio.conf.ts`.
+- **Parity harness (fork vs pinned upstream, no Anki/Docker):** `tests/parity/` builds both
+  engines from source (upstream via `git worktree` at the SHA in `tests/parity/config.json`,
+  per-side `settingToData` so each runs its genuine regexes) and diffs canonical outputs
+  over `tests/parity/fixtures/` (`pnpm run test:parity`, own CI job). Contract and known
+  intentional divergences live in `tests/parity/CONTRACT.md`.
 - `wdio.conf.ts` is excluded from `tsc` and ESLint. Python E2E pins live in `requirements-dev.txt`
   (`anki` stays range-pinned: it must track the Anki desktop version in the `Dockerfile`).
 

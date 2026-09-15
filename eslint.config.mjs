@@ -17,6 +17,7 @@ export default tsPlugin.config(
 			'tests/mocks/**',
 			'tests/anki/**',
 			'tests/specs/**',
+			'tests/parity/**',
 			'wdio.conf.ts',
 			'prepare-wdio.sh',
 			'*.js'

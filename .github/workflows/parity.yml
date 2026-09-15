@@ -1,0 +1,53 @@
+name: Parity
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'src/**'
+      - 'tests/parity/**'
+      - 'tests/mocks/obsidian.ts'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+  schedule:
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  parity:
+    name: Fork vs upstream parse parity
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
+
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check out pinned upstream worktree
+        run: |
+          UPSTREAM_SHA=$(node -e "console.log(require('./tests/parity/config.json').upstreamSha)")
+          git worktree add --detach /tmp/parity-upstream "$UPSTREAM_SHA"
+          test -f /tmp/parity-upstream/src/file.ts
+
+      - name: Run parity suite
+        run: pnpm run test:parity
+        env:
+          PARITY_UPSTREAM_WORKTREE: /tmp/parity-upstream
+
+      - name: Remove upstream worktree
+        if: always()
+        run: git worktree remove --force /tmp/parity-upstream

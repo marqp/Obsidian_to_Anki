@@ -13,6 +13,7 @@
         "format:check": "prettier --check \"src/**/*.ts\" \"main.ts\" \"tests/unit/**/*.ts\"",
         "test": "vitest run --coverage",
         "test:unit": "vitest run",
+        "test:parity": "vitest run --config tests/parity/vitest.parity.mjs",
         "test:mutation": "stryker run",
         "copy": "rm -rf tests/defaults/test_vault/.obsidian/plugins/obsidian-to-anki-plugin && mkdir -p tests/defaults/test_vault/.obsidian/plugins/obsidian-to-anki-plugin && cp manifest.json styles.css main.js tests/defaults/test_vault/.obsidian/plugins/obsidian-to-anki-plugin/",
         "prep-wdio": "bash prepare-wdio.sh",

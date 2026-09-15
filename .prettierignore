@@ -9,6 +9,7 @@ reports
 tests/defaults
 tests/specs
 tests/anki
+tests/parity
 *.json
 *.md
 *.yml
