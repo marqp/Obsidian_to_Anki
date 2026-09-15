@@ -136,3 +136,22 @@ if (typeof globalThis.document === 'undefined') {
         })
     }
 }
+
+// Obsidian ships a legacy Array.prototype.contains polyfill; plugin code relies
+// on it (files-manager). Mirror it so tests exercising non-empty file lists work.
+declare global {
+    interface Array<T> {
+        contains(searchElement: T, fromIndex?: number): boolean
+    }
+}
+
+if (typeof Array.prototype.contains !== 'function') {
+    Object.defineProperty(Array.prototype, 'contains', {
+        value: function <T>(this: T[], searchElement: T, fromIndex?: number): boolean {
+            return this.indexOf(searchElement, fromIndex) >= 0
+        },
+        writable: true,
+        configurable: true,
+        enumerable: false
+    })
+}

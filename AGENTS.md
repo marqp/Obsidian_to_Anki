@@ -62,7 +62,11 @@ with `sudo env "PATH=$PATH"` so pnpm is visible under sudo.
 - **Anki transport is injected.** Production uses `ObsidianRequestUrlTransport`
   (`requestUrl`); tests use `FetchTransport` via `setTransport()`. Never reintroduce `XMLHttpRequest`.
 - **`FileHashes` accepts legacy `string` entries.** `getStoredHash`/`isStatUnchanged` handle both
-  shapes — new writes are always `{ hash, mtime, size }`.
+  shapes — new writes are always `{ hash, mtime, size, noteIds }`. `noteIds` powers orphan
+  deletion ("Delete Removed Notes", on by default): a note is only deleted when its ID vanished
+  from a file that had a stored record, no other tracked file references it, an explicit DELETE
+  line didn't already consume it, and Anki still reports the ID. First scans, new files and
+  renames never delete because they have no stored record.
 - **`multi` response `slice(1)` is intentional.** Index 0 is the `createDeck` batch result, which
   needs no processing. The single `as unknown as Requests1Result` in `parse_requests_1` is the
   documented wire trust boundary — don't scatter more casts around it.

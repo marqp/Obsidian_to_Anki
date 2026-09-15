@@ -31,6 +31,7 @@ export interface PluginSettings {
 		'Add Obsidian Tags': boolean
 		'Anki API Key': string
 		'Sync to AnkiWeb': boolean
+		'Delete Removed Notes': boolean
 		'Allow Note Type Changes': boolean
 		/** Legacy key, migrated to 'Scan Directories' on load and then deleted. */
 		'Scan Directory'?: string
@@ -69,5 +70,6 @@ export interface ParsedSettings extends FileData {
 	folder_tags: Record<string, string>
 	ignored_file_globs: string[]
 	sync_to_ankiweb: boolean
+	delete_removed_notes: boolean
 	allow_note_type_changes: boolean
 }

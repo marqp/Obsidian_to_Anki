@@ -35,6 +35,7 @@ function createParsedSettings(syncToAnkiweb: boolean): ParsedSettings {
 		folder_tags: {},
 		ignored_file_globs: [],
 		sync_to_ankiweb: syncToAnkiweb,
+		delete_removed_notes: false,
 		allow_note_type_changes: false
 	}
 }

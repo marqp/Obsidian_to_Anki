@@ -68,6 +68,7 @@ export async function settingToData(
 	result.add_context = settings.Defaults['Add Context']
 	result.add_obs_tags = settings.Defaults['Add Obsidian Tags']
 	result.sync_to_ankiweb = settings.Defaults['Sync to AnkiWeb'] ?? false
+	result.delete_removed_notes = settings.Defaults['Delete Removed Notes'] ?? true
 	result.allow_note_type_changes = settings.Defaults['Allow Note Type Changes'] ?? false
 	result.ignored_file_globs = settings.IGNORED_FILE_GLOBS ?? []
 

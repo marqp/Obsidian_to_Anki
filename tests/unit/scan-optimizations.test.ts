@@ -38,6 +38,7 @@ function createParsedSettings(existingIdCount = 3): ParsedSettings {
 		folder_tags: {},
 		ignored_file_globs: [],
 		sync_to_ankiweb: false,
+		delete_removed_notes: false,
 		allow_note_type_changes: false
 	}
 }

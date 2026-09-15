@@ -8,6 +8,7 @@ import { basename } from 'path'
 import multimatch from 'multimatch'
 import {
 	createFileData,
+	findOrphanedNoteIds,
 	isFileUnchanged,
 	isStatUnchanged,
 	mapConcurrent,
@@ -79,6 +80,7 @@ export class FileManager {
 	file_hashes: FileHashes
 	requests_1_result: unknown[] | null = null
 	added_media_set: Set<string>
+	orphanNoteIds: number[] = []
 	private useUpdateNote = false
 	private useUpdateNoteModel = false
 	private modelChangeActions: AnkiConnect.AnkiConnectRequest[] = []
@@ -206,6 +208,39 @@ export class FileManager {
 
 		this.ownFiles = files_changed
 		this.files = obfiles_changed
+		this.orphanNoteIds = this.computeOrphanNoteIds(files_changed)
+		if (this.orphanNoteIds.length > 0) {
+			console.info(`Notes removed from Markdown will be deleted from Anki: ${this.orphanNoteIds.join(', ')}`)
+		}
+	}
+
+	/**
+	 * Note IDs whose blocks disappeared from the scanned files since the last
+	 * scan. Safe by construction: files with no stored record (first scan,
+	 * rename, new file) never produce orphans, IDs still referenced by another
+	 * tracked file are kept, and only IDs Anki still reports are returned.
+	 */
+	computeOrphanNoteIds(currentFiles: AllFile[]): number[] {
+		if (!this.data.delete_removed_notes) {
+			return []
+		}
+		const storedIdsByPath: Record<string, number[]> = {}
+		for (const [path, entry] of Object.entries(this.file_hashes)) {
+			if (typeof entry !== 'string' && Array.isArray(entry.noteIds)) {
+				storedIdsByPath[path] = entry.noteIds
+			}
+		}
+		const currentIdsByPath: Record<string, number[]> = {}
+		const explicitDeletes = new Set<number>()
+		for (const file of currentFiles) {
+			currentIdsByPath[file.path] = file.getNoteIdsInFile()
+			for (const id of file.notes_to_delete) {
+				explicitDeletes.add(id)
+			}
+		}
+		return findOrphanedNoteIds(storedIdsByPath, currentIdsByPath, this.data.EXISTING_IDS).filter(
+			(id) => !explicitDeletes.has(id)
+		)
 	}
 
 	async requests_1() {
@@ -256,6 +291,9 @@ export class FileManager {
 		console.info('Requesting deletion of notes..')
 		for (const file of this.ownFiles) {
 			temp.push(file.getDeleteNotes())
+		}
+		if (this.orphanNoteIds.length > 0) {
+			temp.push(AnkiConnect.deleteNotes(this.orphanNoteIds))
 		}
 		requests.push(AnkiConnect.multi(temp))
 		temp = []
@@ -369,7 +407,8 @@ export class FileManager {
 			result[file.path] = {
 				hash: file.getHash(),
 				mtime: obFile?.stat?.mtime ?? 0,
-				size: obFile?.stat?.size ?? 0
+				size: obFile?.stat?.size ?? 0,
+				noteIds: file.getNoteIdsInFile()
 			}
 		}
 		return result

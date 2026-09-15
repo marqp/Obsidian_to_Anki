@@ -35,6 +35,7 @@ describe('settingToData configuration parser', () => {
 				'Add Obsidian Tags': true,
 				'Anki API Key': '',
 				'Sync to AnkiWeb': true,
+				'Delete Removed Notes': true,
 				'Allow Note Type Changes': true
 			},
 			IGNORED_FILE_GLOBS: ['**/ignored/**'],
@@ -88,6 +89,7 @@ describe('settingToData configuration parser', () => {
 		expect(result.add_context).toBe(true)
 		expect(result.add_obs_tags).toBe(true)
 		expect(result.sync_to_ankiweb).toBe(true)
+		expect(result.delete_removed_notes).toBe(true)
 		expect(result.allow_note_type_changes).toBe(true)
 		expect(result.ignored_file_globs).toEqual([])
 	})
@@ -102,6 +104,16 @@ describe('settingToData configuration parser', () => {
 
 		expect(result.sync_to_ankiweb).toBe(false)
 		expect(result.allow_note_type_changes).toBe(false)
+	})
+
+	it('defaults delete_removed_notes to true when the setting is missing', async () => {
+		vi.spyOn(AnkiConnect, 'invoke').mockResolvedValueOnce([])
+
+		const settings = createMockSettings()
+		delete settings.Defaults['Delete Removed Notes']
+		const result = await settingToData(mockApp, settings, {})
+
+		expect(result.delete_removed_notes).toBe(true)
 	})
 
 	it('constructs working RegExps from syntax configuration', async () => {

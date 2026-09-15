@@ -20,7 +20,9 @@ const defaultDescs: Record<string, string> = {
 		'API key for AnkiConnect (only needed if you set apiKey in the AnkiConnect config). Stored in plaintext; only protects localhost access.',
 	'Sync to AnkiWeb': 'Trigger an AnkiWeb sync after each scan (requires AnkiWeb credentials in Anki desktop).',
 	'Allow Note Type Changes':
-		'Convert notes in Anki when their note type changed in Markdown. Uses updateNoteModel; fields not present in the new note type are discarded by Anki, so review the change first. Off by default.'
+		'Convert notes in Anki when their note type changed in Markdown. Uses updateNoteModel; fields not present in the new note type are discarded by Anki, so review the change first. Off by default.',
+	'Delete Removed Notes':
+		'Delete the Anki notes whose blocks were removed from Markdown. IDs are tracked per file; renames and moves between files are safe. The first scan of a file only records IDs, so nothing is deleted on that run.'
 }
 
 export const DEFAULT_IGNORED_FILE_GLOBS = ['**/*.excalidraw.md']
@@ -214,6 +216,10 @@ export class SettingsTab extends PluginSettingTab {
 		// To account for new AnkiWeb sync toggle
 		if (!plugin.settings['Defaults'].hasOwnProperty('Sync to AnkiWeb')) {
 			plugin.settings['Defaults']['Sync to AnkiWeb'] = false
+		}
+		// To account for orphaned-note deletion
+		if (!plugin.settings['Defaults'].hasOwnProperty('Delete Removed Notes')) {
+			plugin.settings['Defaults']['Delete Removed Notes'] = true
 		}
 		// To account for new note-type change toggle
 		if (!plugin.settings['Defaults'].hasOwnProperty('Allow Note Type Changes')) {

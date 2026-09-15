@@ -3,6 +3,8 @@ import * as AnkiConnect from '../../src/anki'
 import { FileManager } from '../../src/files-manager'
 import { AllFile } from '../../src/file'
 import { createFileData } from '../../src/scan-optimizations'
+import { ID_REGEXP_STR } from '../../src/note'
+import { escapeRegex } from '../../src/constants'
 import type { ParsedSettings } from '../../src/interfaces/settings-interface'
 import type { App, CachedMetadata } from 'obsidian'
 
@@ -22,11 +24,18 @@ export function createParsedSettings(overrides: Partial<ParsedSettings> = {}): P
 		EXISTING_IDS: new Set<number>(),
 		vault_name: 'test-vault',
 		FROZEN_REGEXP: /FROZEN/g,
-		DECK_REGEXP: /TARGET DECK/m,
-		TAG_REGEXP: /FILE TAGS/m,
-		NOTE_REGEXP: /START[\s\S]*?END/gm,
-		INLINE_REGEXP: /STARTI.*?ENDI/g,
-		EMPTY_REGEXP: /DELETE/g,
+		DECK_REGEXP: new RegExp(String.raw`^` + escapeRegex('TARGET DECK') + String.raw`(?:\n|: )(.*)`, 'm'),
+		TAG_REGEXP: new RegExp(String.raw`^` + escapeRegex('FILE TAGS') + String.raw`(?:\n|: )(.*)`, 'm'),
+		NOTE_REGEXP: new RegExp(
+			String.raw`^` +
+				escapeRegex('START') +
+				String.raw`[ ]*\n([\s\S]*?\n)` +
+				escapeRegex('END') +
+				String.raw`[ ]*`,
+			'gm'
+		),
+		INLINE_REGEXP: new RegExp(escapeRegex('STARTI') + String.raw`(.*?)` + escapeRegex('ENDI'), 'g'),
+		EMPTY_REGEXP: new RegExp(escapeRegex('DELETE') + ID_REGEXP_STR, 'g'),
 		curly_cloze: false,
 		highlights_to_cloze: false,
 		comment: true,
@@ -37,6 +46,7 @@ export function createParsedSettings(overrides: Partial<ParsedSettings> = {}): P
 		folder_tags: {},
 		ignored_file_globs: [],
 		sync_to_ankiweb: false,
+		delete_removed_notes: false,
 		allow_note_type_changes: false,
 		...overrides
 	}

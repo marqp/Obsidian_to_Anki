@@ -46,6 +46,7 @@ export default class MyPlugin extends Plugin {
 				'Add Obsidian Tags': false,
 				'Anki API Key': '',
 				'Sync to AnkiWeb': false,
+				'Delete Removed Notes': true,
 				'Allow Note Type Changes': false
 			},
 			IGNORED_FILE_GLOBS: DEFAULT_IGNORED_FILE_GLOBS

@@ -7,6 +7,8 @@ export interface FileHashEntry {
 	hash: string
 	mtime?: number
 	size?: number
+	/** Note IDs this file carried at the end of the last scan (orphan tracking). */
+	noteIds?: number[]
 }
 
 export type FileHashes = Record<string, string | FileHashEntry>
@@ -18,6 +20,55 @@ export function getFileContentHash(content: string): string {
 export function getStoredHash(entry: string | FileHashEntry | undefined): string | undefined {
 	if (!entry) return undefined
 	return typeof entry === 'string' ? entry : entry.hash
+}
+
+/**
+ * Note IDs still referenced by Markdown across the vault.
+ *
+ * A note is orphaned when a scanned file used to carry its ID and no longer
+ * does, AND no other file references it (current scan) or referenced it at its
+ * last scan (stored). That keeps cut/paste between files and renames safe.
+ * Only IDs that Anki currently reports (existingIds) are ever returned, so we
+ * never issue deletes for notes that are already gone.
+ */
+export function findOrphanedNoteIds(
+	storedIdsByPath: Record<string, number[]>,
+	currentIdsByPath: Record<string, number[]>,
+	existingIds: ReadonlySet<number>
+): number[] {
+	const changedPaths = Object.keys(currentIdsByPath)
+	const changedSet = new Set(changedPaths)
+
+	const referenced = new Set<number>()
+	for (const path of changedPaths) {
+		for (const id of currentIdsByPath[path]) {
+			referenced.add(id)
+		}
+	}
+	for (const path of Object.keys(storedIdsByPath)) {
+		if (changedSet.has(path)) {
+			continue
+		}
+		for (const id of storedIdsByPath[path]) {
+			referenced.add(id)
+		}
+	}
+
+	const orphans = new Set<number>()
+	for (const path of changedPaths) {
+		const stored = storedIdsByPath[path]
+		if (!stored) {
+			// No prior record (new or renamed file): first scan only records.
+			continue
+		}
+		const current = new Set(currentIdsByPath[path])
+		for (const id of stored) {
+			if (!current.has(id) && !referenced.has(id) && existingIds.has(id)) {
+				orphans.add(id)
+			}
+		}
+	}
+	return Array.from(orphans)
 }
 
 export const ANKI_ID_LINE_REGEXP = /(?:<!--)?ID: (\d+)/

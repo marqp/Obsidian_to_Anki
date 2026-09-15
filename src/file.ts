@@ -200,6 +200,24 @@ abstract class AbstractFile {
 		return Md5.hashStr(this.file) as string
 	}
 
+	/**
+	 * Note IDs present in the file text, used for orphan tracking.
+	 * IDs consumed by an explicit DELETE line are excluded: those notes are
+	 * being removed on purpose, so they must not count as "still present".
+	 */
+	getNoteIdsInFile(): number[] {
+		const deleteSpans = spans(this.data.EMPTY_REGEXP, this.file)
+		const ids: number[] = []
+		for (const match of this.file.matchAll(/(?:<!--)?ID: (\d+)/g)) {
+			const position = match.index ?? 0
+			if (deleteSpans.some(([start, end]) => position >= start && position < end)) {
+				continue
+			}
+			ids.push(parseInt(match[1], 10))
+		}
+		return ids
+	}
+
 	abstract scanFile(): void
 
 	scanDeletions() {
