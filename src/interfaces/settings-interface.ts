@@ -29,6 +29,7 @@ export interface PluginSettings {
 		'CurlyCloze - Highlights to Clozes': boolean
 		'ID Comments': boolean
 		'Add Obsidian Tags': boolean
+		'Anki API Key': string
 		/** Legacy key, migrated to 'Scan Directories' on load and then deleted. */
 		'Scan Directory'?: string
 		[key: string]: string[] | string | number | boolean | undefined

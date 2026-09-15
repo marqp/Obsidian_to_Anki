@@ -15,7 +15,9 @@ const defaultDescs: Record<string, string> = {
 	'CurlyCloze - Highlights to Clozes': 'Convert ==highlights== -> {highlights} to be processed by CurlyCloze.',
 	'ID Comments': 'Wrap note IDs in a HTML comment.',
 	'Add Obsidian Tags':
-		'Interpret #tags in the fields of a note as Anki tags, removing them from the note text in Anki.'
+		'Interpret #tags in the fields of a note as Anki tags, removing them from the note text in Anki.',
+	'Anki API Key':
+		'API key for AnkiConnect (only needed if you set apiKey in the AnkiConnect config). Stored in plaintext; only protects localhost access.'
 }
 
 export const DEFAULT_IGNORED_FILE_GLOBS = ['**/*.excalidraw.md']
@@ -201,6 +203,10 @@ export class SettingsTab extends PluginSettingTab {
 		// To account for new add obsidian tags
 		if (!plugin.settings['Defaults'].hasOwnProperty('Add Obsidian Tags')) {
 			plugin.settings['Defaults']['Add Obsidian Tags'] = false
+		}
+		// To account for new Anki API key
+		if (!plugin.settings['Defaults'].hasOwnProperty('Anki API Key')) {
+			plugin.settings['Defaults']['Anki API Key'] = ''
 		}
 
 		new Setting(defaults_settings)
@@ -467,6 +473,26 @@ export class SettingsTab extends PluginSettingTab {
 							new Notice('Note types updated!')
 						} catch (_e) {
 							new Notice("Couldn't connect to Anki! Check console for details.")
+						}
+					})
+			})
+		new Setting(action_buttons)
+			.setName('Test AnkiConnect Connection')
+			.setDesc('Check that Anki is reachable and report whether it requires an API key.')
+			.addButton((button) => {
+				button
+					.setButtonText('Test')
+					.setClass('mod-cta')
+					.onClick(async () => {
+						new Notice('Testing connection to Anki...')
+						try {
+							const result = await AnkiConnect.invoke<AnkiConnect.PermissionResult>('requestPermission')
+							const configuredKey = plugin.settings['Defaults']['Anki API Key']
+							const hasKey = typeof configuredKey === 'string' && configuredKey.length > 0
+							const diagnosis = AnkiConnect.connectionMessage(result, hasKey)
+							new Notice(diagnosis.message)
+						} catch (_e) {
+							new Notice("Couldn't connect to Anki! Check console for error message.")
 						}
 					})
 			})

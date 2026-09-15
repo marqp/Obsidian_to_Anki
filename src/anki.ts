@@ -17,8 +17,43 @@ export interface AnkiTransport {
 	invoke<T = unknown>(action: string, params?: Record<string, unknown>): Promise<T>
 }
 
+export function buildPayload(action: string, params: Record<string, unknown>, apiKey = ''): Record<string, unknown> {
+	if (apiKey) {
+		return { action, version: 6, params, key: apiKey }
+	}
+	return { action, version: 6, params }
+}
+
+export interface PermissionResult {
+	permission: string
+	requireApiKey?: boolean
+	requireApikey?: boolean
+	version?: number
+}
+
+export function requiresApiKey(result: PermissionResult): boolean {
+	return result.requireApiKey ?? result.requireApikey ?? false
+}
+
+export function connectionMessage(result: PermissionResult, hasKey: boolean): { ok: boolean; message: string } {
+	if (result.permission !== 'granted') {
+		return { ok: false, message: 'Anki denied permission. Check the AnkiConnect webCorsOriginList.' }
+	}
+	if (requiresApiKey(result) && !hasKey) {
+		return {
+			ok: false,
+			message: 'AnkiConnect requires an API key. Set it in the plugin settings (Anki API Key).'
+		}
+	}
+	const version = result.version ?? 'unknown'
+	return { ok: true, message: `Connected to AnkiConnect (version ${version}).` }
+}
+
 export class ObsidianRequestUrlTransport implements AnkiTransport {
-	constructor(private port: number = ANKI_PORT) {}
+	constructor(
+		private port: number = ANKI_PORT,
+		private apiKey = ''
+	) {}
 
 	async invoke<T = unknown>(action: string, params: Record<string, unknown> = {}): Promise<T> {
 		try {
@@ -26,7 +61,7 @@ export class ObsidianRequestUrlTransport implements AnkiTransport {
 				url: 'http://127.0.0.1:' + this.port.toString(),
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ action, version: 6, params })
+				body: JSON.stringify(buildPayload(action, params, this.apiKey))
 			})
 			const data = res.json
 			if (data.error) {
@@ -41,14 +76,17 @@ export class ObsidianRequestUrlTransport implements AnkiTransport {
 }
 
 export class FetchTransport implements AnkiTransport {
-	constructor(private port: number = ANKI_PORT) {}
+	constructor(
+		private port: number = ANKI_PORT,
+		private apiKey = ''
+	) {}
 
 	async invoke<T = unknown>(action: string, params: Record<string, unknown> = {}): Promise<T> {
 		try {
 			const res = await fetch('http://127.0.0.1:' + this.port.toString(), {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ action, version: 6, params })
+				body: JSON.stringify(buildPayload(action, params, this.apiKey))
 			})
 			const data = await res.json()
 			if (data.error) {
@@ -139,6 +177,10 @@ export function updateNoteTags(note_id: number, tags: string[]): AnkiConnectRequ
 
 export function getTags(): AnkiConnectRequest {
 	return request('getTags')
+}
+
+export function requestPermission(): AnkiConnectRequest {
+	return request('requestPermission')
 }
 
 export function storeMediaFile(filename: string, data: string): AnkiConnectRequest {

@@ -43,7 +43,8 @@ export default class MyPlugin extends Plugin {
 				CurlyCloze: false,
 				'CurlyCloze - Highlights to Clozes': false,
 				'ID Comments': true,
-				'Add Obsidian Tags': false
+				'Add Obsidian Tags': false,
+				'Anki API Key': ''
 			},
 			IGNORED_FILE_GLOBS: DEFAULT_IGNORED_FILE_GLOBS
 		}
@@ -131,12 +132,19 @@ export default class MyPlugin extends Plugin {
 	}
 
 	async saveAllData(): Promise<void> {
+		this.syncTransportKey()
 		this.saveData({
 			settings: this.settings,
 			'Added Media': this.added_media,
 			'File Hashes': this.file_hashes,
 			fields_dict: this.fields_dict
 		})
+	}
+
+	syncTransportKey(): void {
+		const configuredKey = this.settings['Defaults']['Anki API Key']
+		const apiKey = typeof configuredKey === 'string' ? configuredKey : ''
+		AnkiConnect.setTransport(new AnkiConnect.ObsidianRequestUrlTransport(8765, apiKey))
 	}
 
 	regenerateSettingsRegexps() {
@@ -283,6 +291,7 @@ export default class MyPlugin extends Plugin {
 		}
 		this.added_media = await this.loadAddedMedia()
 		this.file_hashes = await this.loadFileHashes()
+		this.syncTransportKey()
 
 		this.addSettingTab(new SettingsTab(this.app, this))
 
