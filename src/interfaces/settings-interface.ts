@@ -1,5 +1,6 @@
 import { FIELDS_DICT } from './field-interface'
 import { AnkiConnectNote } from './note-interface'
+import type { FileHashes } from '../scan-optimizations'
 
 export interface PluginSettings {
 	CUSTOM_REGEXPS: Record<string, string>
@@ -39,6 +40,14 @@ export interface PluginSettings {
 		[key: string]: string[] | string | number | boolean | undefined
 	}
 	IGNORED_FILE_GLOBS: string[]
+}
+
+/** Exact shape of the plugin's data.json on disk (one read per boot). */
+export interface StoredPluginData {
+	settings: PluginSettings
+	'Added Media': string[]
+	'File Hashes': FileHashes
+	fields_dict: Record<string, string[]>
 }
 
 export interface FileData {

@@ -1,6 +1,6 @@
 import { Notice, Plugin, addIcon, TFile, TFolder, Editor } from 'obsidian'
 import * as AnkiConnect from './src/anki'
-import { PluginSettings, ParsedSettings } from './src/interfaces/settings-interface'
+import { PluginSettings, ParsedSettings, StoredPluginData } from './src/interfaces/settings-interface'
 import { DEFAULT_IGNORED_FILE_GLOBS, SettingsTab } from './src/settings'
 import { ANKI_ICON } from './src/constants'
 import { settingToData } from './src/setting-to-data'
@@ -88,8 +88,8 @@ export default class MyPlugin extends Plugin {
 		})
 	}
 
-	async loadSettings(): Promise<PluginSettings> {
-		const current_data = await this.loadData()
+	async loadSettings(snapshot?: StoredPluginData | null): Promise<PluginSettings> {
+		const current_data = snapshot === undefined ? ((await this.loadData()) as StoredPluginData | null) : snapshot
 		if (current_data == null || Object.keys(current_data).length != 4) {
 			new Notice('Need to connect to Anki generate default settings...')
 			const default_sets = await this.getDefaultSettings()
@@ -106,28 +106,28 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
-	async loadAddedMedia(): Promise<string[]> {
-		const current_data = await this.loadData()
+	async loadAddedMedia(snapshot?: StoredPluginData | null): Promise<string[]> {
+		const current_data = snapshot === undefined ? ((await this.loadData()) as StoredPluginData | null) : snapshot
 		if (current_data == null) {
 			await this.saveDefault()
 			return []
 		} else {
-			return current_data['Added Media']
+			return current_data['Added Media'] ?? []
 		}
 	}
 
-	async loadFileHashes(): Promise<FileHashes> {
-		const current_data = await this.loadData()
+	async loadFileHashes(snapshot?: StoredPluginData | null): Promise<FileHashes> {
+		const current_data = snapshot === undefined ? ((await this.loadData()) as StoredPluginData | null) : snapshot
 		if (current_data == null) {
 			await this.saveDefault()
 			return {}
 		} else {
-			return current_data['File Hashes']
+			return current_data['File Hashes'] ?? {}
 		}
 	}
 
-	async loadFieldsDict(): Promise<Record<string, string[]>> {
-		const current_data = await this.loadData()
+	async loadFieldsDict(snapshot?: StoredPluginData | null): Promise<Record<string, string[]>> {
+		const current_data = snapshot === undefined ? ((await this.loadData()) as StoredPluginData | null) : snapshot
 		if (current_data == null) {
 			await this.saveDefault()
 			// saveDefault() -> getDefaultSettings() already populated
@@ -312,15 +312,25 @@ export default class MyPlugin extends Plugin {
 		console.log('loading Obsidian_to_Anki...')
 		addIcon('anki', ANKI_ICON)
 
+		let snapshot: StoredPluginData | null
 		try {
-			this.settings = await this.loadSettings()
+			// Single data.json read per boot; the snapshot is threaded through
+			// the loaders below instead of re-reading from disk each time.
+			// Stale-snapshot risk: if loadSettings() falls back to saveDefault(),
+			// the snapshot is refreshed from disk before the remaining loaders
+			// run (first-run path only; steady state stays at 1 read).
+			snapshot = (await this.loadData()) as StoredPluginData | null
+			this.settings = await this.loadSettings(snapshot)
+			if (snapshot == null) {
+				snapshot = (await this.loadData()) as StoredPluginData | null
+			}
+			this.fields_dict = await this.loadFieldsDict(snapshot)
 		} catch (_e) {
 			new Notice("Couldn't connect to Anki! Check console for error message.")
 			return
 		}
 
 		this.note_types = Object.keys(this.settings['CUSTOM_REGEXPS'])
-		this.fields_dict = await this.loadFieldsDict()
 		if (Object.keys(this.fields_dict).length == 0) {
 			new Notice('Need to connect to Anki to generate fields dictionary...')
 			try {
@@ -331,8 +341,8 @@ export default class MyPlugin extends Plugin {
 				return
 			}
 		}
-		this.added_media = await this.loadAddedMedia()
-		this.file_hashes = await this.loadFileHashes()
+		this.added_media = await this.loadAddedMedia(snapshot)
+		this.file_hashes = await this.loadFileHashes(snapshot)
 		this.syncTransportKey()
 
 		this.addSettingTab(new SettingsTab(this.app, this))
