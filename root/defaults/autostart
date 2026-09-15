@@ -28,6 +28,9 @@ ls -alh /defaults/ >> /config/logs/obsidian.log 2>&1
 
 # remove any left over ssh client config from previous run
 rm -rf /config/.ssh
-(sleep 1s && sshpass -p "abc" ssh -o StrictHostKeyChecking=no -4 -L 0.0.0.0:8888:localhost:8890 abc@localhost -N >> /config/logs/ssh.log ) &
+# The CDP tunnel must only start once sshd is up: without the wait the ssh
+# client dials a closed port, exits, and chromedriver can never attach to
+# Obsidian (127.0.0.1:8888 -> container 8890). Poll the port first.
+(sleep 1s && for i in $(seq 1 60); do (echo > /dev/tcp/127.0.0.1/22) >/dev/null 2>&1 && break; sleep 1; done && sshpass -p "abc" ssh -o StrictHostKeyChecking=no -4 -L 0.0.0.0:8888:localhost:8890 abc@localhost -N >> /config/logs/ssh.log 2>&1 ) &
 
 } >> /config/logs/autostart.log 2>&1
