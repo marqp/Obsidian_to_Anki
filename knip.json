@@ -2,9 +2,9 @@
 	"$schema": "./node_modules/knip/schema.json",
 	"entry": ["main.ts"],
 	"project": ["main.ts", "src/**/*.ts"],
-	"ignore": ["tests/**", "wdio.conf.ts", "prepare-wdio.sh", "vitest.config.mjs", "eslint.config.mjs", "stryker.config.mjs", "esbuild.config.mjs", "knip.json"],
+	"ignore": ["tests/**", "vitest.config.mjs", "eslint.config.mjs", "stryker.config.mjs", "esbuild.config.mjs", "knip.json"],
 	"ignoreBinaries": ["pip", "pytest"],
-	"ignoreDependencies": ["byte-base64", "glob", "@vitest/coverage-v8", "@wdio/cli", "@wdio/junit-reporter", "@wdio/local-runner", "@wdio/mocha-framework", "@wdio/spec-reporter", "wdio-chromedriver-service", "wdio-docker-service", "wdio-wait-for", "webdriver", "showdown-highlight", "showdown", "multimatch", "ts-md5"],
+	"ignoreDependencies": ["byte-base64", "@vitest/coverage-v8", "showdown-highlight", "showdown", "multimatch", "ts-md5"],
 	"treatConfigHintsAsErrors": false,
 	"ignoreIssues": {
 		// Public AnkiConnect builders: kept as API surface for present/future call sites.

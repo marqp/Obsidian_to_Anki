@@ -3,10 +3,7 @@
         "moduleResolution": "node",
         "module": "ESNext",
         "types": [
-            "node",
-            "@wdio/globals/types",
-            "expect-webdriverio",
-            "@wdio/mocha-framework"
+            "node"
         ],
         "target": "es2022"
     }

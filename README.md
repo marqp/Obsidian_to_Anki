@@ -193,7 +193,7 @@ pnpm run dev        # watch build
 pnpm run build      # production bundle (main.js)
 pnpm test           # unit + regression tests with coverage gate
 pnpm run lint && pnpm run format:check
-pnpm run test:e2e   # heavy: Docker + WebdriverIO + pytest (needs Anki + AnkiConnect on 127.0.0.1:8765)
+pnpm run test:parity # parity tests against pinned upstream
 ```
 
-Test layout: `tests/unit/` (Vitest, fast) · `tests/anki/` (pytest, CLI script) · E2E via `prepare-wdio.sh` + `wdio.conf.ts` + `Dockerfile`. Directories `tests/test_config/`, `tests/test_vault/` and `tests/specs_gen/` are generated at runtime — never commit them.
+Test layout: `tests/unit/` (Vitest unit and regression tests) · `tests/parity/` (fork-vs-upstream parse parity harness) · `tests/py-unit/` (fast standalone CLI unit suite).
