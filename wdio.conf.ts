@@ -159,10 +159,9 @@ export const config/* : Options.Testrunner */ = {
             {
                 logFileName: 'wdio-chromedriver.log', // default
                 outputDir: 'logs', // overwrites the config.outputDir
-                // The runner image ships its own chromedriver (see CHROMEWEBDRIVER
-                // in the ubuntu24 image README); point the 8.x launcher at it so
-                // no npm chromedriver download (version-coupled to Chrome) is needed.
-                chromedriverCustomPath: '/usr/local/share/chromedriver-linux64/chromedriver',
+                // chromedriver ships via the npm package (version-pinned to the
+                // Chromium inside the Obsidian AppImage in the e2e container),
+                // so the launcher resolves it without a system path.
                 args: ['--silent']
             }
         ],
