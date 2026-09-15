@@ -284,5 +284,6 @@ tests/test_outputs/*
 reports/
 .stryker-tmp/
 tests/parity/.helpers.mjs
+tests/parity/.bench-*
 tests/parity/.build-*/
 .parity-*

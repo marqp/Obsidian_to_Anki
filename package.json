@@ -14,6 +14,7 @@
         "test": "vitest run --coverage",
         "test:unit": "vitest run",
         "test:parity": "vitest run --config tests/parity/vitest.parity.mjs",
+        "test:bench": "vitest run --config tests/parity/vitest.bench.mjs",
         "test:mutation": "stryker run",
         "copy": "rm -rf tests/defaults/test_vault/.obsidian/plugins/obsidian-to-anki-plugin && mkdir -p tests/defaults/test_vault/.obsidian/plugins/obsidian-to-anki-plugin && cp manifest.json styles.css main.js tests/defaults/test_vault/.obsidian/plugins/obsidian-to-anki-plugin/",
         "prep-wdio": "bash prepare-wdio.sh",
