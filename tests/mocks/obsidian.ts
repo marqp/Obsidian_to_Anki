@@ -1,0 +1,138 @@
+export class Notice {
+    constructor(public message: string) {}
+}
+
+export class TAbstractFile {
+    path: string = ''
+    name: string = ''
+    parent: TFolder | null = null
+}
+
+export class TFile extends TAbstractFile {
+    basename: string = ''
+    extension: string = ''
+    stat = { ctime: 0, mtime: 0, size: 0 }
+}
+
+export class TFolder extends TAbstractFile {
+    children: TAbstractFile[] = []
+}
+
+export class Vault {
+    async read(file: TFile): Promise<string> {
+        return ''
+    }
+    async modify(file: TFile, data: string): Promise<void> {}
+    getName(): string {
+        return 'test-vault'
+    }
+    getMarkdownFiles(): TFile[] {
+        return []
+    }
+    getAbstractFileByPath(path: string): TAbstractFile | null {
+        return null
+    }
+    getRoot(): TFolder {
+        return new TFolder()
+    }
+    adapter = {
+        getFullPath(path: string): string {
+            return path
+        }
+    }
+}
+
+export class MetadataCache {
+    getCache(path: string): any {
+        return null
+    }
+    getFirstLinkpathDest(linkpath: string, sourcePath: string): TFile | null {
+        return null
+    }
+}
+
+export class App {
+    vault: Vault = new Vault()
+    metadataCache: MetadataCache = new MetadataCache()
+    workspace = {
+        getActiveFile(): TFile | null {
+            return null
+        }
+    }
+}
+
+export class Plugin {
+    app: App = new App()
+    manifest: any = {}
+    async loadData(): Promise<any> {
+        return null
+    }
+    async saveData(data: any): Promise<void> {}
+    addSettingTab(tab: any): void {}
+    addRibbonIcon(icon: string, title: string, callback: () => void): any {}
+    addCommand(cmd: any): any {}
+    registerInterval(id: any): void {}
+}
+
+export class PluginSettingTab {
+    containerEl = {
+        empty() {},
+        createEl(tag: string, options?: any) {
+            return {
+                innerHTML: '',
+                style: {},
+                children: [],
+                classList: { toggle() {} },
+                addEventListener() {},
+                createTHead() {
+                    return { insertRow() { return { appendChild() {} } } }
+                },
+                createTBody() {
+                    return { insertRow() { return { insertCell() {}, children: [{}, {}, {}, {}] } } }
+                }
+            }
+        }
+    }
+    constructor(public app: App, public plugin: any) {}
+}
+
+export class Setting {
+    settingEl = {}
+    infoEl = { remove() {} }
+    controlEl = { className: '' }
+    inputEl = { rows: 0, cols: 0 }
+    constructor(containerEl: any) {}
+    setName(name: string) { return this }
+    setDesc(desc: any) { return this }
+    addText(cb: (t: any) => void) { cb({ setValue() { return this }, onChange() { return this } }); return this }
+    addTextArea(cb: (t: any) => void) { cb({ setValue() { return this }, setPlaceholder() { return this }, onChange() { return this }, inputEl: this.inputEl }); return this }
+    addToggle(cb: (t: any) => void) { cb({ setValue() { return this }, onChange() { return this } }); return this }
+    addSlider(cb: (t: any) => void) { cb({ setValue() { return this }, setLimits() { return this }, setDynamicTooltip() { return this }, onChange() { return this } }); return this }
+    addDropdown(cb: (d: any) => void) { cb({ addOption() { return this }, setValue() { return this }, onChange() { return this } }); return this }
+    addButton(cb: (b: any) => void) { cb({ setButtonText() { return this }, setClass() { return this }, onClick() { return this } }); return this }
+}
+
+export function addIcon(name: string, svg: string): void {}
+
+export async function requestUrl(params: any): Promise<any> {
+    return {
+        status: 200,
+        text: '',
+        json: {}
+    }
+}
+
+if (typeof globalThis.document === 'undefined') {
+    (globalThis as any).document = {
+        createElement: (tag: string) => ({
+            appendChild: () => {},
+            setAttribute: () => {},
+            style: {},
+            textContent: ''
+        }),
+        createTextNode: (text: string) => text,
+        createDocumentFragment: () => ({
+            createEl: () => ({})
+        })
+    }
+}
