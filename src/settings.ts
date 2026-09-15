@@ -1,7 +1,19 @@
-import { PluginSettingTab, Setting, Notice, TFolder } from 'obsidian'
+import { PluginSettingTab, Setting, Notice, TFolder, type App } from 'obsidian'
 import * as AnkiConnect from './anki'
 import { probeAnkiStatus } from './anki-launch'
 import type MyPlugin from '../main'
+
+/**
+ * True when the path resolves to a folder in the open vault.
+ * Blank input is never a valid scan directory. Pure vault lookup, no side
+ * effects — unit-testable via the App mock.
+ */
+export function isExistingFolder(app: App, dirPath: string): boolean {
+	if (dirPath.trim() === '') {
+		return false
+	}
+	return app.vault.getAbstractFileByPath(dirPath) instanceof TFolder
+}
 
 const defaultDescs: Record<string, string> = {
 	'Scan Directories': 'The directories to scan. Leave empty to scan the entire vault. One path per line.',
@@ -235,7 +247,10 @@ export class SettingsTab extends PluginSettingTab {
 
 		new Setting(defaults_settings)
 			.setName('Scan Directories')
-			.setDesc(defaultDescs['Scan Directories'])
+			.setDesc(
+				defaultDescs['Scan Directories'] +
+					' Invalid paths are highlighted and ignored at scan time (the scan continues with the valid ones).'
+			)
 			.addTextArea((text) => {
 				text.setValue(plugin.settings.Defaults['Scan Directories'].join('\n'))
 					.setPlaceholder('path/to/folder1\npath/to/folder2')
@@ -246,6 +261,16 @@ export class SettingsTab extends PluginSettingTab {
 							.filter((dir) => dir !== '')
 						plugin.settings.Defaults['Scan Directories'] = scanDirs
 						plugin.saveAllData()
+						// Inline validation: unknown paths get a red border via
+						// the Obsidian theme variable, cleared when fixed or empty.
+						const invalid = scanDirs.filter((dir) => !isExistingFolder(plugin.app, dir))
+						if (invalid.length > 0) {
+							text.inputEl.style.borderColor = 'var(--text-error)'
+							text.inputEl.title = `Not a folder in this vault: ${invalid.join(', ')}`
+						} else {
+							text.inputEl.style.borderColor = ''
+							text.inputEl.title = ''
+						}
 					})
 				text.inputEl.rows = 5
 				text.inputEl.cols = 30

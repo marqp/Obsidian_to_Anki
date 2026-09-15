@@ -88,6 +88,30 @@ function deckHasCards(deck: AnkiConnect.AnkiConnectRequest): boolean {
 	)
 }
 
+export interface ScanProgress {
+	/** Files fully processed (read + hash-verified + scanned). */
+	done: number
+	/** Total candidate files (after stat fast-path; 0 when unknown). */
+	total: number
+	/** Current phase: discovery (stat filter/reads) or scan (parse). */
+	phase: 'discover' | 'scan'
+}
+
+export interface ScanControl {
+	/** Called after each yield point; cooperative only, never blocks. */
+	onProgress?: (progress: ScanProgress) => void
+	/** Polled at each yield point; when true the scan stops at the next boundary. */
+	isCancelled?: () => boolean
+}
+
+/** Thrown at yield boundaries when ScanControl.isCancelled() returns true. */
+export class ScanCancelledError extends Error {
+	constructor() {
+		super('Scan cancelled by user.')
+		this.name = 'ScanCancelledError'
+	}
+}
+
 export class FileManager {
 	app: App
 	data: ParsedSettings
@@ -179,7 +203,7 @@ export class FileManager {
 		)
 	}
 
-	async initialiseFiles() {
+	async initialiseFiles(control: ScanControl = {}) {
 		const files_changed: Array<AllFile> = []
 		const obfiles_changed: TFile[] = []
 
@@ -193,12 +217,14 @@ export class FileManager {
 			}
 			candidateFiles.push(obFile)
 		}
+		control.onProgress?.({ done: 0, total: candidateFiles.length, phase: 'discover' })
 
 		// Pass 2: Read candidate files with bounded concurrency (8 workers)
 		const readResults = await mapConcurrent(candidateFiles, 8, async (obFile) => {
 			const content = await this.app.vault.read(obFile)
 			return { obFile, content }
 		})
+		this.throwIfCancelled(control)
 
 		// Pass 3: Verify content hash and scan changed/new files
 		for (let index = 0; index < readResults.length; index++) {
@@ -220,8 +246,10 @@ export class FileManager {
 				obfiles_changed.push(obFile)
 			}
 
-			if ((index + 1) % VAULT_SCAN_YIELD_INTERVAL === 0) {
+			if ((index + 1) % VAULT_SCAN_YIELD_INTERVAL === 0 || index + 1 === readResults.length) {
+				control.onProgress?.({ done: index + 1, total: readResults.length, phase: 'scan' })
 				await yieldToEventLoop()
+				this.throwIfCancelled(control)
 			}
 		}
 
@@ -231,6 +259,32 @@ export class FileManager {
 		if (this.orphanNoteIds.length > 0) {
 			console.info(`Notes removed from Markdown will be deleted from Anki: ${this.orphanNoteIds.join(', ')}`)
 		}
+	}
+
+	private throwIfCancelled(control: ScanControl): void {
+		if (control.isCancelled?.()) {
+			throw new ScanCancelledError()
+		}
+	}
+
+	/**
+	 * File that last carried each orphan ID, from the stored hash records.
+	 * Lets read-only previews (dry-run) group deletes per file; the mutating
+	 * path keeps using the bare orphanNoteIds list.
+	 */
+	orphanFileById(): Map<number, string> {
+		const fileById = new Map<number, string>()
+		for (const [path, entry] of Object.entries(this.file_hashes)) {
+			if (typeof entry === 'string' || !Array.isArray(entry.noteIds)) {
+				continue
+			}
+			for (const id of entry.noteIds) {
+				if (this.orphanNoteIds.includes(id) && !fileById.has(id)) {
+					fileById.set(id, path)
+				}
+			}
+		}
+		return fileById
 	}
 
 	/**

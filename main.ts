@@ -4,7 +4,7 @@ import { PluginSettings, ParsedSettings, StoredPluginData } from './src/interfac
 import { DEFAULT_IGNORED_FILE_GLOBS, SettingsTab } from './src/settings'
 import { ANKI_ICON } from './src/constants'
 import { settingToData } from './src/setting-to-data'
-import { FileManager } from './src/files-manager'
+import { FileManager, ScanCancelledError, type ScanControl } from './src/files-manager'
 import { FileHashes, extractNoteIdFromLine, findFirstNoteId } from './src/scan-optimizations'
 import { collectDryRunState, formatDryRunSummary } from './src/dry-run'
 import { launchAnki, probeAnkiStatus } from './src/anki-launch'
@@ -199,7 +199,7 @@ export default class MyPlugin extends Plugin {
 		return allTFiles
 	}
 
-	async scanVault(file?: TFile | null) {
+	async scanVault(file?: TFile | null, control: ScanControl = {}) {
 		if (this.scan_in_progress) {
 			new Notice('A vault scan is already in progress.')
 			return
@@ -207,21 +207,26 @@ export default class MyPlugin extends Plugin {
 
 		this.scan_in_progress = true
 		try {
-			await this.scanVaultOnce(file)
+			await this.scanVaultOnce(file, false, control)
 		} finally {
 			this.scan_in_progress = false
 		}
 	}
 
-	async scanVaultOnce(file?: TFile | null, dryRun = false) {
-		new Notice('Scanning vault, check console for details...')
+	/**
+	 * Format the end-of-scan counts for humans (Notices) — the machine-readable
+	 * twin is the `[Obsidian_to_Anki] scan complete:` console one-liner below.
+	 */
+	private formatScanNotice(changed: number, total: number, added: number, updated: number, deleted: number): string {
+		return `Scan complete: +${added} ~${updated} -${deleted} (${changed}/${total} files)`
+	}
+
+	async scanVaultOnce(file?: TFile | null, dryRun = false, control: ScanControl = {}) {
 		console.info('Checking connection to Anki...')
 		const probe = await probeAnkiStatus()
 		console.info(`[Obsidian_to_Anki] anki status: ${probe.status}`)
 		if (probe.status === 'ready') {
-			new Notice(
-				"Successfully connected to Anki! This could take a few minutes - please don't close Anki until the plugin is finished"
-			)
+			new Notice(`Scanning vault (${dryRun ? 'dry-run' : 'sync'})...`)
 		} else if (probe.status === 'closed' && this.isAutoLaunchEnabled()) {
 			const outcome = await launchAnki(true)
 			if (outcome === 'launched-and-ready') {
@@ -261,7 +266,16 @@ export default class MyPlugin extends Plugin {
 			)
 		}
 		const totalFiles = manager.files.length
-		await manager.initialiseFiles()
+		try {
+			await manager.initialiseFiles(control)
+		} catch (error) {
+			if (error instanceof ScanCancelledError) {
+				console.info('[Obsidian_to_Anki] scan cancelled by user.')
+				new Notice('Scan cancelled.')
+				return
+			}
+			throw error
+		}
 		if (manager.ownFiles.length === 0) {
 			new Notice('No changed files found. Nothing to sync.')
 			console.info('No changed files found. Nothing to sync.')
@@ -280,12 +294,12 @@ export default class MyPlugin extends Plugin {
 		console.info(
 			`[Obsidian_to_Anki] scan complete: files_changed=${manager.ownFiles.length}/${totalFiles} added=${added} updated=${updated} deleted=${deleted}`
 		)
+		new Notice(this.formatScanNotice(manager.ownFiles.length, totalFiles, added, updated, deleted))
 		this.added_media = Array.from(manager.added_media_set)
 		const hashes = manager.getHashes()
 		for (const key in hashes) {
 			this.file_hashes[key] = hashes[key]
 		}
-		new Notice('All done! Saving file hashes and added media now...')
 		this.saveAllData()
 	}
 
@@ -297,14 +311,15 @@ export default class MyPlugin extends Plugin {
 	async reportDryRun(manager: FileManager, totalFiles: number): Promise<void> {
 		const summary = await collectDryRunState(manager.ownFiles, {
 			hasNoteTypeChanges: manager.data.allow_note_type_changes,
-			orphanNoteIds: manager.orphanNoteIds
+			orphanNoteIds: manager.orphanNoteIds,
+			orphanFileById: manager.orphanFileById()
 		})
 		summary.filesTotal = totalFiles
 		console.info(formatDryRunSummary(summary))
 		console.info('[Obsidian_to_Anki] dry-run details: ' + JSON.stringify(summary.changes))
 		new Notice(
-			`Dry-run complete: ${summary.wouldAdd} to add, ${summary.wouldUpdate} to update, ` +
-				`${summary.wouldDelete} to delete, ${summary.wouldConvert} to convert (see console for details)`
+			`Dry-run: +${summary.wouldAdd} ~${summary.wouldUpdate} -${summary.wouldDelete} ` +
+				`convert ${summary.wouldConvert} (nothing written, see console)`
 		)
 	}
 

@@ -45,17 +45,19 @@ interface AnkiCardInfo {
  *
  * Orphan deletes come from the caller's already-computed orphan list
  * (FileManager.orphanNoteIds): re-deriving them here would need the same
- * stored-ID snapshot, so the manager hands them over instead.
+ * stored-ID snapshot, so the manager hands them over instead. The optional
+ * orphanFileById map attributes each orphan to the file that last carried
+ * it, so UIs can group deletes per file instead of showing a bare ID list.
  */
 export async function collectDryRunState(
 	files: AllFile[],
-	options: { hasNoteTypeChanges: boolean; orphanNoteIds: number[] }
+	options: { hasNoteTypeChanges: boolean; orphanNoteIds: number[]; orphanFileById?: Map<number, string> }
 ): Promise<DryRunSummary> {
 	const changes: DryRunChange[] = []
 	let wouldAdd = 0
 	let wouldUpdate = 0
 	let wouldConvert = 0
-	const { hasNoteTypeChanges, orphanNoteIds } = options
+	const { hasNoteTypeChanges, orphanNoteIds, orphanFileById } = options
 
 	const editIds: number[] = []
 	for (const file of files) {
@@ -142,7 +144,14 @@ export async function collectDryRunState(
 		wouldUpdate,
 		wouldDelete: orphanNoteIds.length,
 		wouldConvert,
-		changes: [...changes, ...orphanNoteIds.map((noteId) => ({ kind: 'delete' as const, file: '', noteId }))]
+		changes: [
+			...changes,
+			...orphanNoteIds.map((noteId) => ({
+				kind: 'delete' as const,
+				file: orphanFileById?.get(noteId) ?? '',
+				noteId
+			}))
+		]
 	}
 }
 
