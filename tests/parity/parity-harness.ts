@@ -13,8 +13,10 @@ interface BuiltSide {
 	entry: string
 }
 
+export type { BuiltSide }
+
 const SIDES = ['fork', 'upstream'] as const
-type Side = (typeof SIDES)[number]
+export type ParitySide = (typeof SIDES)[number]
 
 interface BundleAllFile {
 	setupScan(): void
@@ -61,9 +63,9 @@ function toScanned(note: BundleNote): ScannedNote {
  * leak into the Node runner. The upstream side compiles from a git worktree
  * pinned by tests/parity/config.json — never from the working tree.
  */
-export async function buildSides(repoRoot: string, upstreamWorktree: string): Promise<Record<Side, BuiltSide>> {
-	const built = {} as Record<Side, BuiltSide>
-	const roots: Record<Side, string> = { fork: repoRoot, upstream: upstreamWorktree }
+export async function buildSides(repoRoot: string, upstreamWorktree: string): Promise<Record<ParitySide, BuiltSide>> {
+	const built = {} as Record<ParitySide, BuiltSide>
+	const roots: Record<ParitySide, string> = { fork: repoRoot, upstream: upstreamWorktree }
 	for (const side of SIDES) {
 		const dir = await fs.promises.mkdtemp(path.join(repoRoot, `tests/parity/.build-${side}-`))
 		await build({
@@ -100,7 +102,7 @@ export async function buildSides(repoRoot: string, upstreamWorktree: string): Pr
 }
 
 /** Remove per-run bundle dirs; keeps .gitignore simple. */
-export async function cleanBuiltSides(built: Record<Side, BuiltSide>): Promise<void> {
+export async function cleanBuiltSides(built: Record<ParitySide, BuiltSide>): Promise<void> {
 	for (const side of SIDES) {
 		await fs.promises.rm(built[side].dir, { recursive: true, force: true })
 	}
@@ -133,8 +135,8 @@ export function createParityHarness(options: HarnessOptions) {
 	 * everything else shares the stock parity settings.
 	 */
 	async function runSide(
-		built: Record<Side, BuiltSide>,
-		side: Side,
+		built: Record<ParitySide, BuiltSide>,
+		side: ParitySide,
 		repoRoot: string,
 		sourceRoot: string,
 		fixture: { name: string; files: string[]; existingIds: number[]; customRegexps?: Record<string, string> }
