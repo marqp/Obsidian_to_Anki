@@ -19,7 +19,7 @@ behavior intentionally diverged (orphan deletion, updateNote, dry-run — see RE
   `src/{scan-optimizations,constants,note,setting-to-data,format,file}.ts`), enforced by `pnpm test`.
 - **ESLint 9 flat** (`no-explicit-any: error`) + **Prettier** (`useTabs: true`).
 - **StrykerJS** mutation testing, nightly + `src/**` PRs (`mutation.yml`), break threshold 60.
-- **Rollup 2.x** still bundles `main.ts` → `main.js` (esbuild migration is parking lot).
+- **esbuild** bundles `main.ts` → `main.js` (`esbuild.config.mjs`, CJS, browser platform, `es2022` target).
 - E2E: **WebdriverIO + Docker** (Anki 2.1.60 + Obsidian 1.5.3 images). Python suite for the CLI script.
 - **Python CLI** (`obsidian_to_anki.py`, standalone): surgical parity with the TS engine
   (stat fast-path, `START[ ]*` blocks, linear `string_insert`). Fast unit suite in
@@ -63,8 +63,8 @@ obsidian "vault=My Vault" command id="obsidian-to-anki-plugin:anki-scan-vault"
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm run dev        # rollup watch
-pnpm run build      # main.ts → main.js (gitignored artifact)
+pnpm run dev        # esbuild watch
+pnpm run build      # tsc --noEmit && esbuild production bundle (gitignored artifact)
 pnpm test           # vitest + coverage gate (default gate)
 pnpm run test:unit  # vitest without coverage (fast loop)
 pnpm run lint       # 0 errors; the 2 no-non-null-assertion warnings in note.ts are known
