@@ -290,19 +290,12 @@ abstract class AbstractFile {
         return AnkiConnect.multi(actions)
     }
 
-    getClearTags(): AnkiConnect.AnkiConnectRequest {
-        let IDs: number[] = []
-        for (let parsed of this.notes_to_edit) {
-            IDs.push(parsed.identifier)
-        }
-        return AnkiConnect.removeTags(IDs, this.tags.join(" "))
-    }
-
-    getAddTags(): AnkiConnect.AnkiConnectRequest {
+    getUpdateTags(): AnkiConnect.AnkiConnectRequest {
         let actions: AnkiConnect.AnkiConnectRequest[] = []
         for (let parsed of this.notes_to_edit) {
+            let tags = parsed.note.tags.join(" ") + " " + this.global_tags
             actions.push(
-                AnkiConnect.addTags([parsed.identifier], parsed.note.tags.join(" ") + " " + this.global_tags)
+                AnkiConnect.updateNoteTags(parsed.identifier, tags.split(" "))
             )
         }
         return AnkiConnect.multi(actions)

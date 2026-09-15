@@ -184,7 +184,7 @@ export default class MyPlugin extends Plugin {
 		return allTFiles;
 	}
 
-	async scanVault() {
+	async scanVault(file?: TFile) {
 		if (this.scan_in_progress) {
 			new Notice("A vault scan is already in progress.")
 			return
@@ -192,13 +192,13 @@ export default class MyPlugin extends Plugin {
 
 		this.scan_in_progress = true
 		try {
-			await this.scanVaultOnce()
+			await this.scanVaultOnce(file)
 		} finally {
 			this.scan_in_progress = false
 		}
 	}
 
-	async scanVaultOnce() {
+	async scanVaultOnce(file?: TFile) {
 		new Notice('Scanning vault, check console for details...');
 		console.info("Checking connection to Anki...")
 		try {
@@ -212,7 +212,9 @@ export default class MyPlugin extends Plugin {
 		const data: ParsedSettings = await settingToData(this.app, this.settings, this.fields_dict)
 		const scanDirs = this.settings.Defaults["Scan Directories"];
 		let manager = null;
-		if (scanDirs && scanDirs.length > 0) {
+		if (file !== undefined && file !== null) {
+			manager = new FileManager(this.app, data, [file], this.file_hashes, this.added_media)
+		} else if (scanDirs && scanDirs.length > 0) {
 			let markdownFiles = [];
 			for (const dirPath of scanDirs) {
 				const scanDir = this.app.vault.getAbstractFileByPath(dirPath);
@@ -227,7 +229,6 @@ export default class MyPlugin extends Plugin {
 		} else {
 			manager = new FileManager(this.app, data, this.app.vault.getMarkdownFiles(), this.file_hashes, this.added_media);
 		}
-		
 		await manager.initialiseFiles()
 		if (manager.ownFiles.length === 0) {
 			new Notice("No changed files found. Nothing to sync.")
@@ -275,14 +276,22 @@ export default class MyPlugin extends Plugin {
 		this.addSettingTab(new SettingsTab(this.app, this));
 
 		this.addRibbonIcon('anki', 'Obsidian_to_Anki - Scan Vault', async () => {
-			await this.scanVault()
+			await this.scanVault(undefined)
 		})
 
 		this.addCommand({
 			id: 'anki-scan-vault',
 			name: 'Scan Vault',
 			callback: async () => {
-			 	await this.scanVault()
+			 	await this.scanVault(undefined)
+			 }
+		})
+
+		this.addCommand({
+			id: 'anki-scan-file',
+			name: 'Scan Current File',
+			callback: async () => {
+			 	await this.scanVault(this.app.workspace.getActiveFile())
 			 }
 		})
 	}
