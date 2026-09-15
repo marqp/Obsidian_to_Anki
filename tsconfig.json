@@ -1,9 +1,8 @@
 {
     "compilerOptions": {
         "lib": ["esnext", "dom", "dom.iterable"],
-        "downlevelIteration": true,
         "target": "esnext",
-        "moduleResolution": "node",
+        "moduleResolution": "bundler",
         "allowSyntheticDefaultImports": true,
         "skipLibCheck": true,
         "strict": true
