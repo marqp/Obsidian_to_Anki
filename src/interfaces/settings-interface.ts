@@ -2,34 +2,38 @@ import { FIELDS_DICT } from './field-interface'
 import { AnkiConnectNote } from './note-interface'
 
 export interface PluginSettings {
-	CUSTOM_REGEXPS: Record<string, string>,
-	FILE_LINK_FIELDS: Record<string, string>,
-	CONTEXT_FIELDS: Record<string, string>,
-	FOLDER_DECKS: Record<string, string>,
-	FOLDER_TAGS: Record<string, string>,
+	CUSTOM_REGEXPS: Record<string, string>
+	FILE_LINK_FIELDS: Record<string, string>
+	CONTEXT_FIELDS: Record<string, string>
+	FOLDER_DECKS: Record<string, string>
+	FOLDER_TAGS: Record<string, string>
 	Syntax: {
-		"Begin Note": string,
-		"End Note": string,
-		"Begin Inline Note": string,
-		"End Inline Note": string,
-		"Target Deck Line": string,
-		"File Tags Line": string,
-		"Delete Note Line": string,
-		"Frozen Fields Line": string
-	},
+		'Begin Note': string
+		'End Note': string
+		'Begin Inline Note': string
+		'End Inline Note': string
+		'Target Deck Line': string
+		'File Tags Line': string
+		'Delete Note Line': string
+		'Frozen Fields Line': string
+		[key: string]: string
+	}
 	Defaults: {
-		"Scan Directories": string[],
-		"Tag": string,
-		"Deck": string,
-		"Scheduling Interval": number
-		"Add File Link": boolean,
-		"Add Context": boolean,
-		"CurlyCloze": boolean,
-		"CurlyCloze - Highlights to Clozes": boolean,
-		"ID Comments": boolean,
-		"Add Obsidian Tags": boolean
-	},
-	IGNORED_FILE_GLOBS:string[]
+		'Scan Directories': string[]
+		Tag: string
+		Deck: string
+		'Scheduling Interval': number
+		'Add File Link': boolean
+		'Add Context': boolean
+		CurlyCloze: boolean
+		'CurlyCloze - Highlights to Clozes': boolean
+		'ID Comments': boolean
+		'Add Obsidian Tags': boolean
+		/** Legacy key, migrated to 'Scan Directories' on load and then deleted. */
+		'Scan Directory'?: string
+		[key: string]: string[] | string | number | boolean | undefined
+	}
+	IGNORED_FILE_GLOBS: string[]
 }
 
 export interface FileData {
