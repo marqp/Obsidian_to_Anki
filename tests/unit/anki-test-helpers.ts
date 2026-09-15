@@ -37,6 +37,7 @@ export function createParsedSettings(overrides: Partial<ParsedSettings> = {}): P
 		folder_tags: {},
 		ignored_file_globs: [],
 		sync_to_ankiweb: false,
+		allow_note_type_changes: false,
 		...overrides
 	}
 }
@@ -61,12 +62,13 @@ export function createTestFile(data: ParsedSettings): AllFile {
 
 export interface ManagerOptions {
 	supportedActions: string[]
+	allowNoteTypeChanges?: boolean
 	localModelName?: string
 	ankiModelName?: string
 }
 
 export function createManager(options: ManagerOptions) {
-	const parsed = createParsedSettings()
+	const parsed = createParsedSettings({ allow_note_type_changes: options.allowNoteTypeChanges ?? false })
 	const app = {
 		vault: { getName: () => 'vault', modify: vi.fn(), adapter: { getFullPath: (p: string) => p } },
 		metadataCache: { getFirstLinkpathDest: () => null }

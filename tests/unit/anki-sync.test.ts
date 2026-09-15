@@ -34,7 +34,8 @@ function createParsedSettings(syncToAnkiweb: boolean): ParsedSettings {
 		folder_decks: {},
 		folder_tags: {},
 		ignored_file_globs: [],
-		sync_to_ankiweb: syncToAnkiweb
+		sync_to_ankiweb: syncToAnkiweb,
+		allow_note_type_changes: false
 	}
 }
 

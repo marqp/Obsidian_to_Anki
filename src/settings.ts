@@ -18,7 +18,9 @@ const defaultDescs: Record<string, string> = {
 		'Interpret #tags in the fields of a note as Anki tags, removing them from the note text in Anki.',
 	'Anki API Key':
 		'API key for AnkiConnect (only needed if you set apiKey in the AnkiConnect config). Stored in plaintext; only protects localhost access.',
-	'Sync to AnkiWeb': 'Trigger an AnkiWeb sync after each scan (requires AnkiWeb credentials in Anki desktop).'
+	'Sync to AnkiWeb': 'Trigger an AnkiWeb sync after each scan (requires AnkiWeb credentials in Anki desktop).',
+	'Allow Note Type Changes':
+		'Convert notes in Anki when their note type changed in Markdown. Uses updateNoteModel; fields not present in the new note type are discarded by Anki, so review the change first. Off by default.'
 }
 
 export const DEFAULT_IGNORED_FILE_GLOBS = ['**/*.excalidraw.md']
@@ -212,6 +214,10 @@ export class SettingsTab extends PluginSettingTab {
 		// To account for new AnkiWeb sync toggle
 		if (!plugin.settings['Defaults'].hasOwnProperty('Sync to AnkiWeb')) {
 			plugin.settings['Defaults']['Sync to AnkiWeb'] = false
+		}
+		// To account for new note-type change toggle
+		if (!plugin.settings['Defaults'].hasOwnProperty('Allow Note Type Changes')) {
+			plugin.settings['Defaults']['Allow Note Type Changes'] = false
 		}
 
 		new Setting(defaults_settings)

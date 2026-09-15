@@ -37,7 +37,8 @@ function createParsedSettings(existingIdCount = 3): ParsedSettings {
 		folder_decks: {},
 		folder_tags: {},
 		ignored_file_globs: [],
-		sync_to_ankiweb: false
+		sync_to_ankiweb: false,
+		allow_note_type_changes: false
 	}
 }
 

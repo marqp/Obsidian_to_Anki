@@ -1,5 +1,6 @@
 /*Class for managing a list of files, and their Anki requests.*/
 import { ParsedSettings, FileData } from './interfaces/settings-interface'
+import { AnkiConnectNoteAndID } from './interfaces/note-interface'
 import { App, TFile, TFolder, TAbstractFile, CachedMetadata, FileSystemAdapter, Notice } from 'obsidian'
 import { AllFile } from './file'
 import * as AnkiConnect from './anki'
@@ -79,6 +80,8 @@ export class FileManager {
 	requests_1_result: unknown[] | null = null
 	added_media_set: Set<string>
 	private useUpdateNote = false
+	private useUpdateNoteModel = false
+	private modelChangeActions: AnkiConnect.AnkiConnectRequest[] = []
 
 	constructor(app: App, data: ParsedSettings, files: TFile[], file_hashes: FileHashes, added_media: string[]) {
 		this.app = app
@@ -209,8 +212,9 @@ export class FileManager {
 		const requests: AnkiConnect.AnkiConnectRequest[] = []
 		// One reflection call per scan decides which late actions this daemon
 		// supports. Failures degrade to the legacy paths (see detectSupportedActions).
-		const supported = await AnkiConnect.detectSupportedActions(['updateNote'])
+		const supported = await AnkiConnect.detectSupportedActions(['updateNote', 'updateNoteModel'])
 		this.useUpdateNote = supported.has('updateNote')
+		this.useUpdateNoteModel = supported.has('updateNoteModel')
 		if (this.useUpdateNote) {
 			console.info('AnkiConnect supports updateNote: field and tag updates will be consolidated.')
 		}
@@ -340,6 +344,7 @@ export class FileManager {
 					card_ids: note_response.cards,
 					deck: noteToEdit.note.deckName
 				})
+				this.detectModelChange(file, noteToEdit, note_response.modelName)
 			}
 			file.card_ids = temp
 		}
@@ -370,6 +375,34 @@ export class FileManager {
 		return result
 	}
 
+	/**
+	 * Compare the note type in Markdown against the one Anki reports.
+	 * Mismatches are surfaced; conversion is queued only when the user opted
+	 * into "Allow Note Type Changes" and the daemon supports updateNoteModel.
+	 * Anki discards fields absent from the new model, so this is deliberately
+	 * opt-in rather than automatic.
+	 */
+	private detectModelChange(file: AllFile, parsed: AnkiConnectNoteAndID, ankiModelName: string): void {
+		const localModelName = parsed.note.modelName
+		if (parsed.identifier == null || !localModelName || !ankiModelName || localModelName === ankiModelName) {
+			return
+		}
+		if (!this.data.allow_note_type_changes) {
+			console.warn(
+				`Note ${parsed.identifier} in file ${file.path} is "${localModelName}" but "${ankiModelName}" in Anki. Enable "Allow Note Type Changes" in the plugin settings to convert it.`
+			)
+			return
+		}
+		if (!this.useUpdateNoteModel) {
+			console.warn(`AnkiConnect does not support updateNoteModel; cannot convert note ${parsed.identifier}.`)
+			return
+		}
+		this.modelChangeActions.push(
+			AnkiConnect.updateNoteModel(parsed.identifier, localModelName, parsed.note.fields, file.noteTagsFor(parsed))
+		)
+		console.info(`Queued note type change for ${parsed.identifier}: ${ankiModelName} -> ${localModelName}`)
+	}
+
 	async requests_2(): Promise<void> {
 		const requests: AnkiConnect.AnkiConnectRequest[] = []
 		let temp: AnkiConnect.AnkiConnectRequest[] = []
@@ -396,6 +429,11 @@ export class FileManager {
 			temp = []
 		} else {
 			console.info('Skipping tag replacement: tags were consolidated into updateNote.')
+		}
+		if (this.modelChangeActions.length > 0) {
+			console.info('Requesting note type changes...')
+			requests.push(AnkiConnect.multi(this.modelChangeActions))
+			this.modelChangeActions = []
 		}
 		await AnkiConnect.invoke('multi', { actions: requests })
 		if (this.data.sync_to_ankiweb) {

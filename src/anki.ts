@@ -199,6 +199,15 @@ export function updateNote(id: number, fields: Record<string, string>, tags: str
 	return request('updateNote', { note: { id, fields, tags } })
 }
 
+export function updateNoteModel(
+	id: number,
+	modelName: string,
+	fields: Record<string, string>,
+	tags: string[]
+): AnkiConnectRequest {
+	return request('updateNoteModel', { note: { id, modelName, fields, tags } })
+}
+
 export interface ApiReflectResult {
 	scopes: string[]
 	actions?: string[]

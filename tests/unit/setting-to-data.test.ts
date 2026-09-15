@@ -34,7 +34,8 @@ describe('settingToData configuration parser', () => {
 				'ID Comments': false,
 				'Add Obsidian Tags': true,
 				'Anki API Key': '',
-				'Sync to AnkiWeb': true
+				'Sync to AnkiWeb': true,
+				'Allow Note Type Changes': true
 			},
 			IGNORED_FILE_GLOBS: ['**/ignored/**'],
 			...overrides
@@ -87,17 +88,20 @@ describe('settingToData configuration parser', () => {
 		expect(result.add_context).toBe(true)
 		expect(result.add_obs_tags).toBe(true)
 		expect(result.sync_to_ankiweb).toBe(true)
+		expect(result.allow_note_type_changes).toBe(true)
 		expect(result.ignored_file_globs).toEqual([])
 	})
 
-	it('defaults sync_to_ankiweb to false when the setting is missing', async () => {
+	it('defaults sync_to_ankiweb and allow_note_type_changes to false when missing', async () => {
 		vi.spyOn(AnkiConnect, 'invoke').mockResolvedValueOnce([])
 
 		const settings = createMockSettings()
 		delete settings.Defaults['Sync to AnkiWeb']
+		delete settings.Defaults['Allow Note Type Changes']
 		const result = await settingToData(mockApp, settings, {})
 
 		expect(result.sync_to_ankiweb).toBe(false)
+		expect(result.allow_note_type_changes).toBe(false)
 	})
 
 	it('constructs working RegExps from syntax configuration', async () => {

@@ -67,6 +67,11 @@ with `sudo env "PATH=$PATH"` so pnpm is visible under sudo.
   needs no processing. The single `as unknown as Requests1Result` in `parse_requests_1` is the
   documented wire trust boundary — don't scatter more casts around it.
 - **`params` is `Record<string, unknown>`.** Narrow with `Array.isArray`, never `as any`.
+- **Late AnkiConnect actions are gated by `apiReflect`, not `version`.** `updateNote`/`updateNoteModel`
+  shipped while the API version stayed frozen at 6; `detectSupportedActions()` probes once per scan
+  and callers fall back to the legacy `updateNoteFields`/`updateNoteTags` path when unsupported.
+  Note-type conversion (`updateNoteModel`) is opt-in via "Allow Note Type Changes" — Anki silently
+  discards fields absent from the new model.
 
 ## tests/ map (generated vs. source)
 

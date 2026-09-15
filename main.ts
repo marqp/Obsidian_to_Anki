@@ -45,7 +45,8 @@ export default class MyPlugin extends Plugin {
 				'ID Comments': true,
 				'Add Obsidian Tags': false,
 				'Anki API Key': '',
-				'Sync to AnkiWeb': false
+				'Sync to AnkiWeb': false,
+				'Allow Note Type Changes': false
 			},
 			IGNORED_FILE_GLOBS: DEFAULT_IGNORED_FILE_GLOBS
 		}
