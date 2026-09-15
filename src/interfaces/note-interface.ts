@@ -3,7 +3,9 @@ export interface AnkiConnectNote {
 	modelName: string,
 	fields: Record<string, string>,
 	options: {
-		allowDuplicate: boolean,
+		allowDuplicate: true
+	} | {
+		allowDuplicate: false
 		duplicateScope: string
 	}
 	tags: Array<string>,

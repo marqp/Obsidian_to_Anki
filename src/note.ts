@@ -12,7 +12,7 @@ const TAG_PREFIX:string = "Tags: "
 export const TAG_SEP:string = " "
 export const ID_REGEXP_STR: string = String.raw`\n?(?:<!--)?(?:ID: (\d+).*)`
 export const TAG_REGEXP_STR: string = String.raw`(Tags: .*)`
-const OBS_TAG_REGEXP: RegExp = /#(\w+)/g
+const OBS_TAG_REGEXP: RegExp = /(?<=^|[\t ])#([\p{L}\p{N}\p{Emoji}\p{M}_/-]+)/gu
 
 const ANKI_CLOZE_REGEXP: RegExp = /{{c\d+::[\s\S]+?}}/
 export const CLOZE_ERROR: number = 42
@@ -95,7 +95,7 @@ abstract class AbstractNote {
         }
 		if (context) {
 			const context_field = data.context_fields[this.note_type]
-			template["fields"][context_field] += context
+			template["fields"][context_field] += '<br>' + context
 		}
 		if (data.add_obs_tags) {
 			for (let key in template["fields"]) {
@@ -135,7 +135,7 @@ export class Note extends AbstractNote {
     }
 
     getNoteType(): string {
-        return this.split_text[0]
+        return this.split_text[0].trim()
     }
 
     fieldFromLine(line: string): [string, string] {
@@ -204,7 +204,7 @@ export class InlineNote extends AbstractNote {
     getNoteType(): string {
         const result = this.text.match(InlineNote.TYPE_REGEXP)
         this.text = this.text.slice(result.index + result[0].length)
-        return result[1]
+        return result[1].trim()
     }
 
     getFields(): Record<string, string> {
@@ -297,7 +297,7 @@ export class RegexNote {
         }
 		if (context) {
 			const context_field = data.context_fields[this.note_type]
-			template["fields"][context_field] += context
+			template["fields"][context_field] += '<br>' + context
 		}
 		if (this.note_type.includes("Cloze") && !(note_has_clozes(template))) {
 			this.identifier = CLOZE_ERROR //An error code that says "don't add this note!"

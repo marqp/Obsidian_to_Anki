@@ -80,6 +80,9 @@ abstract class AbstractFile {
     frozen_fields_dict: FROZEN_FIELDS_DICT
     target_deck: string
     global_tags: string
+    deckMap: Array<{position: number, deck: string}>
+    note_edit_deck_map: Array<{card_ids: number[], deck: string}>
+    frontmatter_has_deck: boolean
 
     notes_to_add: AnkiConnectNote[]
     id_indexes: number[]
@@ -129,8 +132,53 @@ abstract class AbstractFile {
     }
 
     setup_target_deck() {
-        const result = this.file.match(this.data.DECK_REGEXP)
-        this.target_deck = result ? result[1] : this.data.template["deckName"]
+        // Check if a TARGET DECK line exists in YAML frontmatter (between first --- and second ---).
+        // If so, lock the entire file to that deck and ignore any body TARGET DECK lines.
+        // Otherwise, build a position→deck map from all body TARGET DECK lines.
+        this.deckMap = []
+        this.frontmatter_has_deck = false
+
+        const firstMatch = this.file.match(this.data.DECK_REGEXP)
+        if (!firstMatch) {
+            this.target_deck = this.data.template["deckName"]
+            return
+        }
+
+        // Detect frontmatter: must start at position 0 with ---
+        const firstSep = this.file.indexOf('---')
+        const secondSep = firstSep === 0 ? this.file.indexOf('---', 3) : -1
+        const firstMatchInFrontmatter = firstSep === 0 && secondSep !== -1
+            && firstMatch.index > firstSep && firstMatch.index < secondSep
+
+        if (firstMatchInFrontmatter) {
+            // Frontmatter lock: all cards go to the frontmatter deck, body lines ignored
+            this.frontmatter_has_deck = true
+            this.target_deck = firstMatch[1]
+            this.deckMap = [{position: 0, deck: firstMatch[1]}]
+            return
+        }
+
+        // No frontmatter lock: build position→deck map from all body TARGET DECK lines
+        this.target_deck = firstMatch[1]
+        const deckRegexGlobal = new RegExp(this.data.DECK_REGEXP.source, 'gm')
+        for (let match of this.file.matchAll(deckRegexGlobal)) {
+            this.deckMap.push({position: match.index, deck: match[1]})
+        }
+    }
+
+    getDeckForPosition(position: number): string {
+        if (this.frontmatter_has_deck) {
+            return this.target_deck
+        }
+        let result = this.target_deck
+        for (let entry of this.deckMap) {
+            if (entry.position < position) {
+                result = entry.deck
+            } else {
+                break
+            }
+        }
+        return result
     }
 
     setup_global_tags() {
@@ -228,7 +276,18 @@ abstract class AbstractFile {
     }
 
     getChangeDecks(): AnkiConnect.AnkiConnectRequest {
-        return AnkiConnect.changeDeck(this.card_ids, this.target_deck)
+        // When frontmatter locks the deck, all cards go to one deck — use simple path
+        if (this.frontmatter_has_deck || this.note_edit_deck_map.length <= 1) {
+            return AnkiConnect.changeDeck(this.card_ids, this.target_deck)
+        }
+        // Multiple decks: group card IDs by target deck
+        let actions: AnkiConnect.AnkiConnectRequest[] = []
+        for (let group of this.note_edit_deck_map) {
+            if (group.card_ids.length > 0) {
+                actions.push(AnkiConnect.changeDeck(group.card_ids, group.deck))
+            }
+        }
+        return AnkiConnect.multi(actions)
     }
 
     getClearTags(): AnkiConnect.AnkiConnectRequest {
@@ -267,9 +326,9 @@ export class AllFile extends AbstractFile {
     add_spans_to_ignore() {
         this.ignore_spans = []
         this.ignore_spans.push(...spans(this.data.FROZEN_REGEXP, this.file))
-        const deck_result = this.file.match(this.data.DECK_REGEXP)
-        if (deck_result) {
-            this.ignore_spans.push([deck_result.index, deck_result.index + deck_result[0].length])
+        const deckRegexGlobal = new RegExp(this.data.DECK_REGEXP.source, 'gm')
+        for (let match of this.file.matchAll(deckRegexGlobal)) {
+            this.ignore_spans.push([match.index, match.index + match[0].length])
         }
         const tag_result = this.file.match(this.data.TAG_REGEXP)
         if (tag_result) {
@@ -296,6 +355,7 @@ export class AllFile extends AbstractFile {
         this.regex_id_indexes = []
         this.notes_to_edit = []
         this.notes_to_delete = []
+        this.note_edit_deck_map = []
     }
 
     scanNotes() {
@@ -309,7 +369,7 @@ export class AllFile extends AbstractFile {
                 this.data.highlights_to_cloze,
                 this.formatter
             ).parse(
-                this.target_deck,
+                this.getDeckForPosition(note_match.index),
                 this.url,
                 this.frozen_fields_dict,
                 this.data,
@@ -320,7 +380,7 @@ export class AllFile extends AbstractFile {
                 parsed.note.tags.push(...this.global_tags.split(TAG_SEP))
                 this.notes_to_add.push(parsed.note)
                 this.id_indexes.push(position)
-            } else if (!this.data.EXISTING_IDS.includes(parsed.identifier)) {
+            } else if (!this.data.EXISTING_IDS.has(parsed.identifier)) {
                 if (parsed.identifier == CLOZE_ERROR) {
                     continue
                 }
@@ -347,7 +407,7 @@ export class AllFile extends AbstractFile {
                 this.data.highlights_to_cloze,
                 this.formatter
             ).parse(
-                this.target_deck,
+                this.getDeckForPosition(note_match.index),
                 this.url,
                 this.frozen_fields_dict,
                 this.data,
@@ -358,7 +418,7 @@ export class AllFile extends AbstractFile {
                 parsed.note.tags.push(...this.global_tags.split(TAG_SEP))
                 this.inline_notes_to_add.push(parsed.note)
                 this.inline_id_indexes.push(position)
-            } else if (!this.data.EXISTING_IDS.includes(parsed.identifier)) {
+            } else if (!this.data.EXISTING_IDS.has(parsed.identifier)) {
                 // Need to show an error
                 if (parsed.identifier == CLOZE_ERROR) {
                     continue
@@ -385,14 +445,14 @@ export class AllFile extends AbstractFile {
                         match, note_type, this.data.fields_dict,
                         search_tags, search_id, this.data.curly_cloze, this.data.highlights_to_cloze, this.formatter
                     ).parse(
-                        this.target_deck,
+                        this.getDeckForPosition(match.index),
                         this.url,
                         this.frozen_fields_dict,
                         this.data,
                         this.data.add_context ? this.getContextAtIndex(match.index) : ""
                     )
                     if (search_id) {
-                        if (!(this.data.EXISTING_IDS.includes(parsed.identifier))) {
+                        if (!(this.data.EXISTING_IDS.has(parsed.identifier))) {
                             if (parsed.identifier == CLOZE_ERROR) {
                                 // This means it wasn't actually a note! So we should remove it from ignore_spans
                                 this.ignore_spans.pop()

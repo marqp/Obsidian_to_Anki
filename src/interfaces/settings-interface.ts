@@ -18,7 +18,7 @@ export interface PluginSettings {
 		"Frozen Fields Line": string
 	},
 	Defaults: {
-		"Scan Directory": string,
+		"Scan Directories": string[],
 		"Tag": string,
 		"Deck": string,
 		"Scheduling Interval": number
@@ -39,7 +39,7 @@ export interface FileData {
 	file_link_fields: Record<string, string>
 	context_fields: Record<string, string>
 	template: AnkiConnectNote
-	EXISTING_IDS: number[]
+	EXISTING_IDS: ReadonlySet<number>
 	vault_name: string
 
 	FROZEN_REGEXP: RegExp

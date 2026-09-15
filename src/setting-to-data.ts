@@ -20,18 +20,18 @@ export async function settingToData(app: App, settings: PluginSettings, fields_d
         modelName: "",
         fields: {},
         options: {
-            allowDuplicate: false,
-            duplicateScope: "deck"
+            allowDuplicate: true,
         },
         tags: [settings.Defaults.Tag]
     }
-    result.EXISTING_IDS = await AnkiConnect.invoke('findNotes', {query: ""}) as number[]
+    const existingIds = await AnkiConnect.invoke('findNotes', {query: ""}) as number[]
+    result.EXISTING_IDS = new Set(existingIds)
 
     //RegExp section
     result.FROZEN_REGEXP = new RegExp(escapeRegex(settings.Syntax["Frozen Fields Line"]) + String.raw` - (.*?):\n((?:[^\n][\n]?)+)`, "g")
     result.DECK_REGEXP = new RegExp(String.raw`^` + escapeRegex(settings.Syntax["Target Deck Line"]) + String.raw`(?:\n|: )(.*)`, "m")
     result.TAG_REGEXP = new RegExp(String.raw`^` + escapeRegex(settings.Syntax["File Tags Line"]) + String.raw`(?:\n|: )(.*)`, "m")
-    result.NOTE_REGEXP = new RegExp(String.raw`^` + escapeRegex(settings.Syntax["Begin Note"]) + String.raw`\n([\s\S]*?\n)` + escapeRegex(settings.Syntax["End Note"]), "gm")
+    result.NOTE_REGEXP = new RegExp(String.raw`^` + escapeRegex(settings.Syntax["Begin Note"]) + String.raw`[\s]*\n([\s\S]*?\n)` + escapeRegex(settings.Syntax["End Note"] + "[\s]*"), "gm")
     result.INLINE_REGEXP = new RegExp(escapeRegex(settings.Syntax["Begin Inline Note"]) + String.raw`(.*?)` + escapeRegex(settings.Syntax["End Inline Note"]), "g")
     result.EMPTY_REGEXP = new RegExp(escapeRegex(settings.Syntax["Delete Note Line"]) + ID_REGEXP_STR, "g")
 

@@ -40,8 +40,7 @@ NOTE_DICT_TEMPLATE = {
     "modelName": "",
     "fields": dict(),
     "options": {
-        "allowDuplicate": False,
-        "duplicateScope": "deck"
+        "allowDuplicate": True,
     },
     "tags": ["Obsidian_to_Anki"],
     # ^So that you can see what was added automatically.

@@ -23,7 +23,6 @@ Check out the [Wiki](https://github.com/Pseudonium/Obsidian_to_Anki/wiki)! It ha
     "apiLogPath": null,
     "webBindAddress": "127.0.0.1",
     "webBindPort": 8765,
-    "webCorsOrigin": "http://localhost",
     "webCorsOriginList": [
         "http://localhost",
         "app://obsidian.md"
@@ -60,9 +59,9 @@ The script needs to be able to:
 
 Current features (check out the wiki for more details):
 * **Custom note types** - You're not limited to the 6 built-in note types of Anki.
-* **Custom scan directory** 
+* **Custom scan directories** 
   * The plugin will scan the entire vault by default
-  * You can also set which directory (includes all sub-directories as well) to scan via plugin settings
+  * You can also set which directories (includes all sub-directories as well) to scan via plugin settings
 * **Ignore Folders and Files**
   * You can specify which files and folders to ignore 
   * This can be done in the settings of this plugin with [Glob syntax](https://en.wikipedia.org/wiki/Glob_(programming)#Syntax).
@@ -75,7 +74,7 @@ Current features (check out the wiki for more details):
     * `[Pp]rivate*/**` - Ignore all files and folders in the root of the vault that start with `private` or with `Private`
 * **Updating notes from file** - Your text files are the canonical source of the notes.
 * **Tags**, including **tags for an entire file**.
-* **Adding to user-specified deck** on a *per-file* basis.
+* **Adding to user-specified deck** on a *per-file* basis. Multiple target decks can be specified within a single file — cards are assigned to the nearest `TARGET DECK` line above them. If a `TARGET DECK` line is placed in YAML frontmatter, it locks the entire file to that deck.
 * **Markdown formatting**.
 * **Math formatting**.
 * **Embedded images**. GIFs should work too.

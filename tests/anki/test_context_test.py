@@ -49,6 +49,6 @@ def test_cards_front_back_tag_type(col: Collection):
     
     note1 = col.get_note(anki_IDs[0])
     assert note1.fields[0] == "This is a test"
-    assert note1.fields[1] == "Test successful!context_test/context_test.md > Overall point > Subheading 2"
+    assert note1.fields[1] == "Test successful!<br>context_test/context_test.md > Overall point > Subheading 2"
 
     assert note1.note_type()["name"] == "Basic"

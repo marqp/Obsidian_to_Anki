@@ -2,7 +2,7 @@ import { PluginSettingTab, Setting, Notice, TFolder } from 'obsidian'
 import * as AnkiConnect from './anki'
 
 const defaultDescs = {
-	"Scan Directory": "The directory to scan. Leave empty to scan the entire vault",
+	"Scan Directories": "The directories to scan. Leave empty to scan the entire vault. One path per line.",
 	"Tag": "The tag that the plugin automatically adds to any generated cards.",
 	"Deck": "The deck the plugin adds cards to if TARGET DECK is not specified in the file.",
 	"Scheduling Interval": "The time, in minutes, between automatic scans of the vault. Set this to 0 to disable automatic scanning.",
@@ -175,10 +175,22 @@ export class SettingsTab extends PluginSettingTab {
 		const plugin = (this as any).plugin
 		let defaults_settings = containerEl.createEl('h3', {text: 'Defaults'})
 
-		// To account for new scan directory
-		if (!(plugin.settings["Defaults"].hasOwnProperty("Scan Directory"))) {
-			plugin.settings["Defaults"]["Scan Directory"] = ""
+		// Migration from old setting
+		if (plugin.settings["Defaults"].hasOwnProperty("Scan Directory")) {
+			const oldValue = plugin.settings["Defaults"]["Scan Directory"];
+			if (typeof oldValue === 'string' && oldValue.trim() !== '') {
+				plugin.settings["Defaults"]["Scan Directories"] = [oldValue];
+			} else {
+				plugin.settings["Defaults"]["Scan Directories"] = [];
+			}
+			delete plugin.settings["Defaults"]["Scan Directory"];
+			plugin.saveAllData();
 		}
+
+		if (!(plugin.settings["Defaults"].hasOwnProperty("Scan Directories"))) {
+			plugin.settings["Defaults"]["Scan Directories"] = []
+		}
+
 		// To account for new add context
 		if (!(plugin.settings["Defaults"].hasOwnProperty("Add Context"))) {
 			plugin.settings["Defaults"]["Add Context"] = false
@@ -195,9 +207,25 @@ export class SettingsTab extends PluginSettingTab {
 		if (!(plugin.settings["Defaults"].hasOwnProperty("Add Obsidian Tags"))) {
 			plugin.settings["Defaults"]["Add Obsidian Tags"] = false
 		}
+
+		new Setting(defaults_settings)
+			.setName("Scan Directories")
+			.setDesc(defaultDescs["Scan Directories"])
+			.addTextArea(text => {
+				text.setValue(plugin.settings.Defaults["Scan Directories"].join("\n"))
+					.setPlaceholder("path/to/folder1\npath/to/folder2")
+					.onChange((value) => {
+						let scanDirs = value.split("\n").map(dir => dir.trim()).filter(dir => dir !== "");
+						plugin.settings.Defaults["Scan Directories"] = scanDirs;
+						plugin.saveAllData();
+					})
+				text.inputEl.rows = 5;
+				text.inputEl.cols = 30;
+			});
+
 		for (let key of Object.keys(plugin.settings["Defaults"])) {
 			// To account for removal of regex setting
-			if (key === "Regex") {
+			if (key === "Regex" || key === "Scan Directories") {
 				continue
 			}
 			if (typeof plugin.settings["Defaults"][key] === "string") {
