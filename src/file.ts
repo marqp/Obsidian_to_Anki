@@ -35,20 +35,26 @@ function id_to_str(identifier: number, inline: boolean = false, comment: boolean
 	return result
 }
 
-function string_insert(text: string, position_inserts: Array<[number, string]>): string {
+export function string_insert(text: string, position_inserts: Array<[number, string]>): string {
 	/*Insert strings in position_inserts into text, at indices.
 
     position_inserts will look like:
-    [(0, "hi"), (3, "hello"), (5, "beep")]*/
-	let offset = 0
-	const sorted_inserts: Array<[number, string]> = position_inserts.sort((a, b): number => a[0] - b[0])
+    [(0, "hi"), (3, "hello"), (5, "beep")]
+	Positions refer to coordinates in the ORIGINAL string, so a single
+	left-to-right pass (O(L)) replaces the old per-insert realloc (O(N*L)).
+	Unlike the previous version, the input array is not sorted in place.*/
+	const parts: string[] = []
+	let cursor = 0
+	const sorted_inserts: Array<[number, string]> = [...position_inserts].sort((a, b): number => a[0] - b[0])
 	for (const insertion of sorted_inserts) {
 		const position = insertion[0]
 		const insert_str = insertion[1]
-		text = text.slice(0, position + offset) + insert_str + text.slice(position + offset)
-		offset += insert_str.length
+		parts.push(text.slice(cursor, position))
+		parts.push(insert_str)
+		cursor = position
 	}
-	return text
+	parts.push(text.slice(cursor))
+	return parts.join('')
 }
 
 function spans(pattern: RegExp, text: string): Array<[number, number]> {

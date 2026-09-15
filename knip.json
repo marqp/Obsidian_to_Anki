@@ -13,6 +13,8 @@
 		"src/scan-optimizations.ts": ["exports"],
 		// Cross-module contracts consumed via setTransport mocks in tests/**.
 		"src/anki-launch.ts": ["types"],
-		"src/dry-run.ts": ["types"]
+		"src/dry-run.ts": ["types"],
+		// Pure string helpers unit-tested directly in tests/unit/string-insert.test.ts.
+		"src/file.ts": ["exports"]
 	}
 }
