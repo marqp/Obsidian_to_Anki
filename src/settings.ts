@@ -17,7 +17,8 @@ const defaultDescs: Record<string, string> = {
 	'Add Obsidian Tags':
 		'Interpret #tags in the fields of a note as Anki tags, removing them from the note text in Anki.',
 	'Anki API Key':
-		'API key for AnkiConnect (only needed if you set apiKey in the AnkiConnect config). Stored in plaintext; only protects localhost access.'
+		'API key for AnkiConnect (only needed if you set apiKey in the AnkiConnect config). Stored in plaintext; only protects localhost access.',
+	'Sync to AnkiWeb': 'Trigger an AnkiWeb sync after each scan (requires AnkiWeb credentials in Anki desktop).'
 }
 
 export const DEFAULT_IGNORED_FILE_GLOBS = ['**/*.excalidraw.md']
@@ -207,6 +208,10 @@ export class SettingsTab extends PluginSettingTab {
 		// To account for new Anki API key
 		if (!plugin.settings['Defaults'].hasOwnProperty('Anki API Key')) {
 			plugin.settings['Defaults']['Anki API Key'] = ''
+		}
+		// To account for new AnkiWeb sync toggle
+		if (!plugin.settings['Defaults'].hasOwnProperty('Sync to AnkiWeb')) {
+			plugin.settings['Defaults']['Sync to AnkiWeb'] = false
 		}
 
 		new Setting(defaults_settings)

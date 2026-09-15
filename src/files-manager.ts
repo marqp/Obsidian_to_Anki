@@ -382,6 +382,16 @@ export class FileManager {
 		requests.push(AnkiConnect.multi(temp))
 		temp = []
 		await AnkiConnect.invoke('multi', { actions: requests })
+		if (this.data.sync_to_ankiweb) {
+			console.info('Triggering AnkiWeb sync...')
+			try {
+				await AnkiConnect.invoke('sync')
+			} catch (e) {
+				// A local scan succeeded; a failed cloud sync must not fail it.
+				console.warn('AnkiWeb sync failed:', e)
+				new Notice('Sync to Anki completed, but AnkiWeb sync failed. Check console for details.')
+			}
+		}
 		console.info('All done!')
 	}
 }

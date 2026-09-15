@@ -183,6 +183,10 @@ export function requestPermission(): AnkiConnectRequest {
 	return request('requestPermission')
 }
 
+export function sync(): AnkiConnectRequest {
+	return request('sync')
+}
+
 export function storeMediaFile(filename: string, data: string): AnkiConnectRequest {
 	return request('storeMediaFile', {
 		filename: filename,

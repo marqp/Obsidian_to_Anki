@@ -36,7 +36,8 @@ function createParsedSettings(existingIdCount = 3): ParsedSettings {
 		add_file_link: false,
 		folder_decks: {},
 		folder_tags: {},
-		ignored_file_globs: []
+		ignored_file_globs: [],
+		sync_to_ankiweb: false
 	}
 }
 

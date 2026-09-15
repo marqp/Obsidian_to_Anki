@@ -30,6 +30,7 @@ export interface PluginSettings {
 		'ID Comments': boolean
 		'Add Obsidian Tags': boolean
 		'Anki API Key': string
+		'Sync to AnkiWeb': boolean
 		/** Legacy key, migrated to 'Scan Directories' on load and then deleted. */
 		'Scan Directory'?: string
 		[key: string]: string[] | string | number | boolean | undefined
@@ -66,4 +67,5 @@ export interface ParsedSettings extends FileData {
 	folder_decks: Record<string, string>
 	folder_tags: Record<string, string>
 	ignored_file_globs: string[]
+	sync_to_ankiweb: boolean
 }

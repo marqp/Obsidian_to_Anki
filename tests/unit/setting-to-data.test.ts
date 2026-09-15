@@ -32,7 +32,9 @@ describe('settingToData configuration parser', () => {
 				CurlyCloze: true,
 				'CurlyCloze - Highlights to Clozes': true,
 				'ID Comments': false,
-				'Add Obsidian Tags': true
+				'Add Obsidian Tags': true,
+				'Anki API Key': '',
+				'Sync to AnkiWeb': true
 			},
 			IGNORED_FILE_GLOBS: ['**/ignored/**'],
 			...overrides
@@ -84,7 +86,18 @@ describe('settingToData configuration parser', () => {
 		expect(result.comment).toBe(false)
 		expect(result.add_context).toBe(true)
 		expect(result.add_obs_tags).toBe(true)
+		expect(result.sync_to_ankiweb).toBe(true)
 		expect(result.ignored_file_globs).toEqual([])
+	})
+
+	it('defaults sync_to_ankiweb to false when the setting is missing', async () => {
+		vi.spyOn(AnkiConnect, 'invoke').mockResolvedValueOnce([])
+
+		const settings = createMockSettings()
+		delete settings.Defaults['Sync to AnkiWeb']
+		const result = await settingToData(mockApp, settings, {})
+
+		expect(result.sync_to_ankiweb).toBe(false)
 	})
 
 	it('constructs working RegExps from syntax configuration', async () => {
