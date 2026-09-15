@@ -1,7 +1,24 @@
-> **Actively developed community fork** of [`ObsidianToAnki/Obsidian_to_Anki`](https://github.com/ObsidianToAnki/Obsidian_to_Anki) (upstream stalled since Feb 2024). Same plugin ID (`obsidian-to-anki-plugin`) — drop-in replacement via BRAT. It started by merging the stalled upstream PRs and has since grown its own architecture and features (see [Fork additions](#fork-additions)). Card syntax (`START`/`END`, inline notes, custom regexps, Python CLI format) stays compatible with upstream.
+# Obsidian_to_Anki (marqp fork) <sup>[why?](#why-this-fork)</sup>
 
-# Obsidian_to_Anki
 Plugin to add flashcards from a text or markdown file to Anki. Run in Obsidian as a plugin, or from the command-line as a python script. Built with [Obsidian](https://obsidian.md/) markdown syntax in mind. Supports **user-defined custom syntax for flashcards.**
+
+## Why this fork?
+
+Upstream (`ObsidianToAnki/Obsidian_to_Anki`) has not been updated since Feb 2024,
+with open PRs and issues piling up. This fork started by merging those stalled
+PRs and has since grown its own architecture. Same plugin ID
+(`obsidian-to-anki-plugin`) — drop-in replacement via BRAT. Card syntax
+(`START`/`END`, inline notes, custom regexps, Python CLI format) stays
+compatible with upstream. In short:
+
+- **Sync you can trust** — orphan deletion, dry-run preview, consolidated
+  `updateNote`, opt-in note-type conversion (see [Fork additions](#fork-additions)).
+- **Faster engine** — incremental scans, memoized formatting, linear ID writes
+  (measured: up to 5.4x on large files, see `pnpm run test:bench`).
+- **Modern UX, minimal UI** — tabbed settings, consolidated progress Notices,
+  cooperative scan cancel, connection probing with auto-launch.
+- **Maintained toolchain** — esbuild, strict TypeScript, Vitest + parity harness
+  against pinned upstream.
 
 ## Getting started
 
