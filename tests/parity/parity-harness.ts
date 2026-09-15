@@ -74,7 +74,14 @@ export async function buildSides(repoRoot: string, upstreamWorktree: string): Pr
 			platform: 'node',
 			format: 'cjs',
 			outfile: path.join(dir, 'file.cjs'),
-			alias: { obsidian: path.join(repoRoot, 'tests/mocks/obsidian.ts') },
+			alias: {
+				obsidian: path.join(repoRoot, 'tests/mocks/obsidian.ts'),
+				// The pinned upstream imports the v1 deep path 'ts-md5/dist/md5',
+				// removed in ts-md5 v2. Alias it to the v2 root entry: the hash
+				// algorithm is byte-identical (verified vector-for-vector), so
+				// this preserves parity semantics without touching upstream sources.
+				'ts-md5/dist/md5': path.join(repoRoot, 'node_modules', 'ts-md5', 'dist', 'index.cjs.js')
+			},
 			external: ['path'],
 			// Resolve third-party imports (showdown, ts-md5) from the fork's
 			// own node_modules: it has the same dependency names as the
