@@ -17,7 +17,7 @@ test_file_paths = [
     ['tests/test_outputs/{}/Obsidian/{}/Science meow/{}.science.md'.format(test_name, test_name, test_name),'Science'],
 ]
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def col():
     col = Collection(col_path)
     yield col

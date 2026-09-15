@@ -9,7 +9,7 @@ from anki.collection import SearchNode
 col_path = 'tests/test_outputs/basic_sync/Anki2/User 1/collection.anki2'
 test_file_path = 'tests/test_outputs/basic_sync/Obsidian/basic_sync/basic_sync.md'
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def col():
     col = Collection(col_path)
     yield col

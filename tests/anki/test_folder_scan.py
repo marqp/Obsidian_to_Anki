@@ -19,7 +19,7 @@ test_file_no_cards_paths = [
     'tests/test_outputs/{}/Obsidian/{}/{}.md'.format(test_name, test_name, test_name),
 ]
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def col():
     col = Collection(col_path)
     yield col

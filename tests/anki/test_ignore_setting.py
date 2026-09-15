@@ -31,7 +31,7 @@ test_file_no_cards_paths = [
 ]
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def col():
     col = Collection(col_path)
     yield col

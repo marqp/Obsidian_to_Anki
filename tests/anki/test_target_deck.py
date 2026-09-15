@@ -14,7 +14,7 @@ test_file_paths = [
     ['tests/test_outputs/{}/Obsidian/{}/{}.sameline.md'.format(test_name, test_name, test_name), 'MathematicsInSameLine'],
 ]
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def col():
     col = Collection(col_path)
     yield col

@@ -10,7 +10,7 @@ test_name = 'basic_para'
 col_path = 'tests/test_outputs/{}/Anki2/User 1/collection.anki2'.format(test_name)
 test_file_path = 'tests/test_outputs/{}/Obsidian/{}/{}.md'.format(test_name, test_name, test_name)
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def col():
     col = Collection(col_path)
     yield col
