@@ -121,14 +121,17 @@ export class FileManager {
 	}
 
 	findFilesThatAreNotIgnored(files: TFile[], data: ParsedSettings): TFile[] {
-		let ignoredFiles = []
-		ignoredFiles = multimatch(
-			files.map((file) => file.path),
-			data.ignored_file_globs
+		if (data.ignored_file_globs.length === 0) {
+			return files
+		}
+		const ignoredPaths = new Set<string>(
+			multimatch(
+				files.map((file) => file.path),
+				data.ignored_file_globs
+			)
 		)
 
-		const notIgnoredFiles = files.filter((file) => !ignoredFiles.contains(file.path))
-		return notIgnoredFiles
+		return files.filter((file) => !ignoredPaths.has(file.path))
 	}
 
 	getFolderPathList(file: TFile): TFolder[] {
