@@ -37,15 +37,16 @@ jobs:
       
       - name: Run Tests
         run: | 
-          sudo env "PATH=$PATH" pnpm run test-wdio
-          sudo env "PATH=$PATH" pnpm run test-py
+          sudo env "PATH=$PATH" "CI=true" pnpm run test-wdio
+          sudo env "PATH=$PATH" "CI=true" pnpm run test-py
       
       - name: Set output perms
         if: always()
         run: |
           echo "Current user for this action is - $USER $(id -u)"
-          sudo chown -R $(whoami) tests/test_config
-          sudo chown -R $(whoami) tests/test_vault
+          for d in tests/test_config tests/test_vault; do
+            if [ -d "$d" ]; then sudo chown -R "$(whoami)" "$d"; fi
+          done
 
           ls -alh
           ls -alh tests/test_config/
@@ -102,7 +103,9 @@ jobs:
           REF: ${{ github.ref }}
         shell: bash
         run: |
-          echo "# 📷 Screenshots of tests:" >> comment.md
+          shopt -s nullglob globstar
+          rm -f comment.md
+          echo "# 📷 Screenshots of tests:" > comment.md
           echo "" >> comment.md
 
           for ss_test in logs/**/; do 
@@ -123,7 +126,7 @@ jobs:
             for ss in "$ss_test"*Pre*.png; do 
               echo '<p float="left">' >> comment.md
               echo "  $ss"
-              cml-publish "$ss" | sed -E 's/.+/<img width="90%" src="\0"\/>/' >> comment.md
+              cml publish "$ss" | sed -E 's/.+/<img width="90%" src="\0"\/>/' >> comment.md
               echo '</p>' >> comment.md
             done 
             
@@ -134,7 +137,7 @@ jobs:
             for ss in "$ss_test"*Post*.png; do 
               echo '<p float="left">' >> comment.md
               echo "  $ss"
-              cml-publish "$ss" | sed -E 's/.+/<img width="90%" src="\0"\/>/' >> comment.md
+              cml publish "$ss" | sed -E 's/.+/<img width="90%" src="\0"\/>/' >> comment.md
               echo '</p>' >> comment.md
             done 
 
@@ -222,6 +225,12 @@ jobs:
         with:
           ref: 'refs/pull/${{ github.event.client_payload.pull_request.number }}/merge'
 
+  # NOTE: the live steps below (Install pnpm ... Upload build artifacts) belong
+  # to the `checkout-signed` job above (fork-PR path via /ok-to-test
+  # repository_dispatch), NOT to the commented-out `# Test:` matrix stub. The
+  # `# steps:` comment is misleading indentation, not structure. Keep this
+  # block mirrored with `checkout-trusted` (Run Tests, Set output perms,
+  # screenshots) — fixes must be applied in both places.
   # Test:
   #   if: always()
   #   needs: [checkout-trusted, checkout-signed]
@@ -249,15 +258,16 @@ jobs:
       
       - name: Run Tests
         run: | 
-          sudo env "PATH=$PATH" pnpm run test-wdio
-          sudo env "PATH=$PATH" pnpm run test-py
+          sudo env "PATH=$PATH" "CI=true" pnpm run test-wdio
+          sudo env "PATH=$PATH" "CI=true" pnpm run test-py
       
       - name: Set output perms
         if: always()
         run: |
           echo "Current user for this action is - $USER $(id -u)"
-          sudo chown -R $(whoami) tests/test_config
-          sudo chown -R $(whoami) tests/test_vault
+          for d in tests/test_config tests/test_vault; do
+            if [ -d "$d" ]; then sudo chown -R "$(whoami)" "$d"; fi
+          done
 
           ls -alh
           ls -alh tests/test_config/
@@ -311,7 +321,9 @@ jobs:
           REF: ${{ github.ref }}
         shell: bash
         run: |
-          echo "# 📷 Screenshots of tests:" >> comment.md
+          shopt -s nullglob globstar
+          rm -f comment.md
+          echo "# 📷 Screenshots of tests:" > comment.md
           echo "" >> comment.md
 
           for ss_test in logs/**/; do 
@@ -329,7 +341,7 @@ jobs:
 
             for ss in "$ss_test"*Pre*.png; do 
               echo '<p float="left">' >> comment.md
-              cml-publish "$ss" | sed -E 's/.+/<img width="90%" src="\0"\/>/' >> comment.md
+              cml publish "$ss" | sed -E 's/.+/<img width="90%" src="\0"\/>/' >> comment.md
               echo '</p>' >> comment.md
             done 
             
@@ -337,7 +349,7 @@ jobs:
 
             for ss in "$ss_test"*Post*.png; do 
               echo '<p float="left">' >> comment.md
-              cml-publish "$ss" | sed -E 's/.+/<img width="90%" src="\0"\/>/' >> comment.md
+              cml publish "$ss" | sed -E 's/.+/<img width="90%" src="\0"\/>/' >> comment.md
               echo '</p>' >> comment.md
             done 
 
