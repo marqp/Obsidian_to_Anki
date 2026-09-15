@@ -6,6 +6,7 @@ import { ANKI_ICON } from './src/constants'
 import { settingToData } from './src/setting-to-data'
 import { FileManager } from './src/files-manager'
 import { FileHashes, extractNoteIdFromLine, findFirstNoteId } from './src/scan-optimizations'
+import { collectDryRunState, formatDryRunSummary } from './src/dry-run'
 
 export default class MyPlugin extends Plugin {
 	declare settings: PluginSettings
@@ -206,7 +207,7 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
-	async scanVaultOnce(file?: TFile | null) {
+	async scanVaultOnce(file?: TFile | null, dryRun = false) {
 		new Notice('Scanning vault, check console for details...')
 		console.info('Checking connection to Anki...')
 		try {
@@ -251,6 +252,10 @@ export default class MyPlugin extends Plugin {
 			console.info('No changed files found. Nothing to sync.')
 			return
 		}
+		if (dryRun) {
+			await this.reportDryRun(manager, totalFiles)
+			return
+		}
 		await manager.requests_1()
 		// Structured one-liner for CLI agents and log scraping:
 		// [Obsidian_to_Anki] scan complete: files_changed=2/120 added=5 updated=1 deleted=0
@@ -267,6 +272,25 @@ export default class MyPlugin extends Plugin {
 		}
 		new Notice('All done! Saving file hashes and added media now...')
 		this.saveAllData()
+	}
+
+	/**
+	 * Read-only preview path: same file discovery and parsing as a real scan,
+	 * but collects the diff via collectDryRunState instead of dispatching the
+	 * mutating batch. Never writes files, hashes or media state.
+	 */
+	async reportDryRun(manager: FileManager, totalFiles: number): Promise<void> {
+		const summary = await collectDryRunState(manager.ownFiles, {
+			hasNoteTypeChanges: manager.data.allow_note_type_changes,
+			orphanNoteIds: manager.orphanNoteIds
+		})
+		summary.filesTotal = totalFiles
+		console.info(formatDryRunSummary(summary))
+		console.info('[Obsidian_to_Anki] dry-run details: ' + JSON.stringify(summary.changes))
+		new Notice(
+			`Dry-run complete: ${summary.wouldAdd} to add, ${summary.wouldUpdate} to update, ` +
+				`${summary.wouldDelete} to delete, ${summary.wouldConvert} to convert (see console for details)`
+		)
 	}
 
 	async onload() {
@@ -315,6 +339,23 @@ export default class MyPlugin extends Plugin {
 			name: 'Scan Current File',
 			callback: async () => {
 				await this.scanVault(this.app.workspace.getActiveFile())
+			}
+		})
+
+		this.addCommand({
+			id: 'anki-dry-run',
+			name: 'Dry Run (preview changes without writing)',
+			callback: async () => {
+				if (this.scan_in_progress) {
+					new Notice('A vault scan is already in progress.')
+					return
+				}
+				this.scan_in_progress = true
+				try {
+					await this.scanVaultOnce(undefined, true)
+				} finally {
+					this.scan_in_progress = false
+				}
 			}
 		})
 

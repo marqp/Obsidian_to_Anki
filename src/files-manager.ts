@@ -72,6 +72,22 @@ function difference<T>(setA: Set<T>, setB: Set<T>): Set<T> {
 	return _difference
 }
 
+/** True when a changeDeck payload (or a multi wrapping them) actually moves cards. */
+function deckHasCards(deck: AnkiConnect.AnkiConnectRequest): boolean {
+	const cards = deck.params['cards']
+	if (Array.isArray(cards)) {
+		return cards.length > 0
+	}
+	const actions = deck.params['actions']
+	return (
+		Array.isArray(actions) &&
+		actions.some((action) => {
+			const nested = (action as AnkiConnect.AnkiConnectRequest).params?.['cards']
+			return Array.isArray(nested) && nested.length > 0
+		})
+	)
+}
+
 export class FileManager {
 	app: App
 	data: ParsedSettings
@@ -448,8 +464,7 @@ export class FileManager {
 		console.info('Requesting cards to be moved to target deck...')
 		for (const file of this.ownFiles) {
 			const deck = file.getChangeDecks()
-			const cards = deck.params['cards']
-			if (Array.isArray(cards) && cards.length > 0) {
+			if (deckHasCards(deck)) {
 				temp.push(deck)
 			}
 		}

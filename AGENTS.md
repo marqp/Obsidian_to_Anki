@@ -34,8 +34,14 @@ obsidian "vault=My Vault" command id="obsidian-to-anki-plugin:anki-scan-vault"
 
 - The app must be running (first command auto-launches it); Anki + AnkiConnect must be up —
   pre-check with `curl -sf localhost:8765` because scan failures surface as Notices, not CLI errors.
+  This applies to dry-run too: it needs live `notesInfo`/`cardsInfo` for the exact diff, so it is
+  not an offline command.
 - Every scan ends with a machine-readable line on the app console for agents/log scraping:
   `[Obsidian_to_Anki] scan complete: files_changed=2/120 added=5 updated=1 deleted=0`.
+- Dry-run preview (no writes): `obsidian "vault=My Vault" command id="obsidian-to-anki-plugin:anki-dry-run"`
+  emits `[Obsidian_to_Anki] dry-run complete: ... would_add=5 would_update=1 would_delete=0 would_convert=1`
+  plus one JSON line with per-file changes. `would_update` counts notes whose fields, tags
+  (order-insensitive) or card decks differ — it mirrors the real scan's semantics.
 
 ## Commands
 

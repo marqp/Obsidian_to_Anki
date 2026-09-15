@@ -321,18 +321,44 @@ abstract class AbstractFile {
 	}
 
 	getChangeDecks(): AnkiConnect.AnkiConnectRequest {
-		// When frontmatter locks the deck, all cards go to one deck — use simple path
-		if (this.frontmatter_has_deck || this.note_edit_deck_map.length <= 1) {
-			return AnkiConnect.changeDeck(this.card_ids, this.target_deck)
-		}
-		// Multiple decks: group card IDs by target deck
 		const actions: AnkiConnect.AnkiConnectRequest[] = []
-		for (const group of this.note_edit_deck_map) {
-			if (group.card_ids.length > 0) {
-				actions.push(AnkiConnect.changeDeck(group.card_ids, group.deck))
+		for (const [deck, cardIds] of this.getTargetDeckByCardGrouped()) {
+			if (cardIds.length > 0) {
+				actions.push(AnkiConnect.changeDeck(cardIds, deck))
 			}
 		}
+		if (actions.length === 1) {
+			return actions[0]
+		}
 		return AnkiConnect.multi(actions)
+	}
+
+	/**
+	 * Where the real scan would move each card: card ID → target deck.
+	 * Shared by the real scan (requests_2) and the dry-run diff so both agree
+	 * on what "the deck should be" means. Must be called after parse.
+	 */
+	getTargetDeckByCard(): Map<number, string> {
+		const byCard = new Map<number, string>()
+		for (const [deck, cardIds] of this.getTargetDeckByCardGrouped()) {
+			for (const cardId of cardIds) {
+				byCard.set(cardId, deck)
+			}
+		}
+		return byCard
+	}
+
+	private getTargetDeckByCardGrouped(): Map<string, number[]> {
+		if (this.frontmatter_has_deck || this.note_edit_deck_map.length <= 1) {
+			return new Map([[this.target_deck, [...this.card_ids]]])
+		}
+		const byDeck = new Map<string, number[]>()
+		for (const group of this.note_edit_deck_map) {
+			if (group.card_ids.length > 0) {
+				byDeck.set(group.deck, [...(byDeck.get(group.deck) ?? []), ...group.card_ids])
+			}
+		}
+		return byDeck
 	}
 
 	getUpdateTags(): AnkiConnect.AnkiConnectRequest {
