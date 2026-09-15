@@ -28,7 +28,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck
+      - name: Typecheck (TS 6 API for typescript-eslint compat)
+        run: pnpm exec tsc6 --noEmit
+
+      - name: Typecheck (TS 7 native)
         run: pnpm exec tsc --noEmit
 
       - name: Lint
