@@ -6,6 +6,8 @@
     "scripts": {
         "dev": "rollup --config rollup.config.js -w",
         "build": "rollup --config rollup.config.js",
+        "dev:esbuild": "node esbuild.config.mjs watch",
+        "build:esbuild": "pnpm exec tsc --noEmit && node esbuild.config.mjs production",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
         "lint:knip": "knip --include files,exports,types,dependencies --reporter compact",
@@ -39,6 +41,7 @@
         "@wdio/local-runner": "^8.6.9",
         "@wdio/mocha-framework": "^8.16.17",
         "@wdio/spec-reporter": "^8.12.2",
+        "esbuild": "^0.28.2",
         "eslint": "^10.10.0",
         "eslint-config-prettier": "^10.1.8",
         "glob": "^10.3.10",
