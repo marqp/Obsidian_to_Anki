@@ -266,15 +266,29 @@ abstract class AbstractFile {
 		return AnkiConnect.deleteNotes(this.notes_to_delete)
 	}
 
-	getUpdateFields(): AnkiConnect.AnkiConnectRequest {
+	/**
+	 * Build the update batch for existing notes. `useUpdateNote` consolidates
+	 * fields and tags into one action per note (AnkiConnect >= updateNote);
+	 * false keeps the legacy updateNoteFields-only batch.
+	 */
+	getNoteUpdates(useUpdateNote: boolean): AnkiConnect.AnkiConnectRequest {
 		const actions: AnkiConnect.AnkiConnectRequest[] = []
 		for (const parsed of this.notes_to_edit) {
 			if (parsed.identifier == null) {
 				continue
 			}
-			actions.push(AnkiConnect.updateNoteFields(parsed.identifier, parsed.note.fields))
+			if (useUpdateNote) {
+				actions.push(AnkiConnect.updateNote(parsed.identifier, parsed.note.fields, this.noteTagsFor(parsed)))
+			} else {
+				actions.push(AnkiConnect.updateNoteFields(parsed.identifier, parsed.note.fields))
+			}
 		}
 		return AnkiConnect.multi(actions)
+	}
+
+	/** Tags an existing note should carry in Anki: note tags plus file-level tags. */
+	noteTagsFor(parsed: AnkiConnectNoteAndID): string[] {
+		return (parsed.note.tags.join(' ') + ' ' + this.global_tags).split(' ').filter((tag) => tag.length > 0)
 	}
 
 	getNoteInfo(): AnkiConnect.AnkiConnectRequest {

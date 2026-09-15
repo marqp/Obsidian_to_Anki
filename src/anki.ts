@@ -195,6 +195,32 @@ export function guiEditNote(noteId: number): AnkiConnectRequest {
 	return request('guiEditNote', { note: noteId })
 }
 
+export function updateNote(id: number, fields: Record<string, string>, tags: string[]): AnkiConnectRequest {
+	return request('updateNote', { note: { id, fields, tags } })
+}
+
+export interface ApiReflectResult {
+	scopes: string[]
+	actions?: string[]
+}
+
+/**
+ * Ask the running AnkiConnect which of the given actions it supports.
+ *
+ * Late actions such as `updateNote` shipped without bumping the frozen API
+ * version (still 6), so `version` cannot gate them. `apiReflect` reports the
+ * action list of the live daemon. Any failure degrades to the empty set,
+ * which routes callers onto the legacy, always-supported code paths.
+ */
+export async function detectSupportedActions(actions: string[]): Promise<Set<string>> {
+	try {
+		const result = await invoke<ApiReflectResult>('apiReflect', { scopes: ['actions'], actions })
+		return new Set(Array.isArray(result.actions) ? result.actions : [])
+	} catch (_e) {
+		return new Set()
+	}
+}
+
 export function storeMediaFile(filename: string, data: string): AnkiConnectRequest {
 	return request('storeMediaFile', {
 		filename: filename,

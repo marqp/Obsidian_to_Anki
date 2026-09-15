@@ -78,6 +78,7 @@ export class FileManager {
 	file_hashes: FileHashes
 	requests_1_result: unknown[] | null = null
 	added_media_set: Set<string>
+	private useUpdateNote = false
 
 	constructor(app: App, data: ParsedSettings, files: TFile[], file_hashes: FileHashes, added_media: string[]) {
 		this.app = app
@@ -206,6 +207,13 @@ export class FileManager {
 
 	async requests_1() {
 		const requests: AnkiConnect.AnkiConnectRequest[] = []
+		// One reflection call per scan decides which late actions this daemon
+		// supports. Failures degrade to the legacy paths (see detectSupportedActions).
+		const supported = await AnkiConnect.detectSupportedActions(['updateNote'])
+		this.useUpdateNote = supported.has('updateNote')
+		if (this.useUpdateNote) {
+			console.info('AnkiConnect supports updateNote: field and tag updates will be consolidated.')
+		}
 		console.info('Requesting addition of new deck into Anki...')
 		const uniqueDecks = new Set<string>()
 		for (const file of this.ownFiles) {
@@ -237,7 +245,7 @@ export class FileManager {
 		requests.push(AnkiConnect.getTags())
 		console.info('Requesting update of fields of existing notes')
 		for (const file of this.ownFiles) {
-			temp.push(file.getUpdateFields())
+			temp.push(file.getNoteUpdates(this.useUpdateNote))
 		}
 		requests.push(AnkiConnect.multi(temp))
 		temp = []
@@ -323,10 +331,14 @@ export class FileManager {
 			file.note_edit_deck_map = []
 			for (let j = 0; j < file_response.length; j++) {
 				const note_response = file_response[j]
+				const noteToEdit = file.notes_to_edit[j]
+				if (!note_response || !noteToEdit) {
+					continue
+				}
 				temp.push(...note_response.cards)
 				file.note_edit_deck_map.push({
 					card_ids: note_response.cards,
-					deck: file.notes_to_edit[j].note.deckName
+					deck: noteToEdit.note.deckName
 				})
 			}
 			file.card_ids = temp
@@ -371,16 +383,20 @@ export class FileManager {
 		}
 		requests.push(AnkiConnect.multi(temp))
 		temp = []
-		console.info('Requesting tags to be replaced...')
-		for (const file of this.ownFiles) {
-			const update = file.getUpdateTags()
-			const actions = update.params['actions']
-			if (Array.isArray(actions) && actions.length > 0) {
-				temp.push(update)
+		if (!this.useUpdateNote) {
+			console.info('Requesting tags to be replaced...')
+			for (const file of this.ownFiles) {
+				const update = file.getUpdateTags()
+				const actions = update.params['actions']
+				if (Array.isArray(actions) && actions.length > 0) {
+					temp.push(update)
+				}
 			}
+			requests.push(AnkiConnect.multi(temp))
+			temp = []
+		} else {
+			console.info('Skipping tag replacement: tags were consolidated into updateNote.')
 		}
-		requests.push(AnkiConnect.multi(temp))
-		temp = []
 		await AnkiConnect.invoke('multi', { actions: requests })
 		if (this.data.sync_to_ankiweb) {
 			console.info('Triggering AnkiWeb sync...')
