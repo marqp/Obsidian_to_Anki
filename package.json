@@ -1,7 +1,7 @@
 {
     "name": "obsidian-to-anki-plugin",
     "version": "3.8.0",
-    "description": "This is an Anki integration plugin! Designed for efficient bulk exporting.",
+    "description": "Obsidian_to_Anki fork with additional features and performance gains.",
     "main": "main.js",
     "scripts": {
         "dev": "node esbuild.config.mjs watch",
@@ -24,7 +24,7 @@
     },
     "packageManager": "pnpm@11.21.0",
     "keywords": [],
-    "author": "",
+    "author": "marqp",
     "license": "MIT",
     "devDependencies": {
         "@eslint/js": "^10.0.1",

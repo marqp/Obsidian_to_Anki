@@ -561,7 +561,7 @@ export class SettingsTab extends PluginSettingTab {
 		})
 		descriptionFragment.createEl('a', {
 			text: 'README.md',
-			href: 'https://github.com/Pseudonium/Obsidian_to_Anki?tab=readme-ov-file#features'
+			href: 'https://github.com/marqp/Obsidian_to_Anki?tab=readme-ov-file#features'
 		})
 		descriptionFragment.createEl('span', { text: ' for more information, examples and further resources.' })
 
@@ -590,7 +590,7 @@ export class SettingsTab extends PluginSettingTab {
 		containerEl.createEl('h2', { text: 'Obsidian_to_Anki settings' })
 		containerEl.createEl('a', {
 			text: 'For more information check the wiki',
-			href: 'https://github.com/Pseudonium/Obsidian_to_Anki/wiki'
+			href: 'https://github.com/marqp/Obsidian_to_Anki/tree/master/docs'
 		})
 		this.setup_note_table()
 		this.setup_folder_table()

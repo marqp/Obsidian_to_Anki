@@ -5,7 +5,7 @@ Plugin to add flashcards from a text or markdown file to Anki. Run in Obsidian a
 
 ## Getting started
 
-Check out the [Wiki](https://github.com/Pseudonium/Obsidian_to_Anki/wiki)! It has a ton of information, including setup instructions for new users. I will include a copy of the instructions here:
+Check out the [docs](./docs/index.md) (also mirrored in the [repo wiki](https://github.com/marqp/Obsidian_to_Anki/wiki), if enabled)! It has a ton of information, including setup instructions for new users. I will include a copy of the instructions here:
 
 ## Setup
 
@@ -38,7 +38,7 @@ Check out the [Wiki](https://github.com/Pseudonium/Obsidian_to_Anki/wiki)! It ha
 You shouldn't need Anki running to load Obsidian in the future, though of course you will need it for using the plugin!
 
 To run the plugin, look for an Anki icon on your ribbon (the place where buttons such as 'open Graph view' and 'open Quick Switcher' are).
-For more information on use, please check out the [Wiki](https://github.com/Pseudonium/Obsidian_to_Anki/wiki)!
+For more information on use, please check out the [docs](./docs/index.md)!
 
 ### Python script users
 3. Install the latest version of [Python](https://www.python.org/downloads/).
@@ -58,7 +58,7 @@ The script needs to be able to:
 
 ## Features
 
-Current features (check out the wiki for more details):
+Current features (check out the [docs](./docs/index.md) for more details):
 * **Custom note types** - You're not limited to the 6 built-in note types of Anki.
 * **Custom scan directories** 
   * The plugin will scan the entire vault by default
@@ -127,7 +127,7 @@ Current features (check out the wiki for more details):
   </pre>
   ![Cloze 1](Images/Cloze_1.png)
 
-Note that **all custom syntax is off by default**, and must be programmed into the script via the config file - see the Wiki for more details.
+Note that **all custom syntax is off by default**, and must be programmed into the script via the config file - see the [regex docs](./docs/regex.md) for more details.
 
 ## Fork additions
 
@@ -152,6 +152,19 @@ Everything above works as in upstream. On top of that, this fork adds:
 * **Faster boot** — plugin data is read once at startup instead of once per loader.
 * **Single-pass text formatting** — censor/decensor masking without double regex passes.
 * **Modern toolchain** — esbuild bundle (~85ms builds), strict TypeScript, Vitest + mutation-tested core.
+
+### Plugin identity
+
+The plugin ID stays `obsidian-to-anki-plugin` on purpose: this fork is a
+drop-in replacement for the upstream plugin. Same ID means the same settings
+(`data.json`), the same command IDs (`obsidian-to-anki-plugin:anki-scan-vault`,
+`anki-scan-file`, `anki-dry-run`, `anki-view-in-browser`, `anki-edit-note`),
+and the same install slot under BRAT — swap the remote to
+`marqp/Obsidian_to_Anki` and keep your vault, your `<!--ID: …-->` comments,
+and your Anki scheduling. Only the author (`marqp`) and the release artifacts
+differ. Do not change the ID: it would orphan existing `data.json` files,
+break headless `obsidian … command id=…` calls, and force users to re-add
+every card.
 
 ## Development
 

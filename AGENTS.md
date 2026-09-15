@@ -46,7 +46,8 @@ obsidian "vault=My Vault" command id="obsidian-to-anki-plugin:anki-scan-vault"
   (order-insensitive) or card decks differ — it mirrors the real scan's semantics.
   New plugin features (orphan deletion, dry-run, auto-launch, note-type conversion) are
   user-facing behavior documented in README [Fork additions]; keep both docs in sync
-  when behavior changes.
+  when behavior changes. Behavior changes also update the matching page under `docs/`
+  (user docs, adapted from the upstream wiki); new settings update `docs/config.md`.
 
 ## Anki availability (fail-fast, desktop-only)
 
