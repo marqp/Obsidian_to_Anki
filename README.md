@@ -43,7 +43,7 @@ For more information on use, please check out the [Wiki](https://github.com/Pseu
 
 ### Python script users
 3. Install the latest version of [Python](https://www.python.org/downloads/).
-4. If you are a new user, download `obstoanki_setup.py` from the [releases page](https://github.com/Pseudonium/Obsidian_to_Anki/releases), and place it in the folder you want the script installed (for example your notes folder).  
+4. If you are a new user, download `obstoanki_setup.py` from the [releases page](https://github.com/marqp/Obsidian_to_Anki/releases), and place it in the folder you want the script installed (for example your notes folder).  
 5. Run `obstoanki_setup.py`, for example by double-clicking it in a file explorer. This will download the latest version of the script and required dependencies automatically. Existing users should be able to run their existing `obstoanki_setup.py` to get the latest version of the script.  
 6. Check the Permissions tab below to ensure the script is able to run.
 7. Run `obsidian_to_anki.py`, for example by double-clicking it in a file explorer. This will generate a config file, `obsidian_to_anki_config.ini`.
@@ -131,3 +131,18 @@ Current features (check out the wiki for more details):
 Note that **all custom syntax is off by default**, and must be programmed into the script via the config file - see the Wiki for more details.
 
 <a href='https://ko-fi.com/K3K52X4L6' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://cdn.ko-fi.com/cdn/kofi1.png?v=2' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
+
+## Development
+
+This fork is maintained with `pnpm` (v11.21) and Node 22. See [AGENTS.md](./AGENTS.md) for the full contributor guide.
+
+```bash
+pnpm install --frozen-lockfile
+pnpm run dev        # watch build
+pnpm run build      # production bundle (main.js)
+pnpm test           # unit + regression tests with coverage gate
+pnpm run lint && pnpm run format:check
+pnpm run test:e2e   # heavy: Docker + WebdriverIO + pytest (needs Anki + AnkiConnect on 127.0.0.1:8765)
+```
+
+Test layout: `tests/unit/` (Vitest, fast) · `tests/anki/` (pytest, CLI script) · E2E via `prepare-wdio.sh` + `wdio.conf.ts` + `Dockerfile`. Directories `tests/test_config/`, `tests/test_vault/` and `tests/specs_gen/` are generated at runtime — never commit them.
