@@ -24,6 +24,10 @@ Anki state), both engines must produce identical **observable** outputs:
   equivalent; they are covered by the fork's own unit tests.
 - Model change with conversion OFF: record what upstream does and compare;
   a divergence becomes a documented known-difference, not necessarily a bug.
+- Server-side deck assignment: Anki 2.1.60 (+ AnkiConnect) ignores `deckName`
+  in `addNote` even after `createDeck` — observed via direct `curl` on both
+  sides (cards land in `Default`). Both engines send the correct payload, so
+  deck routing is verified at parse level only (dry-run detail), not end-state.
 
 ## Warning comparison policy
 
