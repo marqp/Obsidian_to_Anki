@@ -75,6 +75,9 @@
   vertical-align: middle;
 }
 
+/* h1 is reserved: Obsidian hides bare h1 inside .vertical-tab-content
+   (.vertical-tab-content h1 { display: none }). The title stays h2 with an
+   explicit class so it sizes and aligns like a top-level heading. */
 .o2a-title {
   margin-left: 0;
   padding-left: 0;
