@@ -1,0 +1,5 @@
+allowBuilds:
+  edgedriver: true
+  geckodriver: true
+patchedDependencies:
+  '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner.patch

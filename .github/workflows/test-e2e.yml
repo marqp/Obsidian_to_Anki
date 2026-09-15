@@ -23,20 +23,22 @@ jobs:
     steps:
       - name: Branch based PR checkout
         uses: actions/checkout@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
       - name: Use Node.js ${{ env.NODE_V }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_V }}
-      - run: |
-          npm install obsidian 
-          npm ci
-      - run: npm run build --if-present
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build --if-present
       
       - name: Run Tests
         run: | 
-          # npm run test
-          sudo npm run test-wdio
-          sudo npm run test-py
+          sudo env "PATH=$PATH" pnpm run test-wdio
+          sudo env "PATH=$PATH" pnpm run test-py
       
       - name: Set output perms
         if: always()
@@ -233,21 +235,22 @@ jobs:
       # - name: Trusted Checkout
       #   if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
       #   uses: actions/checkout@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
       - name: Use Node.js ${{ env.NODE_V }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_V }}
-      - run: |
-          npm install obsidian 
-          npm ci
-      - run: npm run build --if-present
-      # - run: npm test
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build --if-present
       
       - name: Run Tests
         run: | 
-          # npm run test
-          sudo npm run test-wdio
-          sudo npm run test-py
+          sudo env "PATH=$PATH" pnpm run test-wdio
+          sudo env "PATH=$PATH" pnpm run test-py
       
       - name: Set output perms
         if: always()

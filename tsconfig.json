@@ -5,6 +5,9 @@
         "target": "esnext",
         "moduleResolution": "node",
         "allowSyntheticDefaultImports": true,
+        "skipLibCheck": true,
+        "strict": true
     },
-    "exclude": ["node_modules", "tests/**/*.ts"]
+    "include": ["main.ts", "src/**/*.ts"],
+    "exclude": ["node_modules"]
 }
