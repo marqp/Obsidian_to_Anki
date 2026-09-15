@@ -595,7 +595,7 @@ export class SettingsTab extends PluginSettingTab {
 		const { containerEl } = this
 
 		containerEl.empty()
-		containerEl.createEl('h2', { text: 'Obsidian_to_Anki settings (marqp fork)' })
+		containerEl.createEl('h1', { text: 'Obsidian_to_Anki settings (marqp fork)', cls: 'o2a-title' })
 		containerEl.createEl('a', {
 			text: 'For more information check the wiki',
 			href: 'https://github.com/marqp/Obsidian_to_Anki/tree/master/docs'

@@ -114,7 +114,7 @@ describe('SettingsTab Folder Table Optimizations', () => {
 		tab.setup_display()
 
 		const children = tab.containerEl.children as Array<Record<string, unknown>>
-		const title = children.find((c) => c['tag'] === 'h2')
+		const title = children.find((c) => c['tag'] === 'h1')
 		expect(title?.['textContent']).toBe('Obsidian_to_Anki settings (marqp fork)')
 		const tabBar = children.find((c) => c['cls'] === 'o2a-tabs')
 		const tabButtons = (tabBar?.['children'] as Array<Record<string, unknown>>) ?? []

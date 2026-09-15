@@ -75,6 +75,14 @@
   vertical-align: middle;
 }
 
+.o2a-title {
+  margin-left: 0;
+  padding-left: 0;
+  text-align: left;
+  font-size: var(--font-ui-large, 20px);
+  font-weight: 600;
+}
+
 .o2a-tabs {
   display: flex;
   gap: 4px;
