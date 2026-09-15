@@ -5,7 +5,7 @@ Plugin to add flashcards from a text or markdown file to Anki. Run in Obsidian a
 
 ## Getting started
 
-Check out the [docs](./docs/index.md) (also mirrored in the [repo wiki](https://github.com/marqp/Obsidian_to_Anki/wiki), if enabled)! It has a ton of information, including setup instructions for new users. I will include a copy of the instructions here:
+Check out the [docs](./docs/index.md) (also mirrored in the [repo wiki](https://github.com/marqp/Obsidian_to_Anki/wiki))! It has a ton of information, including setup instructions for new users. I will include a copy of the instructions here:
 
 ## Setup
 
