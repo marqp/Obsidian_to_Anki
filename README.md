@@ -1,8 +1,7 @@
-> **Community maintenance fork** of [`ObsidianToAnki/Obsidian_to_Anki`](https://github.com/ObsidianToAnki/Obsidian_to_Anki) (stalled since Feb 2024, delisted from Community Plugins). Same plugin ID (`obsidian-to-anki-plugin`) — drop-in replacement via BRAT. Scope: unmerged community fixes + performance; no new architecture. Upstream PRs merged in bulk are credited in commit messages.
+> **Actively developed community fork** of [`ObsidianToAnki/Obsidian_to_Anki`](https://github.com/ObsidianToAnki/Obsidian_to_Anki) (upstream stalled since Feb 2024). Same plugin ID (`obsidian-to-anki-plugin`) — drop-in replacement via BRAT. It started by merging the stalled upstream PRs and has since grown its own architecture and features (see [Fork additions](#fork-additions)). Card syntax (`START`/`END`, inline notes, custom regexps, Python CLI format) stays compatible with upstream.
 
 # Obsidian_to_Anki
-Plugin to add flashcards from a text or markdown file to Anki. Run in Obsidian as a plugin, or from the command-line as a python script. Built with [Obsidian](https://obsidian.md/) markdown syntax in mind. Supports **user-defined custom syntax for flashcards.**  
-See the [Trello](https://trello.com/b/6MXEizGg/obsidiantoanki) for planned features.
+Plugin to add flashcards from a text or markdown file to Anki. Run in Obsidian as a plugin, or from the command-line as a python script. Built with [Obsidian](https://obsidian.md/) markdown syntax in mind. Supports **user-defined custom syntax for flashcards.**
 
 ## Getting started
 
@@ -16,8 +15,8 @@ Check out the [Wiki](https://github.com/Pseudonium/Obsidian_to_Anki/wiki)! It ha
 
 ### Obsidian plugin users
 3. Have [Obsidian](https://obsidian.md/) downloaded
-4. Search the 'Community plugins' list for this plugin
-5. Install the plugin.
+4. Install via [BRAT](https://github.com/TfTHacker/BRAT): add `marqp/Obsidian_to_Anki` as a beta plugin (this fork is not listed in Community Plugins).
+5. Enable the plugin in Settings → Community plugins.
 6. In Anki, navigate to Tools->Addons->AnkiConnect->Config, and change it to look like this:
 <pre>
 {
@@ -129,6 +128,19 @@ Current features (check out the wiki for more details):
   ![Cloze 1](Images/Cloze_1.png)
 
 Note that **all custom syntax is off by default**, and must be programmed into the script via the config file - see the Wiki for more details.
+
+## Fork additions
+
+Everything above works as in upstream. On top of that, this fork adds:
+
+* **Removed blocks delete their cards** — deleting a `START…END` block from a note deletes the card in Anki on the next scan, no `DELETE` line needed. Tracked per file, so renames and moves between files are safe; the first scan of a file only records IDs. Toggle: `Delete Removed Notes` (on by default).
+* **Dry-run preview** — command `Obsidian to Anki: Dry run` (also callable headless via the [Obsidian CLI](https://help.obsidian.md/cli): `obsidian "vault=My Vault" command id="obsidian-to-anki-plugin:anki-dry-run"`) prints exactly what a scan would add, update, delete or convert, without writing to files or Anki.
+* **Anki availability detection** — scans classify the endpoint (`ready`, `needs-key`, `denied-origin`, `closed`, `starting-or-busy`, `busy-port`) and report actionable messages instead of a generic connection error. Optional `Auto-launch Anki` (off by default, desktop only) starts Anki Desktop when a scan finds it closed.
+* **API key support** — works with AnkiConnect instances protected by `apiKey`, plus a "Test AnkiConnect Connection" button in settings.
+* **Optional AnkiWeb sync** — `Sync to AnkiWeb` (off by default) triggers a sync after each scan.
+* **Note-type conversion (opt-in)** — `Allow Note Type Changes` (off by default) converts cards whose note type changed in Markdown, keeping review history. Anki discards fields absent from the new model, so preview with dry-run first.
+* **Faster updates** — field+tag updates are consolidated into one `updateNote` call when the daemon supports it (probed per scan, legacy fallback otherwise).
+* **Extra commands** — `Scan Current File`, `View Note in Anki Browser`, `Edit Note in Anki` (jumps to the card under the cursor).
 
 <a href='https://ko-fi.com/K3K52X4L6' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://cdn.ko-fi.com/cdn/kofi1.png?v=2' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
 

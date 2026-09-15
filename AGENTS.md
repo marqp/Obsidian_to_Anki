@@ -3,9 +3,11 @@
 Canonical contributor guide for AI agents and humans working on this repo.
 `CLAUDE.md` is a pointer to this file — edit here, not there.
 
-Community maintenance fork of `ObsidianToAnki/Obsidian_to_Anki` (upstream stalled
+Actively developed community fork of `ObsidianToAnki/Obsidian_to_Anki` (upstream stalled
 since Feb 2024). Same plugin ID (`obsidian-to-anki-plugin`), drop-in replacement
-via BRAT. Fork remote: `marqp/Obsidian_to_Anki`.
+via BRAT. Fork remote: `marqp/Obsidian_to_Anki`. Card syntax stays upstream-compatible;
+behavior intentionally diverged (orphan deletion, updateNote, dry-run — see README
+[Fork additions]).
 
 ## Stack
 
@@ -42,6 +44,9 @@ obsidian "vault=My Vault" command id="obsidian-to-anki-plugin:anki-scan-vault"
   emits `[Obsidian_to_Anki] dry-run complete: ... would_add=5 would_update=1 would_delete=0 would_convert=1`
   plus one JSON line with per-file changes. `would_update` counts notes whose fields, tags
   (order-insensitive) or card decks differ — it mirrors the real scan's semantics.
+  New plugin features (orphan deletion, dry-run, auto-launch, note-type conversion) are
+  user-facing behavior documented in README [Fork additions]; keep both docs in sync
+  when behavior changes.
 
 ## Anki availability (fail-fast, desktop-only)
 
