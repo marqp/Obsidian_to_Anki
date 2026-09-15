@@ -111,18 +111,16 @@ def string_insert(string, position_inserts):
     position_inserts will look like:
     [(0, "hi"), (3, "hello"), (5, "beep")]
     """
-    offset = 0
-    position_inserts = sorted(list(position_inserts))
-    for position, insert_str in position_inserts:
-        string = "".join(
-            [
-                string[:position + offset],
-                insert_str,
-                string[position + offset:]
-            ]
-        )
-        offset += len(insert_str)
-    return string
+    parts = []
+    cursor = 0
+    # Positions refer to coordinates in the ORIGINAL string, so a single
+    # left-to-right pass (O(L)) replaces the old per-insert realloc (O(N*L)).
+    for position, insert_str in sorted(position_inserts):
+        parts.append(string[cursor:position])
+        parts.append(insert_str)
+        cursor = position
+    parts.append(string[cursor:])
+    return "".join(parts)
 
 
 def file_encode(filepath):
@@ -150,6 +148,72 @@ def findignore(pattern, string, ignore_spans):
         match
         for match in pattern.finditer(string)
         if not contained_in(match.span(), ignore_spans)
+    )
+
+
+_COMPILED_SEARCH_PATTERNS = dict()
+
+
+def search_patterns(regexp):
+    """Return the four compiled search variants for a custom regexp.
+
+    Compiled once per distinct pattern and shared across files: re.compile
+    results are stateless for finditer, so sharing is safe and avoids
+    recompiling the same patterns for every file in the vault.
+    """
+    try:
+        return _COMPILED_SEARCH_PATTERNS[regexp]
+    except KeyError:
+        pass
+    patterns = (
+        re.compile(
+            "".join(
+                [
+                    regexp,
+                    RegexNote.TAG_REGEXP_STR,
+                    RegexNote.ID_REGEXP_STR
+                ]
+            ), flags=re.MULTILINE
+        ),
+        re.compile(
+            regexp + RegexNote.ID_REGEXP_STR, flags=re.MULTILINE
+        ),
+        re.compile(
+            regexp + RegexNote.TAG_REGEXP_STR, flags=re.MULTILINE
+        ),
+        re.compile(
+            regexp, flags=re.MULTILINE
+        )
+    )
+    _COMPILED_SEARCH_PATTERNS[regexp] = patterns
+    return patterns
+
+
+def get_stored_hash(entry):
+    """Return the content hash from a file-hash cache entry.
+
+    New entries are dicts {"hash", "mtime", "size"}; legacy entries are
+    plain hash strings. Returns None when there is no usable entry.
+    """
+    if entry is None:
+        return None
+    if isinstance(entry, dict):
+        return entry.get("hash")
+    return entry
+
+
+def is_stat_unchanged(stat_result, cached_entry):
+    """Fast-path negative check: True ONLY if mtime AND size match the cache.
+
+    When True, the file content cannot have changed, so callers may skip
+    reading it from disk entirely. Legacy string entries (and missing stats)
+    always return False, falling back to the content-hash comparison.
+    """
+    if stat_result is None or not isinstance(cached_entry, dict):
+        return False
+    return (
+        cached_entry.get("mtime") == stat_result.st_mtime
+        and cached_entry.get("size") == stat_result.st_size
     )
 
 
@@ -1072,8 +1136,9 @@ class App:
                     [
                         r"^",
                         CONFIG_DATA["NOTE_PREFIX"],
-                        r"\n([\s\S]*?\n)",
+                        r"[ ]*\r?\n([\s\S]*?\r?\n)",
                         CONFIG_DATA["NOTE_SUFFIX"],
+                        r"[ ]*",
                         r"\n?"
                     ]
                 ), flags=re.MULTILINE
@@ -1205,6 +1270,10 @@ class File:
             ).replace("\\", "/")
         else:
             self.url = ""
+        try:
+            self._stat = os.stat(self.filename)
+        except OSError:
+            self._stat = None
         with open(self.filename, encoding='utf_8') as f:
             self.file = f.read()
             self.original_file = self.file
@@ -1488,24 +1557,7 @@ class RegexFile(File):
         ignoring matches inside ignore_spans,
         and adding any matches to ignore_spans.
         """
-        regexp_tags_id = re.compile(
-            "".join(
-                [
-                    regexp,
-                    RegexNote.TAG_REGEXP_STR,
-                    RegexNote.ID_REGEXP_STR
-                ]
-            ), flags=re.MULTILINE
-        )
-        regexp_id = re.compile(
-            regexp + RegexNote.ID_REGEXP_STR, flags=re.MULTILINE
-        )
-        regexp_tags = re.compile(
-            regexp + RegexNote.TAG_REGEXP_STR, flags=re.MULTILINE
-        )
-        regexp = re.compile(
-            regexp, flags=re.MULTILINE
-        )
+        regexp_tags_id, regexp_id, regexp_tags, regexp = search_patterns(regexp)
         for match in findignore(regexp_tags_id, self.file, self.ignore_spans):
             # This note has id, so we update it
             self.ignore_spans.append(match.span())
@@ -1623,22 +1675,43 @@ class Directory:
             self.files = [self.file_class(onefile)]
         else:
             with os.scandir() as it:
-                self.files = sorted(
-                    [
-                        self.file_class(entry.path)
-                        for entry in it
+                # Pass 1: stat-first filter. Entries whose mtime and size match
+                # the cache cannot have changed -- skip instantiating File for
+                # them entirely (no disk read, no hash). os.scandir() DirEntry
+                # stats are cheap; anything inconclusive falls through to the
+                # regular content-hash check below.
+                def _natural_key(entry):
+                    return [
+                        int(part) if part.isdigit() else part.lower()
+                        for part in re.split(r'(\d+)', entry.path)
+                    ]
+
+                self.files = []
+                for entry in sorted(
+                    (
+                        entry for entry in it
                         if entry.is_file() and os.path.splitext(
                             entry.path
                         )[1] in App.SUPPORTED_EXTS
-                    ], key=lambda file: [
-                        int(part) if part.isdigit() else part.lower()
-                        for part in re.split(r'(\d+)', file.filename)]
-                )
+                    ), key=_natural_key
+                ):
+                    try:
+                        entry_stat = entry.stat()
+                    except OSError:
+                        entry_stat = None
+                    if is_stat_unchanged(
+                        entry_stat, App.FILE_HASHES.get(entry.path)
+                    ):
+                        print(
+                            "Skipping", entry.path,
+                            "as we've scanned it before."
+                        )
+                        continue
+                    self.files.append(self.file_class(entry.path))
         files_changed = []
         for file in self.files:
-            if file.filename in App.FILE_HASHES and (
-                file.hash == App.FILE_HASHES[file.filename]
-            ):
+            stored_hash = get_stored_hash(App.FILE_HASHES.get(file.filename))
+            if stored_hash is not None and file.hash == stored_hash:
                 # Indicates we've seen this in a scan before,
                 # And that it hasn't changed.
                 # So, we don't need to do anything with it!
@@ -1760,7 +1833,15 @@ class Directory:
 
     def hashes(self):
         """Return a dictionary of file hashes to use."""
-        return {file.filename: file.hash for file in self.files}
+        result = dict()
+        for file in self.files:
+            entry = {"hash": file.hash}
+            file_stat = getattr(file, "_stat", None)
+            if file_stat is not None:
+                entry["mtime"] = file_stat.st_mtime
+                entry["size"] = file_stat.st_size
+            result[file.filename] = entry
+        return result
 
 
 if __name__ == "__main__":
