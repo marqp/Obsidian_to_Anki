@@ -187,6 +187,14 @@ export function sync(): AnkiConnectRequest {
 	return request('sync')
 }
 
+export function guiBrowse(query: string): AnkiConnectRequest {
+	return request('guiBrowse', { query })
+}
+
+export function guiEditNote(noteId: number): AnkiConnectRequest {
+	return request('guiEditNote', { note: noteId })
+}
+
 export function storeMediaFile(filename: string, data: string): AnkiConnectRequest {
 	return request('storeMediaFile', {
 		filename: filename,

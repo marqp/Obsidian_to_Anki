@@ -1,11 +1,11 @@
-import { Notice, Plugin, addIcon, TFile, TFolder } from 'obsidian'
+import { Notice, Plugin, addIcon, TFile, TFolder, Editor } from 'obsidian'
 import * as AnkiConnect from './src/anki'
 import { PluginSettings, ParsedSettings } from './src/interfaces/settings-interface'
 import { DEFAULT_IGNORED_FILE_GLOBS, SettingsTab } from './src/settings'
 import { ANKI_ICON } from './src/constants'
 import { settingToData } from './src/setting-to-data'
 import { FileManager } from './src/files-manager'
-import { FileHashes } from './src/scan-optimizations'
+import { FileHashes, extractNoteIdFromLine, findFirstNoteId } from './src/scan-optimizations'
 
 export default class MyPlugin extends Plugin {
 	declare settings: PluginSettings
@@ -315,6 +315,40 @@ export default class MyPlugin extends Plugin {
 				await this.scanVault(this.app.workspace.getActiveFile())
 			}
 		})
+
+		this.addCommand({
+			id: 'anki-view-in-browser',
+			name: 'View Note in Anki Browser',
+			editorCallback: async (editor: Editor) => {
+				await this.openNoteInAnki(editor, 'browse')
+			}
+		})
+
+		this.addCommand({
+			id: 'anki-edit-note',
+			name: 'Edit Note in Anki',
+			editorCallback: async (editor: Editor) => {
+				await this.openNoteInAnki(editor, 'edit')
+			}
+		})
+	}
+
+	async openNoteInAnki(editor: Editor, mode: 'browse' | 'edit'): Promise<void> {
+		const cursorLine = editor.getLine(editor.getCursor().line)
+		const noteId = extractNoteIdFromLine(cursorLine) ?? findFirstNoteId(editor.getValue())
+		if (noteId === null) {
+			new Notice('No Anki note ID found in the active file.')
+			return
+		}
+		try {
+			if (mode === 'browse') {
+				await AnkiConnect.invoke('guiBrowse', { query: `nid:${noteId}` })
+			} else {
+				await AnkiConnect.invoke('guiEditNote', { note: noteId })
+			}
+		} catch (_e) {
+			new Notice("Couldn't connect to Anki! Check console for error message.")
+		}
 	}
 
 	async onunload() {

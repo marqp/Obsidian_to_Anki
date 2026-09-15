@@ -20,6 +20,34 @@ export function getStoredHash(entry: string | FileHashEntry | undefined): string
 	return typeof entry === 'string' ? entry : entry.hash
 }
 
+export const ANKI_ID_LINE_REGEXP = /(?:<!--)?ID: (\d+)/
+
+/**
+ * Extract the Anki note ID from a line of text. Returns null when the line
+ * carries no ID (cursor not on a card, comments, headings, etc.).
+ */
+export function extractNoteIdFromLine(line: string): number | null {
+	const match = line.match(ANKI_ID_LINE_REGEXP)
+	if (!match) {
+		return null
+	}
+	return parseInt(match[1], 10)
+}
+
+/**
+ * Find the first Anki note ID in file content. Fallback for the GUI commands
+ * when the cursor line has no ID.
+ */
+export function findFirstNoteId(content: string): number | null {
+	for (const line of content.split('\n')) {
+		const id = extractNoteIdFromLine(line)
+		if (id !== null) {
+			return id
+		}
+	}
+	return null
+}
+
 /**
  * Fast-path negative check: returns true ONLY if mtime AND size match the cache.
  * If true, the file content cannot have changed, avoiding disk reads entirely.
