@@ -82,6 +82,15 @@ with `sudo env "PATH=$PATH"` so pnpm is visible under sudo.
   and callers fall back to the legacy `updateNoteFields`/`updateNoteTags` path when unsupported.
   Note-type conversion (`updateNoteModel`) is opt-in via "Allow Note Type Changes" — Anki silently
   discards fields absent from the new model.
+- **No parser shielding on primary scans (deliberate NO-GO, spike 2026-09).** A `START...END`
+  block inside a fenced code block still parses as a card — fixing that would require span
+  filtering in `scanPattern` + symmetric filtering in `getNoteIdsInFile` + a new mechanism in
+  the Python CLI, for a didactic edge case no fixture covers. Measured span-build cost was
+  negligible (~0.12ms/file), so cost was not the blocker — regression surface was. The one
+  exception: `getNoteIdsInFile` ignores IDs inside fenced code blocks, so a doc example like
+  ` ```<!--ID: 999-->``` ` can never shield a phantom note from orphan deletion. Do not
+  re-propose primary-scan shielding without re-running the spike matrix (fence-in-card,
+  card-in-fence, unclosed fence, inline `::`, E2E fixture audit, Python estimate).
 
 ## tests/ map (generated vs. source)
 

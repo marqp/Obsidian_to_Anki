@@ -43,6 +43,22 @@ describe('AllFile.getNoteIdsInFile', () => {
 		].join('\n')
 		expect(makeFile(content).getNoteIdsInFile()).toEqual([444])
 	})
+
+	it('ignores IDs inside fenced code blocks', () => {
+		const content = [
+			'```',
+			'<!--ID: 999-->',
+			'```',
+			'',
+			'START',
+			'Basic',
+			'Front: q',
+			'Back: a',
+			'<!--ID: 111-->',
+			'END'
+		].join('\n')
+		expect(makeFile(content).getNoteIdsInFile()).toEqual([111])
+	})
 })
 
 describe('findOrphanedNoteIds', () => {

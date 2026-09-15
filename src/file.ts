@@ -204,13 +204,18 @@ abstract class AbstractFile {
 	 * Note IDs present in the file text, used for orphan tracking.
 	 * IDs consumed by an explicit DELETE line are excluded: those notes are
 	 * being removed on purpose, so they must not count as "still present".
+	 * IDs inside fenced code blocks are excluded too: a doc example such as
+	 * ```<!--ID: 999-->``` must not shield a phantom note from deletion.
+	 * (Parser shielding itself is a deliberate NO-GO — see AGENTS.md.)
 	 */
 	getNoteIdsInFile(): number[] {
 		const deleteSpans = spans(this.data.EMPTY_REGEXP, this.file)
+		const fenceSpans = spans(c.OBS_DISPLAY_CODE_REGEXP, this.file)
+		const ignore = deleteSpans.concat(fenceSpans)
 		const ids: number[] = []
 		for (const match of this.file.matchAll(/(?:<!--)?ID: (\d+)/g)) {
 			const position = match.index ?? 0
-			if (deleteSpans.some(([start, end]) => position >= start && position < end)) {
+			if (ignore.some(([start, end]) => position >= start && position < end)) {
 				continue
 			}
 			ids.push(parseInt(match[1], 10))
