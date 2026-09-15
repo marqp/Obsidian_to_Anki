@@ -1,6 +1,7 @@
 {
     "compilerOptions": {
         "lib": ["esnext", "dom", "dom.iterable"],
+        "types": ["node"],
         "target": "esnext",
         "moduleResolution": "bundler",
         "allowSyntheticDefaultImports": true,
