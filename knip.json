@@ -14,6 +14,9 @@
 		// Cross-module contracts consumed via setTransport mocks in tests/**.
 		"src/anki-launch.ts": ["types"],
 		"src/dry-run.ts": ["types"],
+		// ScanControl/ScanProgress/ScanCancelledError: public UI contract —
+		// consumed by main.ts (control/cancel) and tests/** (progress asserts).
+		"src/files-manager.ts": ["types"],
 		// Pure string helpers unit-tested directly in tests/unit/string-insert.test.ts.
 		"src/file.ts": ["exports"]
 	}
