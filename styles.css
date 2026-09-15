@@ -10,6 +10,12 @@
   table-layout: fixed;
 }
 
+.anki-settings-table td {
+  min-width: 0;
+  overflow: hidden;
+  vertical-align: middle;
+}
+
 .anki-settings-table th:first-child,
 .anki-settings-table td:first-child {
   max-width: 180px;
@@ -22,9 +28,31 @@
   box-sizing: border-box;
 }
 
+/* Contain Obsidian Setting controls inside fixed-layout cells: the default
+   .setting-item-control is a flex row whose items refuse to shrink
+   (min-width:auto), so long regexp strings pushed the input into the next
+   column. Force the whole chain to shrink and fill the cell instead. */
 .anki-settings-table .setting-item {
+  display: flex;
+  width: 100%;
+  min-width: 0;
   border: none;
   padding: 0;
+}
+
+.anki-settings-table .setting-item-control {
+  min-width: 0;
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+.anki-settings-table .setting-item-control > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.anki-settings-table .setting-item-control input[type='text'] {
+  width: 100%;
 }
 
 .anki-settings-table .setting-item-info {
