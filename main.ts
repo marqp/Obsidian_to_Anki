@@ -7,6 +7,7 @@ import { settingToData } from './src/setting-to-data'
 import { FileManager } from './src/files-manager'
 import { FileHashes, extractNoteIdFromLine, findFirstNoteId } from './src/scan-optimizations'
 import { collectDryRunState, formatDryRunSummary } from './src/dry-run'
+import { launchAnki, probeAnkiStatus } from './src/anki-launch'
 
 export default class MyPlugin extends Plugin {
 	declare settings: PluginSettings
@@ -48,7 +49,8 @@ export default class MyPlugin extends Plugin {
 				'Anki API Key': '',
 				'Sync to AnkiWeb': false,
 				'Delete Removed Notes': true,
-				'Allow Note Type Changes': false
+				'Allow Note Type Changes': false,
+				'Auto-launch Anki': false
 			},
 			IGNORED_FILE_GLOBS: DEFAULT_IGNORED_FILE_GLOBS
 		}
@@ -151,6 +153,10 @@ export default class MyPlugin extends Plugin {
 		AnkiConnect.setTransport(new AnkiConnect.ObsidianRequestUrlTransport(8765, apiKey))
 	}
 
+	isAutoLaunchEnabled(): boolean {
+		return this.settings['Defaults']['Auto-launch Anki'] === true
+	}
+
 	regenerateSettingsRegexps() {
 		const regexp_section = this.settings['CUSTOM_REGEXPS']
 		// For new note types
@@ -210,15 +216,24 @@ export default class MyPlugin extends Plugin {
 	async scanVaultOnce(file?: TFile | null, dryRun = false) {
 		new Notice('Scanning vault, check console for details...')
 		console.info('Checking connection to Anki...')
-		try {
-			await AnkiConnect.invoke('modelNames')
-		} catch (_e) {
-			new Notice("Error, couldn't connect to Anki! Check console for error message.")
+		const probe = await probeAnkiStatus()
+		console.info(`[Obsidian_to_Anki] anki status: ${probe.status}`)
+		if (probe.status === 'ready') {
+			new Notice(
+				"Successfully connected to Anki! This could take a few minutes - please don't close Anki until the plugin is finished"
+			)
+		} else if (probe.status === 'closed' && this.isAutoLaunchEnabled()) {
+			const outcome = await launchAnki(true)
+			if (outcome === 'launched-and-ready') {
+				new Notice('Anki is now running. Continuing the scan...')
+			} else {
+				new Notice('Anki is starting in the background. Run the scan again in a few seconds.')
+				return
+			}
+		} else {
+			new Notice(probe.message)
 			return
 		}
-		new Notice(
-			"Successfully connected to Anki! This could take a few minutes - please don't close Anki until the plugin is finished"
-		)
 		const data: ParsedSettings = await settingToData(this.app, this.settings, this.fields_dict)
 		const scanDirs = this.settings.Defaults['Scan Directories']
 		let manager = null

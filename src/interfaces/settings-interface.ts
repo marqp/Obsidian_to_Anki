@@ -33,6 +33,7 @@ export interface PluginSettings {
 		'Sync to AnkiWeb': boolean
 		'Delete Removed Notes': boolean
 		'Allow Note Type Changes': boolean
+		'Auto-launch Anki': boolean
 		/** Legacy key, migrated to 'Scan Directories' on load and then deleted. */
 		'Scan Directory'?: string
 		[key: string]: string[] | string | number | boolean | undefined

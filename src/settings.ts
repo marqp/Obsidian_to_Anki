@@ -1,5 +1,6 @@
 import { PluginSettingTab, Setting, Notice, TFolder } from 'obsidian'
 import * as AnkiConnect from './anki'
+import { probeAnkiStatus } from './anki-launch'
 import type MyPlugin from '../main'
 
 const defaultDescs: Record<string, string> = {
@@ -22,7 +23,9 @@ const defaultDescs: Record<string, string> = {
 	'Allow Note Type Changes':
 		'Convert notes in Anki when their note type changed in Markdown. Uses updateNoteModel; fields not present in the new note type are discarded by Anki, so review the change first. Off by default.',
 	'Delete Removed Notes':
-		'Delete the Anki notes whose blocks were removed from Markdown. IDs are tracked per file; renames and moves between files are safe. The first scan of a file only records IDs, so nothing is deleted on that run.'
+		'Delete the Anki notes whose blocks were removed from Markdown. IDs are tracked per file; renames and moves between files are safe. The first scan of a file only records IDs, so nothing is deleted on that run.',
+	'Auto-launch Anki':
+		'Launch Anki Desktop automatically when a scan finds it closed (desktop only, fire-and-forget). Off by default.'
 }
 
 export const DEFAULT_IGNORED_FILE_GLOBS = ['**/*.excalidraw.md']
@@ -224,6 +227,10 @@ export class SettingsTab extends PluginSettingTab {
 		// To account for new note-type change toggle
 		if (!plugin.settings['Defaults'].hasOwnProperty('Allow Note Type Changes')) {
 			plugin.settings['Defaults']['Allow Note Type Changes'] = false
+		}
+		// To account for Anki auto-launch toggle
+		if (!plugin.settings['Defaults'].hasOwnProperty('Auto-launch Anki')) {
+			plugin.settings['Defaults']['Auto-launch Anki'] = false
 		}
 
 		new Setting(defaults_settings)
@@ -502,15 +509,8 @@ export class SettingsTab extends PluginSettingTab {
 					.setClass('mod-cta')
 					.onClick(async () => {
 						new Notice('Testing connection to Anki...')
-						try {
-							const result = await AnkiConnect.invoke<AnkiConnect.PermissionResult>('requestPermission')
-							const configuredKey = plugin.settings['Defaults']['Anki API Key']
-							const hasKey = typeof configuredKey === 'string' && configuredKey.length > 0
-							const diagnosis = AnkiConnect.connectionMessage(result, hasKey)
-							new Notice(diagnosis.message)
-						} catch (_e) {
-							new Notice("Couldn't connect to Anki! Check console for error message.")
-						}
+						const probe = await probeAnkiStatus()
+						new Notice(probe.message)
 					})
 			})
 		new Setting(action_buttons)

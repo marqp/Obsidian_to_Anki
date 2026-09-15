@@ -43,6 +43,17 @@ obsidian "vault=My Vault" command id="obsidian-to-anki-plugin:anki-scan-vault"
   plus one JSON line with per-file changes. `would_update` counts notes whose fields, tags
   (order-insensitive) or card decks differ — it mirrors the real scan's semantics.
 
+## Anki availability (fail-fast, desktop-only)
+
+- Scans and dry-runs classify the endpoint via `probeAnkiStatus()` (`ready`, `needs-key`,
+  `denied-origin`, `closed`, `starting-or-busy`, `busy-port`) and log
+  `[Obsidian_to_Anki] anki unavailable: <reason>` before aborting. No long polling anywhere.
+- Opt-in "Auto-launch Anki" fires one detached spawn (resolved per-platform in
+  `resolveAnkiLaunchTarget`), waits 2s, re-probes once, then aborts with "run the scan again".
+  Default off; desktop-only (`isDesktopOnly: true` — no mobile plans).
+- `child_process`/`fs` are the only Node natives allowed, and only in `src/anki-launch.ts`
+  (kept in Rollup `external`); everything else must stay renderer-safe.
+
 ## Commands
 
 ```bash
