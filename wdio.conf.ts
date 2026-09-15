@@ -153,12 +153,19 @@ export const config/* : Options.Testrunner */ = {
     // your test setup with almost no effort. Unlike plugins, they don't add new
     // commands. Instead, they hook themselves up into the test process.
     // automationProtocol: 'devtools',
-    services: [ 
-        [ 'chromedriver', {
-            logFileName: 'wdio-chromedriver.log', // default
-            outputDir: 'logs', // overwrites the config.outputDir
-            args: ['--silent']            
-        }], 
+    services: [
+        [
+            'chromedriver',
+            {
+                logFileName: 'wdio-chromedriver.log', // default
+                outputDir: 'logs', // overwrites the config.outputDir
+                // The runner image ships its own chromedriver (see CHROMEWEBDRIVER
+                // in the ubuntu24 image README); point the 8.x launcher at it so
+                // no npm chromedriver download (version-coupled to Chrome) is needed.
+                chromedriverCustomPath: '/usr/local/share/chromedriver-linux64/chromedriver',
+                args: ['--silent']
+            }
+        ],
         'docker'
     ],
 
