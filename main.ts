@@ -51,10 +51,9 @@ export default class MyPlugin extends Plugin {
 		this.fields_dict = await this.generateFieldsDict()
 		for (let note_type of this.note_types) {
 			settings["CUSTOM_REGEXPS"][note_type] = ""
-			const field_names: string[] = await AnkiConnect.invoke(
-				'modelFieldNames', {modelName: note_type}
-			) as string[]
-			this.fields_dict[note_type] = field_names
+			// Reuse the already-fetched field names (a second modelFieldNames
+			// round per model here tripled first-run AnkiConnect traffic).
+			const field_names: string[] = this.fields_dict[note_type]
 			settings["FILE_LINK_FIELDS"][note_type] = field_names[0]
 		}
 		return settings
@@ -127,8 +126,9 @@ export default class MyPlugin extends Plugin {
 		let current_data = await this.loadData()
 		if (current_data == null) {
 			await this.saveDefault()
-			const fields_dict = await this.generateFieldsDict()
-			return fields_dict
+			// saveDefault() -> getDefaultSettings() already populated
+			// this.fields_dict; re-fetching here tripled first-run traffic.
+			return this.fields_dict
 		}
 		return current_data.fields_dict
 	}
