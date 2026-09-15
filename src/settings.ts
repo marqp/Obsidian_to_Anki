@@ -42,8 +42,18 @@ const defaultDescs: Record<string, string> = {
 
 export const DEFAULT_IGNORED_FILE_GLOBS = ['**/*.excalidraw.md']
 
+export type SettingsTabId = 'general' | 'notes' | 'folders' | 'actions'
+
+const SETTINGS_TABS: Array<{ id: SettingsTabId; label: string }> = [
+	{ id: 'general', label: 'General' },
+	{ id: 'notes', label: 'Notes' },
+	{ id: 'folders', label: 'Folders' },
+	{ id: 'actions', label: 'Actions' }
+]
+
 export class SettingsTab extends PluginSettingTab {
 	declare plugin: MyPlugin
+	activeTab: SettingsTabId = 'general'
 
 	setup_custom_regexp(note_type: string, row_cells: HTMLCollection) {
 		const plugin = this.plugin
@@ -116,35 +126,11 @@ export class SettingsTab extends PluginSettingTab {
 		context_field.controlEl.className += ' anki-center'
 	}
 
-	create_collapsible(name: string) {
-		const { containerEl } = this
-		const div = containerEl.createEl('div', { cls: 'collapsible-item' })
-		div.innerHTML = `
-			<div class="collapsible-item-self"><div class="collapsible-item-collapse collapse-icon anki-rotated"><svg viewBox="0 0 100 100" width="8" height="8" class="right-triangle"><path fill="currentColor" stroke="currentColor" d="M94.9,20.8c-1.4-2.5-4.1-4.1-7.1-4.1H12.2c-3,0-5.7,1.6-7.1,4.1c-1.3,2.4-1.2,5.2,0.2,7.6L43.1,88c1.5,2.3,4,3.7,6.9,3.7 s5.4-1.4,6.9-3.7l37.8-59.6C96.1,26,96.2,23.2,94.9,20.8L94.9,20.8z"></path></svg></div><div class="collapsible-item-inner"></div><header>${name}</header></div>
-		`
-		div.addEventListener('click', function () {
-			this.classList.toggle('active')
-			const icon = this.firstElementChild?.firstElementChild
-			if (icon) {
-				icon.classList.toggle('anki-rotated')
-			}
-			const content = this.nextElementSibling
-			if (content instanceof HTMLElement) {
-				if (content.style.display === 'block') {
-					content.style.display = 'none'
-				} else {
-					content.style.display = 'block'
-				}
-			}
-		})
-	}
-
-	setup_note_table() {
-		const { containerEl } = this
+	setup_note_table(parent: HTMLElement) {
 		const plugin = this.plugin
-		containerEl.createEl('h3', { text: 'Note type settings' })
-		this.create_collapsible('Note Type Table')
-		const note_type_table = containerEl.createEl('table', { cls: 'anki-settings-table' })
+		parent.createEl('h3', { text: 'Note type settings' })
+		const table_scroll = parent.createEl('div', { cls: 'o2a-table-scroll' })
+		const note_type_table = table_scroll.createEl('table', { cls: 'anki-settings-table' })
 		const head = note_type_table.createTHead()
 		const header_row = head.insertRow()
 		for (const header of ['Note Type', 'Custom Regexp', 'File Link Field', 'Context Field']) {
@@ -173,10 +159,9 @@ export class SettingsTab extends PluginSettingTab {
 		}
 	}
 
-	setup_syntax() {
-		const { containerEl } = this
+	setup_syntax(parent: HTMLElement) {
 		const plugin = this.plugin
-		const syntax_settings = containerEl.createEl('h3', { text: 'Syntax Settings' })
+		const syntax_settings = parent.createEl('h3', { text: 'Syntax Settings' })
 		for (const key of Object.keys(plugin.settings['Syntax'])) {
 			new Setting(syntax_settings).setName(key).addText((text) =>
 				text.setValue(plugin.settings['Syntax'][key]).onChange((value) => {
@@ -187,10 +172,9 @@ export class SettingsTab extends PluginSettingTab {
 		}
 	}
 
-	setup_defaults() {
-		const { containerEl } = this
+	setup_defaults(parent: HTMLElement) {
 		const plugin = this.plugin
-		const defaults_settings = containerEl.createEl('h3', { text: 'Defaults' })
+		const defaults_settings = parent.createEl('h3', { text: 'Defaults' })
 
 		// Migration from old setting
 		if (plugin.settings['Defaults'].hasOwnProperty('Scan Directory')) {
@@ -379,10 +363,9 @@ export class SettingsTab extends PluginSettingTab {
 		folder_tag.controlEl.className += ' anki-center'
 	}
 
-	setup_folder_table() {
-		const { containerEl } = this
+	setup_folder_table(parent: HTMLElement) {
 		const plugin = this.plugin
-		containerEl.createEl('h3', { text: 'Folder settings' })
+		parent.createEl('h3', { text: 'Folder settings' })
 
 		if (!plugin.settings.hasOwnProperty('FOLDER_DECKS')) {
 			plugin.settings.FOLDER_DECKS = {}
@@ -415,9 +398,11 @@ export class SettingsTab extends PluginSettingTab {
 
 		if (availableFolders.length > 0) {
 			let selectedFolderToAdd = availableFolders[0]
-			new Setting(containerEl)
+			const add_rule = new Setting(parent)
 				.setName('Add folder rule')
 				.setDesc('Map a vault folder to a specific target Anki deck or tags.')
+			add_rule.settingEl.addClass('o2a-narrow-select')
+			add_rule
 				.addDropdown((dropdown) => {
 					for (const path of availableFolders) {
 						dropdown.addOption(path, path)
@@ -441,8 +426,8 @@ export class SettingsTab extends PluginSettingTab {
 				})
 		}
 
-		this.create_collapsible('Folder Table')
-		const folder_table = containerEl.createEl('table', { cls: 'anki-settings-table' })
+		const table_scroll = parent.createEl('div', { cls: 'o2a-table-scroll' })
+		const folder_table = table_scroll.createEl('table', { cls: 'anki-settings-table' })
 		const head = folder_table.createTHead()
 		const header_row = head.insertRow()
 		for (const header of ['Folder', 'Folder Deck', 'Folder Tags', 'Action']) {
@@ -490,10 +475,9 @@ export class SettingsTab extends PluginSettingTab {
 		}
 	}
 
-	setup_buttons() {
-		const { containerEl } = this
+	setup_buttons(parent: HTMLElement) {
 		const plugin = this.plugin
-		const action_buttons = containerEl.createEl('h3', { text: 'Actions' })
+		const action_buttons = parent.createEl('h3', { text: 'Actions' })
 		new Setting(action_buttons)
 			.setName('Regenerate Note Type Table')
 			.setDesc('Connect to Anki to regenerate the table with new note types, or get rid of deleted note types.')
@@ -573,10 +557,9 @@ export class SettingsTab extends PluginSettingTab {
 					})
 			})
 	}
-	setup_ignore_files() {
-		const { containerEl } = this
+	setup_ignore_files(parent: HTMLElement) {
 		const plugin = this.plugin
-		const ignored_files_settings = containerEl.createEl('h3', { text: 'Ignored File Settings' })
+		const ignored_files_settings = parent.createEl('h3', { text: 'Ignored File Settings' })
 		plugin.settings['IGNORED_FILE_GLOBS'] = plugin.settings.hasOwnProperty('IGNORED_FILE_GLOBS')
 			? plugin.settings['IGNORED_FILE_GLOBS']
 			: DEFAULT_IGNORED_FILE_GLOBS
@@ -612,17 +595,43 @@ export class SettingsTab extends PluginSettingTab {
 		const { containerEl } = this
 
 		containerEl.empty()
-		containerEl.createEl('h2', { text: 'Obsidian_to_Anki settings' })
+		containerEl.createEl('h2', { text: 'Obsidian_to_Anki settings (marqp fork)' })
 		containerEl.createEl('a', {
 			text: 'For more information check the wiki',
 			href: 'https://github.com/marqp/Obsidian_to_Anki/tree/master/docs'
 		})
-		this.setup_note_table()
-		this.setup_folder_table()
-		this.setup_syntax()
-		this.setup_defaults()
-		this.setup_buttons()
-		this.setup_ignore_files()
+		const tab_bar = containerEl.createEl('div', { cls: 'o2a-tabs' })
+		const panels = new Map<SettingsTabId, HTMLElement>()
+		for (const tab of SETTINGS_TABS) {
+			panels.set(tab.id, containerEl.createEl('div', { cls: 'o2a-tab-panel' }))
+		}
+		for (const tab of SETTINGS_TABS) {
+			const button = tab_bar.createEl('button', { cls: 'o2a-tab', text: tab.label })
+			button.setAttr('aria-selected', String(tab.id === this.activeTab))
+			if (tab.id === this.activeTab) {
+				button.addClass('o2a-tab-active')
+			}
+			button.addEventListener('click', () => {
+				this.activeTab = tab.id
+				this.setup_display()
+			})
+		}
+		const show = (id: SettingsTabId): HTMLElement => {
+			const panel = panels.get(id)
+			if (!panel) {
+				throw new Error(`Unknown settings tab: ${id}`)
+			}
+			return panel
+		}
+		for (const [id, panel] of panels) {
+			panel.style.display = id === this.activeTab ? '' : 'none'
+		}
+		this.setup_defaults(show('general'))
+		this.setup_note_table(show('notes'))
+		this.setup_syntax(show('notes'))
+		this.setup_folder_table(show('folders'))
+		this.setup_ignore_files(show('folders'))
+		this.setup_buttons(show('actions'))
 	}
 
 	async display() {

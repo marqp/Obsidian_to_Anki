@@ -34,7 +34,7 @@ describe('SettingsTab Folder Table Optimizations', () => {
 		const tab = new SettingsTab(plugin.app, plugin)
 		tab.get_folders = () => []
 
-		tab.setup_folder_table()
+		tab.setup_folder_table(tab.containerEl as unknown as HTMLElement)
 
 		expect(plugin.settings.FOLDER_DECKS).toEqual({
 			'Notes/Biology': 'BiologyDeck'
@@ -103,5 +103,76 @@ describe('SettingsTab Folder Table Optimizations', () => {
 
 		handler('')
 		expect(plugin.settings.FOLDER_TAGS['History']).toBeUndefined()
+	})
+
+	it('renders tabbed settings with the fork title and one visible panel', () => {
+		const plugin = createMockPlugin({}, {})
+		const tab = new SettingsTab(plugin.app, plugin)
+		tab.get_folders = () => []
+		tab.note_types = []
+
+		tab.setup_display()
+
+		const children = tab.containerEl.children as Array<Record<string, unknown>>
+		const title = children.find((c) => c['tag'] === 'h2')
+		expect(title?.['textContent']).toBe('Obsidian_to_Anki settings (marqp fork)')
+		const tabBar = children.find((c) => c['cls'] === 'o2a-tabs')
+		const tabButtons = (tabBar?.['children'] as Array<Record<string, unknown>>) ?? []
+		expect(tabButtons.map((b) => b['textContent'])).toEqual(['General', 'Notes', 'Folders', 'Actions'])
+		const panels = children.filter((c) => c['cls'] === 'o2a-tab-panel')
+		expect(panels.length).toBe(4)
+		const visible = panels.filter((p) => (p['style'] as Record<string, string>)['display'] !== 'none')
+		expect(visible.length).toBe(1)
+	})
+
+	it('switching tabs shows exactly one panel and survives re-render', () => {
+		const plugin = createMockPlugin({}, {})
+		const tab = new SettingsTab(plugin.app, plugin)
+		tab.get_folders = () => []
+		tab.note_types = []
+
+		tab.setup_display()
+		const children = () => tab.containerEl.children as Array<Record<string, unknown>>
+		const buttons = () =>
+			(children().find((c) => c['cls'] === 'o2a-tabs')?.['children'] as Array<Record<string, unknown>>) ?? []
+		const clickTab = (label: string) => {
+			const button = buttons().find((b) => b['textContent'] === label)
+			expect(button).toBeDefined()
+			;(button?.['click'] as () => void)()
+		}
+		clickTab('Folders')
+		expect(tab.activeTab).toBe('folders')
+		// Re-render (as Add/Remove/Regenerate handlers do) keeps the active tab.
+		tab.setup_display()
+		expect(tab.activeTab).toBe('folders')
+		const panels = children().filter((c) => c['cls'] === 'o2a-tab-panel')
+		const visible = panels.filter((p) => (p['style'] as Record<string, string>)['display'] !== 'none')
+		expect(visible.length).toBe(1)
+	})
+
+	it('settings tables render as real tables inside scrollers (overflow regression)', () => {
+		const plugin = createMockPlugin({ 'Notes/Biology': 'BiologyDeck' }, { 'Notes/Tag': 'MedTag' })
+		const tab = new SettingsTab(plugin.app, plugin)
+		tab.get_folders = () => []
+		tab.note_types = []
+
+		tab.setup_display()
+		const findIn = (nodes: Array<Record<string, unknown>>, cls: string): Array<Record<string, unknown>> => {
+			const found: Array<Record<string, unknown>> = []
+			for (const node of nodes) {
+				if (node['cls'] === cls) {
+					found.push(node)
+				}
+				found.push(...findIn((node['children'] as Array<Record<string, unknown>>) ?? [], cls))
+			}
+			return found
+		}
+		const tables = findIn(tab.containerEl.children as Array<Record<string, unknown>>, 'anki-settings-table')
+		expect(tables.length).toBeGreaterThanOrEqual(1)
+		for (const table of tables) {
+			expect(table['tag']).toBe('table')
+		}
+		const scrollers = findIn(tab.containerEl.children as Array<Record<string, unknown>>, 'o2a-table-scroll')
+		expect(scrollers.length).toBeGreaterThanOrEqual(1)
 	})
 })

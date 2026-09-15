@@ -5,6 +5,12 @@
 > the plugin's (`main.ts` `getDefaultSettings`); script equivalents live in
 > `obsidian_to_anki_config.ini` (`False`/`True`, `CurlyCloze = False` there).
 
+Settings open under `Obsidian_to_Anki settings (marqp fork)` with four tabs:
+**General** (defaults), **Notes** (note-type table + syntax), **Folders**
+(folder rules + ignore globs), **Actions** (regenerate, test, cache clears).
+The active tab is kept in memory only — switching vaults or reopening settings
+starts on General, and settings are never written on read.
+
 ## Defaults
 
 | Setting | Default | Effect |
