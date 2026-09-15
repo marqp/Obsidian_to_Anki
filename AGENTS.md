@@ -100,6 +100,12 @@ with `sudo env "PATH=$PATH"` so pnpm is visible under sudo.
   and callers fall back to the legacy `updateNoteFields`/`updateNoteTags` path when unsupported.
   Note-type conversion (`updateNoteModel`) is opt-in via "Allow Note Type Changes" — Anki silently
   discards fields absent from the new model.
+- **No Tailwind CSS.** The plugin injects CSS into Obsidian's shared Electron
+  DOM: Tailwind's global preflight reset breaks host typography/layout, bare
+  utility classes (`.flex`, `.modal`) collide with core and community plugins,
+  and fixed colors ignore community themes. UI uses the Obsidian `Modal`/`Setting`
+  API plus hand-written CSS prefixed `o2a-` with native theme variables
+  (`var(--background-primary)`, `var(--text-normal)`, `var(--interactive-accent)`).
 - **No parser shielding on primary scans (deliberate NO-GO, spike 2026-09).** A `START...END`
   block inside a fenced code block still parses as a card — fixing that would require span
   filtering in `scanPattern` + symmetric filtering in `getNoteIdsInFile` + a new mechanism in

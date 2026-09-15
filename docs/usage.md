@@ -15,6 +15,10 @@
 
 Ribbon Anki icon = Scan Vault. `Scheduling Interval` (minutes, 0 = off) auto-scans while Obsidian runs.
 
+Notices are minimal by design: one when the scan starts, one with the result
+(`Scan complete: +5 ~2 -1 (12/120 files)`). Details go to the console, which
+keeps the machine-readable one-liners for agents and log scraping.
+
 ## Scan flow
 
 1. Read files (skip unchanged by content hash, no re-read).
@@ -30,6 +34,14 @@ Re-running over the same files adds no duplicates: blocks with IDs become update
 plus one JSON line per file. Needs Anki running (live `notesInfo`/`cardsInfo`
 for the exact diff) — it is not offline. `would_update` counts notes whose
 fields, tags (order-insensitive), or card decks differ.
+
+Delete entries in the JSON carry the file that last held the ID, so UIs can
+group them per file instead of showing a bare ID list.
+
+Programmatic scans accept an optional control object (not exposed in the UI
+yet): `onProgress({ done, total, phase })` fires at each yield boundary
+(`discover` then `scan`), and `isCancelled()` returning true aborts the scan
+at the next boundary with `Scan cancelled.` — nothing is committed.
 
 ## Headless (Obsidian CLI)
 

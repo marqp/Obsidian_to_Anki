@@ -29,6 +29,7 @@ Dry-run needs Anki up too (live `notesInfo`/`cardsInfo` for the diff).
 | Removed block did not delete card | `Delete Removed Notes` off, or first scan (records only), or ID referenced elsewhere | Check toggle; re-scan; check other files for the ID |
 | Cloze block skipped | No `{{cN::}}` in fields | Add cloze syntax or use a non-Cloze type |
 | `Tags:A` ignored | Missing space after colon | `Tags: A B` |
+| `Scan Directories` path silently skipped | Typo or file path instead of folder | Invalid paths get a red border in settings; scans continue with the valid ones |
 
 ## Script (Python)
 
