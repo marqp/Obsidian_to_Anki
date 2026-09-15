@@ -69,7 +69,19 @@ export class FormatConverter {
 	}
 
 	format_note_with_url(note: AnkiConnectNote, url: string, field: string): void {
-		note.fields[field] += '<br><a href="' + url + '" class="obsidian-link">Obsidian</a>'
+		let mdFilename = ''
+		// The url is built by getUrlFromLink as obsidian://open?vault=...&file=<encoded path>.
+		const splitUrl: string[] = url.split('&file=')
+		if (splitUrl.length === 2) {
+			const decodedPathWithExtension: string = decodeURIComponent(splitUrl[1] ?? '')
+			const pathSegments: string[] = decodedPathWithExtension.split('/')
+			const filenameWithExtension: string | undefined = pathSegments.pop()?.trim()
+			if (filenameWithExtension) {
+				mdFilename = (filenameWithExtension.split('.')[0] ?? '').trim()
+			}
+		}
+		note.fields[field] +=
+			'<br><a href="' + url + `" class="obsidian-link">Obsidian${mdFilename ? ' - ' + mdFilename : ''}</a>`
 	}
 
 	format_note_with_frozen_fields(

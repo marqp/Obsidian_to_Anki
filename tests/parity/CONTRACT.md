@@ -36,6 +36,40 @@ Warnings are compared by category (`unknown-id`, `unknown-model`,
 parity; parse/ID/delete diffs do, and require a fix or a written justification
 appended to this file.
 
+## Upstream triage log (release 4.0.0)
+
+Rescue batch #694 (`Merged batch 1`, +532/−88, 22 files) was NOT merged
+wholesale: the fork already contains the equivalent of 12 of its 13 items
+via its own diverged architecture (`git log upstream/master..master`:
+`5ed55d8`=#639, `bbf819f`=#674, `245013b`=#687, `5748587`≈#693,
+`462a082`=#642, `9dceed6`≈#656, `00837f1`=#659, `7837bb7`+`67a6a41`=#617/#627,
+`cea8ddb`=#618, `b8b2eb3`≈#627, multi-deck≈#691, scan-dirs≈#664). A wholesale
+merge would conflict against orphan deletion / `updateNote` / dry-run /
+object `FileHashes` / `EXISTING_IDS` Set. Item verdicts:
+
+- #649 (xhr content-type, +1/−0): obsolete — transport is `requestUrl`, no XHR.
+- #557 (file-link filename label): cherry-picked in 4.0.0 (`format_note_with_url`
+  now renders `Obsidian - <filename>`; unit-tested in `format.test.ts`).
+- #537 (HTML entities as obsidian tags): already covered — the fork's unicode
+  `OBS_TAG_REGEXP` (`note.ts:15`) matches a superset including the `&#039;` case.
+- #584 (updateNoteTags + scan-current-file): superseded — the fork has
+  `anki-scan-file` + `scanVaultOnce`, and goes further with consolidated
+  `updateNote` (apiReflect-gated) instead of `updateNoteTags` alone.
+- #429 (folder-deck/tags/custom-regex-deletion, 2023): superseded —
+  `FOLDER_DECKS`/`FOLDER_TAGS` + multi-deck + per-type custom regexps exist.
+- #570 (+923/−246, folder-sync + backlink): rejected — feature 1 duplicates
+  folder-deck/multi-deck; feature 2 touches the diverged censor/`memoCache`/
+  orphan core. Backlink-by-filename (#557) covers the navigability need.
+  Backlog: full block-level backlink as an isolated future proposal.
+- #673 (redesign +1738/−355, `src/ui/` + new sync commands): rejected —
+  duplicates the fork's native tabs/tables/`ScanControl` UX direction (no
+  framework per AGENTS.md Tailwind ban rationale), ships zero tests, commits a
+  `.backup` file + `package-lock.json`, and new sync commands threaten the
+  orphan-deletion/dry-run invariants. Backlog: native folder-picker only.
+- #672 (LLM integration +7662/−5): rejected — out of scope (API keys,
+  `src/llm/`, renderer-safe violation, desktop-only secret policy).
+- Drafts #508/#444/#301 + #693-draft: watch, out of 4.0.0 scope.
+
 ## Known intentional divergences (fork features, not bugs)
 
 These fixtures encode behavior the fork added on purpose. They fail the

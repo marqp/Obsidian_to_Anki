@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import { Md5 } from 'ts-md5/dist/md5'
+import { Md5 } from 'ts-md5'
 import type { ParsedSettings } from '../../src/interfaces/settings-interface'
 import { createFileData, getFileContentHash, isFileUnchanged } from '../../src/scan-optimizations'
 

@@ -45,6 +45,26 @@ describe('FormatConverter.decensor', () => {
 	})
 })
 
+describe('FormatConverter.format_note_with_url', () => {
+	it('labels the backlink with the source filename (upstream #557)', () => {
+		const formatter = createFormatter()
+		const note = { fields: { Front: 'Q' } } as never
+		formatter.format_note_with_url(
+			note,
+			'obsidian://open?vault=test-vault&file=' + encodeURIComponent('sub/notes.md'),
+			'Front'
+		)
+		expect((note as { fields: Record<string, string> }).fields['Front']).toContain('>Obsidian - notes</a>')
+	})
+
+	it('falls back to a bare Obsidian label when the url has no file part', () => {
+		const formatter = createFormatter()
+		const note = { fields: { Front: 'Q' } } as never
+		formatter.format_note_with_url(note, 'obsidian://open?vault=test-vault', 'Front')
+		expect((note as { fields: Record<string, string> }).fields['Front']).toContain('>Obsidian</a>')
+	})
+})
+
 describe('FormatConverter.format spot-checks', () => {
 	it('keeps inline code intact through censor/decensor', () => {
 		const formatter = createFormatter()
