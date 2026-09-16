@@ -85,3 +85,26 @@ describe('FormatConverter.format spot-checks', () => {
 		expect(formatter.format('Value $$x+1$$ end', false, false)).toContain('\\[x+1\\]')
 	})
 })
+
+describe('FormatConverter.cloze numbering', () => {
+	it('numbers unnumbered clozes per call without leaking across instances', () => {
+		const first = createFormatter()
+		const second = createFormatter()
+		expect(first.format('{alpha} and {beta}', true, false)).toContain('{{c1::alpha}}')
+		expect(first.format('{alpha} and {beta}', true, false)).toContain('{{c2::beta}}')
+		// A fresh instance starts at 1 even after another instance formatted.
+		expect(second.format('{gamma}', true, false)).toContain('{{c1::gamma}}')
+		// The counter resets after each call on the same instance too.
+		expect(first.format('{delta}', true, false)).toContain('{{c1::delta}}')
+	})
+})
+
+describe('FormatConverter.memoCache', () => {
+	it('hits repeated texts within one instance', () => {
+		const formatter = createFormatter()
+		const out1 = formatter.format('repeat me', false, false)
+		const out2 = formatter.format('repeat me', false, false)
+		expect(out2).toBe(out1)
+		expect((formatter as any).memoCache.size).toBe(1)
+	})
+})
