@@ -192,6 +192,28 @@ describe('Note logic: buildAnkiNote', () => {
 		expect(result.note.fields.Back).not.toContain('#neuro/brain')
 	})
 
+	it('ignores HTML entities while keeping unicode/hyphen tags (upstream #537 superseded)', () => {
+		const data = createDummyFileData({ add_obs_tags: true })
+		const formatter = new FormatConverter({} as any, 'vault')
+
+		const result = buildAnkiNote({
+			template: data.template,
+			modelName: 'Basic',
+			fields: { Front: 'It&#039;s #biología-tag here &#123;', Back: 'plain' },
+			tags: [],
+			identifier: null,
+			deck: 'Default',
+			data,
+			formatter
+		})
+
+		expect(result.note.tags).toContain('biología-tag')
+		expect(result.note.tags).not.toContain('039;')
+		expect(result.note.tags).not.toContain('123;')
+		expect(result.note.fields.Front).not.toContain('#biología-tag')
+		expect(result.note.fields.Front).toContain('&#039;')
+	})
+
 	it('formats frozen fields when provided', () => {
 		const data = createDummyFileData()
 		const formatter = new FormatConverter({} as any, 'vault')
