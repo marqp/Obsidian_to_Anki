@@ -84,6 +84,19 @@ describe('FormatConverter.format spot-checks', () => {
 		expect(formatter.format('Value $x+1$ end', false, false)).toContain('\\(x+1\\)')
 		expect(formatter.format('Value $$x+1$$ end', false, false)).toContain('\\[x+1\\]')
 	})
+
+	it('censors inline code containing whitespace', () => {
+		const formatter = createFormatter()
+		expect(formatter.format('Use `a b` here', false, false)).toContain('<code>a b</code>')
+	})
+
+	it('shields braced text inside code from curly-cloze numbering', () => {
+		const formatter = createFormatter()
+		const out = formatter.format('`{a b}` and {y}', true, false)
+
+		expect(out).toContain('{a b}')
+		expect(out).toContain('{{c1::y}}')
+	})
 })
 
 describe('FormatConverter.cloze numbering', () => {

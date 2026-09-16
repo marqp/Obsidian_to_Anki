@@ -151,4 +151,17 @@ describe('AllFile.scanFile end-to-end', () => {
 		expect(file.file).toContain('Ai<!--ID: 22--> ENDI')
 		expect(file.file).toContain('A::ar\n<!--ID: 33-->\n')
 	})
+
+	it('custom-regexp search extracts trailing Tags lines', () => {
+		const file = scan(
+			'Q::qr\nA::ar Tags: mytag',
+			buildFileData({ custom_regexps: { Basic: 'Q::(.*?)\\nA::(.*)' } })
+		)
+
+		expect(file.regex_notes_to_add).toHaveLength(1)
+		expect(file.regex_notes_to_add[0].tags).toContain('mytag')
+		// Without the `(Tags: .*)` group the match would slice 'ar Tags: mytag'
+		// as the tag source, leaking a 's:' fragment (upstream #537 area).
+		expect(file.regex_notes_to_add[0].tags).not.toContain('s:')
+	})
 })
