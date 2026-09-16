@@ -1,6 +1,7 @@
 import { PluginSettingTab, Setting, Notice, TFolder, AbstractInputSuggest, type App } from 'obsidian'
 import * as AnkiConnect from './anki'
 import { probeAnkiStatus } from './anki-launch'
+import { DEFAULTS_META } from './defaults-meta'
 import type MyPlugin from '../main'
 
 /**
@@ -80,30 +81,9 @@ function createFolderSuggest(
 	return new Impl(app, inputEl)
 }
 
-const defaultDescs: Record<string, string> = {
-	'Scan Directories': 'The directories to scan. Leave empty to scan the entire vault. One path per line.',
-	Tag: 'The tag that the plugin automatically adds to any generated cards.',
-	Deck: 'The deck the plugin adds cards to if TARGET DECK is not specified in the file.',
-	'Scheduling Interval':
-		'The time, in minutes, between automatic scans of the vault. Set this to 0 to disable automatic scanning.',
-	'Add File Link': 'Append a link to the file that generated the flashcard on the field specified in the table.',
-	'Add Context':
-		"Append 'context' for the card, in the form of path > heading > heading etc, to the field specified in the table.",
-	CurlyCloze: "Convert {cloze deletions} -> {{c1::cloze deletions}} on note types that have a 'Cloze' in their name.",
-	'CurlyCloze - Highlights to Clozes': 'Convert ==highlights== -> {highlights} to be processed by CurlyCloze.',
-	'ID Comments': 'Wrap note IDs in a HTML comment.',
-	'Add Obsidian Tags':
-		'Interpret #tags in the fields of a note as Anki tags, removing them from the note text in Anki.',
-	'Anki API Key':
-		'API key for AnkiConnect (only needed if you set apiKey in the AnkiConnect config). Stored in plaintext; only protects localhost access.',
-	'Sync to AnkiWeb': 'Trigger an AnkiWeb sync after each scan (requires AnkiWeb credentials in Anki desktop).',
-	'Allow Note Type Changes':
-		'Convert notes in Anki when their note type changed in Markdown. Uses updateNoteModel; fields not present in the new note type are discarded by Anki, so review the change first. Off by default.',
-	'Delete Removed Notes':
-		'Delete the Anki notes whose blocks were removed from Markdown. IDs are tracked per file; renames and moves between files are safe. The first scan of a file only records IDs, so nothing is deleted on that run.',
-	'Auto-launch Anki':
-		'Launch Anki Desktop automatically when a scan finds it closed (desktop only, fire-and-forget). Off by default.'
-}
+const defaultDescs: Record<string, string> = Object.fromEntries(
+	DEFAULTS_META.map((meta) => [meta.key, meta.description])
+)
 
 export const DEFAULT_IGNORED_FILE_GLOBS = ['**/*.excalidraw.md']
 

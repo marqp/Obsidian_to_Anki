@@ -1,23 +1,15 @@
 import type { PluginSettings } from '../interfaces/settings-interface'
 import { DEFAULT_IGNORED_FILE_GLOBS } from '../settings'
+import { DEFAULTS_META } from '../defaults-meta'
 
 export interface MigrationResult {
 	settings: PluginSettings
 	dirty: boolean
 }
 
-const DEFAULT_VALUES: Array<[keyof PluginSettings['Defaults'], string[] | string | number | boolean]> = [
-	['Scan Directories', []],
-	['Add Context', false],
-	['Scheduling Interval', 0],
-	['CurlyCloze - Highlights to Clozes', false],
-	['Add Obsidian Tags', false],
-	['Anki API Key', ''],
-	['Sync to AnkiWeb', false],
-	['Delete Removed Notes', true],
-	['Allow Note Type Changes', false],
-	['Auto-launch Anki', false]
-]
+function cloneDefault(value: string[] | string | number | boolean): string[] | string | number | boolean {
+	return Array.isArray(value) ? [...value] : value
+}
 
 function isEmptyRecord(value: unknown): boolean {
 	return typeof value !== 'object' || value === null || Array.isArray(value)
@@ -49,9 +41,9 @@ export function migrateSettings(settings: PluginSettings): MigrationResult {
 	}
 
 	// Fill defaults added after the stored data was written.
-	for (const [key, fallback] of DEFAULT_VALUES) {
-		if (!Object.prototype.hasOwnProperty.call(settings.Defaults, key)) {
-			settings.Defaults[key] = fallback
+	for (const meta of DEFAULTS_META) {
+		if (!Object.prototype.hasOwnProperty.call(settings.Defaults, meta.key)) {
+			settings.Defaults[meta.key] = cloneDefault(meta.value)
 			markDirty()
 		}
 	}

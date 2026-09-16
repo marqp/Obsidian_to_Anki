@@ -9,6 +9,7 @@ import { FileHashes, extractNoteIdFromLine, findFirstNoteId } from './src/scan-o
 import { collectDryRunState, formatDryRunSummary } from './src/dry-run'
 import { launchAnki, probeAnkiStatus } from './src/anki-launch'
 import { migrateSettings } from './src/ui/settings-migration'
+import { buildDefaults } from './src/defaults-meta'
 
 export default class MyPlugin extends Plugin {
 	declare settings: PluginSettings
@@ -37,23 +38,7 @@ export default class MyPlugin extends Plugin {
 				'Delete Note Line': 'DELETE',
 				'Frozen Fields Line': 'FROZEN'
 			},
-			Defaults: {
-				'Scan Directories': [],
-				Tag: 'Obsidian_to_Anki',
-				Deck: 'Default',
-				'Scheduling Interval': 0,
-				'Add File Link': false,
-				'Add Context': false,
-				CurlyCloze: false,
-				'CurlyCloze - Highlights to Clozes': false,
-				'ID Comments': true,
-				'Add Obsidian Tags': false,
-				'Anki API Key': '',
-				'Sync to AnkiWeb': false,
-				'Delete Removed Notes': true,
-				'Allow Note Type Changes': false,
-				'Auto-launch Anki': false
-			},
+			Defaults: buildDefaults() as PluginSettings['Defaults'],
 			IGNORED_FILE_GLOBS: DEFAULT_IGNORED_FILE_GLOBS
 		}
 		/*Making settings from scratch, so need note types*/
