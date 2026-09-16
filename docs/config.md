@@ -2,8 +2,9 @@
 
 > Based on the [upstream wiki](https://github.com/ObsidianToAnki/Obsidian_to_Anki/wiki)
 > (© Pseudonium), updated for every setting this fork added. Defaults shown are
-> the plugin's (`main.ts` `getDefaultSettings`); script equivalents live in
-> `obsidian_to_anki_config.ini` (`False`/`True`, `CurlyCloze = False` there).
+> the plugin's (`main.ts` `getDefaultSettings`); the legacy
+> `obsidian_to_anki_config.ini` sample kept tracked uses `False`/`True`
+> (`CurlyCloze = False` there).
 
 Settings open under `Obsidian_to_Anki settings (marqp fork)` with four tabs:
 **General** (defaults), **Notes** (note-type table + syntax), **Folders**

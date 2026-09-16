@@ -54,19 +54,3 @@ obsidian "vault=My Vault" command id="obsidian-to-anki-plugin:anki-dry-run"
 ```
 
 The app must be running (first command auto-launches it).
-
-## Python script CLI
-
-Apart from editing the config, every operation needs Anki running.
-
-```bash
-obsidian_to_anki.py [path]   # file or folder
-obsidian_to_anki.py -h       # help
-obsidian_to_anki.py -c       # open config for editing (OS-dependent)
-obsidian_to_anki.py -u       # refresh config after adding Anki note types
-obsidian_to_anki.py -m       # force re-add all detected media (e.g. after resize)
-obsidian_to_anki.py -r       # custom-regex syntax only, ignore default blocks
-obsidian_to_anki.py -R       # recurse into subfolders
-```
-
-Set `GUI = False` in `obsidian_to_anki_config.ini` for CLI mode.

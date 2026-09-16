@@ -1,6 +1,6 @@
 # Obsidian_to_Anki (marqp fork) <sup>[why?](#why-this-fork)</sup>
 
-Plugin to add flashcards from a text or markdown file to Anki. Run in Obsidian as a plugin, or from the command-line as a python script. Built with [Obsidian](https://obsidian.md/) markdown syntax in mind. Supports **user-defined custom syntax for flashcards.**
+Plugin to add flashcards from a text or markdown file to Anki. Runs in Obsidian as a plugin. Built with [Obsidian](https://obsidian.md/) markdown syntax in mind. Supports **user-defined custom syntax for flashcards.**
 
 ## Why this fork?
 
@@ -56,22 +56,6 @@ You shouldn't need Anki running to load Obsidian in the future, though of course
 
 To run the plugin, look for an Anki icon on your ribbon (the place where buttons such as 'open Graph view' and 'open Quick Switcher' are).
 For more information on use, please check out the [docs](./docs/index.md)!
-
-### Python script users
-3. Install the latest version of [Python](https://www.python.org/downloads/).
-4. If you are a new user, download `obstoanki_setup.py` from the [releases page](https://github.com/marqp/Obsidian_to_Anki/releases), and place it in the folder you want the script installed (for example your notes folder).  
-5. Run `obstoanki_setup.py`, for example by double-clicking it in a file explorer. This will download the latest version of the script and required dependencies automatically. Existing users should be able to run their existing `obstoanki_setup.py` to get the latest version of the script.  
-6. Check the Permissions tab below to ensure the script is able to run.
-7. Run `obsidian_to_anki.py`, for example by double-clicking it in a file explorer. This will generate a config file, `obsidian_to_anki_config.ini`.
-
-#### Permissions
-The script needs to be able to:
-* Make a config file in the directory the script is installed.
-* Read the file in the directory the script is used.
-* Make a backup file in the directory the script is used.
-* Rename files in the directory the script is used.
-* Remove a backup file in the directory the script is used.
-* Change the current working directory temporarily (so that local image paths are resolved correctly).
 
 ## Features
 
@@ -196,4 +180,4 @@ pnpm run lint && pnpm run format:check
 pnpm run test:parity # parity tests against pinned upstream
 ```
 
-Test layout: `tests/unit/` (Vitest unit and regression tests) · `tests/parity/` (fork-vs-upstream parse parity harness) · `tests/py-unit/` (fast standalone CLI unit suite).
+Test layout: `tests/unit/` (Vitest unit and regression tests) · `tests/parity/` (fork-vs-upstream parse parity harness).

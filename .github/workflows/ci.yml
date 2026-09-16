@@ -48,21 +48,3 @@ jobs:
 
       - name: Build plugin
         run: pnpm run build
-
-  py-unit:
-    name: Python unit tests (CLI script)
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.13'
-
-      - name: Install pytest
-        run: pip install "pytest>=8.3,<10"
-
-      - name: Run Python unit tests
-        run: pytest tests/py-unit -q
