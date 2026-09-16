@@ -1,4 +1,4 @@
-import { PluginSettingTab, Setting, Notice, TFolder, type App } from 'obsidian'
+import { PluginSettingTab, Setting, Notice, TFolder, AbstractInputSuggest, type App } from 'obsidian'
 import * as AnkiConnect from './anki'
 import { probeAnkiStatus } from './anki-launch'
 import type MyPlugin from '../main'
@@ -13,6 +13,71 @@ export function isExistingFolder(app: App, dirPath: string): boolean {
 		return false
 	}
 	return app.vault.getAbstractFileByPath(dirPath) instanceof TFolder
+}
+
+/**
+ * Validation for custom-regexp table cells: empty means "disabled" and must
+ * pass; anything else must compile. Returns an error message or null.
+ */
+export function regexpError(value: string): string | null {
+	if (value.trim() === '') {
+		return null
+	}
+	try {
+		new RegExp(value)
+		return null
+	} catch (error) {
+		return error instanceof Error ? error.message : String(error)
+	}
+}
+
+/** Case-insensitive folder-path filter for the folder-rule picker. */
+export function filterFolderPaths(paths: string[], query: string): string[] {
+	const needle = query.trim().toLowerCase()
+	if (needle === '') {
+		return paths
+	}
+	return paths.filter((path) => path.toLowerCase().includes(needle))
+}
+
+/** Applies the red-border/error-title treatment shared by inline validations. */
+function applyValidationStyle(el: HTMLElement, message: string | null): void {
+	if (message === null) {
+		el.style.borderColor = ''
+		el.title = ''
+	} else {
+		el.style.borderColor = 'var(--text-error)'
+		el.title = message
+	}
+}
+
+/**
+ * Native folder picker (no custom CSS): attach to a text input to get
+ * type-ahead over the vault's folders.
+ *
+ * AbstractInputSuggest only exists in Obsidian >= 1.4.10 while this plugin
+ * declares minAppVersion 0.9.20, so the subclass is built lazily behind a
+ * runtime check: on older apps the input simply has no suggestions instead
+ * of failing at module load.
+ */
+function createFolderSuggest(
+	app: App,
+	inputEl: HTMLInputElement,
+	folders: () => string[]
+): { onSelect: (cb: (value: string) => void) => void } | null {
+	if (typeof AbstractInputSuggest !== 'function') {
+		return null
+	}
+	class Impl extends AbstractInputSuggest<string> {
+		getSuggestions(query: string): string[] {
+			return filterFolderPaths(folders(), query)
+		}
+
+		renderSuggestion(value: string, el: HTMLElement): void {
+			el.setText(value)
+		}
+	}
+	return new Impl(app, inputEl)
 }
 
 const defaultDescs: Record<string, string> = {
@@ -55,75 +120,139 @@ export class SettingsTab extends PluginSettingTab {
 	declare plugin: MyPlugin
 	activeTab: SettingsTabId = 'general'
 
+	/**
+	 * A table-cell Setting replaces the cell element itself: the shared
+	 * styling tail every row builder used to hand-roll.
+	 */
+	private styleRowSetting(setting: Setting, cell: HTMLElement): void {
+		setting.settingEl = cell
+		setting.infoEl.remove()
+		setting.controlEl.className += ' anki-center'
+	}
+
+	/** Text input inside a settings-table cell, saving on every change. */
+	private bindTextRow(cell: HTMLElement, initial: string, onValue: (value: string) => void): void {
+		const setting = new Setting(cell).addText((text) =>
+			text.setValue(initial).onChange((value) => {
+				onValue(value)
+				this.plugin.scheduleSave()
+			})
+		)
+		this.styleRowSetting(setting, cell)
+	}
+
+	/** Dropdown inside a settings-table cell, saving on every change. */
+	private bindDropdownRow(
+		cell: HTMLElement,
+		options: string[],
+		initial: string,
+		onValue: (value: string) => void
+	): void {
+		const setting = new Setting(cell).addDropdown((dropdown) => {
+			for (const option of options) {
+				dropdown.addOption(option, option)
+			}
+			dropdown.setValue(initial)
+			dropdown.onChange((value) => {
+				onValue(value)
+				this.plugin.scheduleSave()
+			})
+		})
+		this.styleRowSetting(setting, cell)
+	}
+
+	/**
+	 * Fields dictionary for one note type, fetching from Anki when missing.
+	 * Returns null when Anki is unreachable (Notices already shown). Shared
+	 * by the file-link and context dropdowns — the context column previously
+	 * assumed the dict was populated and could throw on a cold vault.
+	 */
+	private async ensureFieldNames(noteType: string): Promise<string[] | null> {
+		const plugin = this.plugin
+		if (plugin.fields_dict[noteType]) {
+			return plugin.fields_dict[noteType]
+		}
+		plugin.fields_dict = await plugin.loadFieldsDict()
+		if (Object.keys(plugin.fields_dict).length != plugin.note_types.length) {
+			new Notice('Need to connect to Anki to generate fields dictionary...')
+			try {
+				plugin.fields_dict = await plugin.generateFieldsDict()
+				new Notice('Fields dictionary successfully generated!')
+			} catch (_e) {
+				new Notice("Couldn't connect to Anki! Check console for error message.")
+				return null
+			}
+		}
+		return plugin.fields_dict[noteType] ?? null
+	}
+
+	private setupFieldDropdown(
+		noteType: string,
+		cell: HTMLElement,
+		section: Record<string, string>,
+		onValue: (value: string) => void
+	): void {
+		const setting = new Setting(cell).addDropdown(async (dropdown) => {
+			const fieldNames = await this.ensureFieldNames(noteType)
+			if (!fieldNames) {
+				return
+			}
+			for (const field of fieldNames) {
+				dropdown.addOption(field, field)
+			}
+			dropdown.setValue(
+				Object.prototype.hasOwnProperty.call(section, noteType) ? section[noteType] : fieldNames[0]
+			)
+			dropdown.onChange((value) => {
+				onValue(value)
+				this.plugin.scheduleSave()
+			})
+		})
+		this.styleRowSetting(setting, cell)
+	}
+
 	setup_custom_regexp(note_type: string, row_cells: HTMLCollection) {
 		const plugin = this.plugin
 		const regexp_section = plugin.settings['CUSTOM_REGEXPS']
-		const custom_regexp = new Setting(row_cells[1] as HTMLElement).addText((text) =>
+		const cell = row_cells[1] as HTMLElement
+		const setting = new Setting(cell).addText((text) =>
 			text
-				.setValue(regexp_section.hasOwnProperty(note_type) ? regexp_section[note_type] : '')
+				.setValue(
+					Object.prototype.hasOwnProperty.call(regexp_section, note_type) ? regexp_section[note_type] : ''
+				)
 				.onChange((value) => {
 					plugin.settings['CUSTOM_REGEXPS'][note_type] = value
 					plugin.scheduleSave()
+					// Persist and mark (like Scan Directories): an invalid
+					// pattern is stored but visibly flagged instead of
+					// crashing the scan later.
+					const error = regexpError(value)
+					applyValidationStyle(text.inputEl, error === null ? null : `Invalid regular expression: ${error}`)
 				})
 		)
-		custom_regexp.settingEl = row_cells[1] as HTMLElement
-		custom_regexp.infoEl.remove()
-		custom_regexp.controlEl.className += ' anki-center'
+		this.styleRowSetting(setting, cell)
 	}
 
 	setup_link_field(note_type: string, row_cells: HTMLCollection) {
-		const plugin = this.plugin
-		const link_fields_section = plugin.settings.FILE_LINK_FIELDS
-		const link_field = new Setting(row_cells[2] as HTMLElement).addDropdown(async (dropdown) => {
-			if (!plugin.fields_dict[note_type]) {
-				plugin.fields_dict = await plugin.loadFieldsDict()
-				if (Object.keys(plugin.fields_dict).length != plugin.note_types.length) {
-					new Notice('Need to connect to Anki to generate fields dictionary...')
-					try {
-						plugin.fields_dict = await plugin.generateFieldsDict()
-						new Notice('Fields dictionary successfully generated!')
-					} catch (_e) {
-						new Notice("Couldn't connect to Anki! Check console for error message.")
-						return
-					}
-				}
+		this.setupFieldDropdown(
+			note_type,
+			row_cells[2] as HTMLElement,
+			this.plugin.settings.FILE_LINK_FIELDS,
+			(value) => {
+				this.plugin.settings.FILE_LINK_FIELDS[note_type] = value
 			}
-			const field_names = plugin.fields_dict[note_type]
-			for (const field of field_names) {
-				dropdown.addOption(field, field)
-			}
-			dropdown.setValue(
-				link_fields_section.hasOwnProperty(note_type) ? link_fields_section[note_type] : field_names[0]
-			)
-			dropdown.onChange((value) => {
-				plugin.settings.FILE_LINK_FIELDS[note_type] = value
-				plugin.scheduleSave()
-			})
-		})
-		link_field.settingEl = row_cells[2] as HTMLElement
-		link_field.infoEl.remove()
-		link_field.controlEl.className += ' anki-center'
+		)
 	}
 
 	setup_context_field(note_type: string, row_cells: HTMLCollection) {
-		const plugin = this.plugin
-		const context_fields_section: Record<string, string> = plugin.settings.CONTEXT_FIELDS
-		const context_field = new Setting(row_cells[3] as HTMLElement).addDropdown(async (dropdown) => {
-			const field_names = plugin.fields_dict[note_type]
-			for (const field of field_names) {
-				dropdown.addOption(field, field)
+		this.setupFieldDropdown(
+			note_type,
+			row_cells[3] as HTMLElement,
+			this.plugin.settings.CONTEXT_FIELDS,
+			(value) => {
+				this.plugin.settings.CONTEXT_FIELDS[note_type] = value
 			}
-			dropdown.setValue(
-				context_fields_section.hasOwnProperty(note_type) ? context_fields_section[note_type] : field_names[0]
-			)
-			dropdown.onChange((value) => {
-				plugin.settings.CONTEXT_FIELDS[note_type] = value
-				plugin.scheduleSave()
-			})
-		})
-		context_field.settingEl = row_cells[3] as HTMLElement
-		context_field.infoEl.remove()
-		context_field.controlEl.className += ' anki-center'
+		)
 	}
 
 	setup_note_table(parent: HTMLElement) {
@@ -196,13 +325,10 @@ export class SettingsTab extends PluginSettingTab {
 						// Inline validation: unknown paths get a red border via
 						// the Obsidian theme variable, cleared when fixed or empty.
 						const invalid = scanDirs.filter((dir) => !isExistingFolder(plugin.app, dir))
-						if (invalid.length > 0) {
-							text.inputEl.style.borderColor = 'var(--text-error)'
-							text.inputEl.title = `Not a folder in this vault: ${invalid.join(', ')}`
-						} else {
-							text.inputEl.style.borderColor = ''
-							text.inputEl.title = ''
-						}
+						applyValidationStyle(
+							text.inputEl,
+							invalid.length > 0 ? `Not a folder in this vault: ${invalid.join(', ')}` : null
+						)
 					})
 				text.inputEl.rows = 5
 				text.inputEl.cols = 30
@@ -276,39 +402,23 @@ export class SettingsTab extends PluginSettingTab {
 	}
 
 	setup_folder_deck(folderPath: string, row_cells: HTMLCollection) {
-		const plugin = this.plugin
-		const folder_decks = plugin.settings.FOLDER_DECKS
-		const folder_deck = new Setting(row_cells[1] as HTMLElement).addText((text) =>
-			text.setValue(folder_decks[folderPath] || '').onChange((value) => {
-				if (value.trim()) {
-					plugin.settings.FOLDER_DECKS[folderPath] = value.trim()
-				} else {
-					delete plugin.settings.FOLDER_DECKS[folderPath]
-				}
-				plugin.scheduleSave()
-			})
-		)
-		folder_deck.settingEl = row_cells[1] as HTMLElement
-		folder_deck.infoEl.remove()
-		folder_deck.controlEl.className += ' anki-center'
+		this.bindTextRow(row_cells[1] as HTMLElement, this.plugin.settings.FOLDER_DECKS[folderPath] || '', (value) => {
+			if (value.trim()) {
+				this.plugin.settings.FOLDER_DECKS[folderPath] = value.trim()
+			} else {
+				delete this.plugin.settings.FOLDER_DECKS[folderPath]
+			}
+		})
 	}
 
 	setup_folder_tag(folderPath: string, row_cells: HTMLCollection) {
-		const plugin = this.plugin
-		const folder_tags = plugin.settings.FOLDER_TAGS
-		const folder_tag = new Setting(row_cells[2] as HTMLElement).addText((text) =>
-			text.setValue(folder_tags[folderPath] || '').onChange((value) => {
-				if (value.trim()) {
-					plugin.settings.FOLDER_TAGS[folderPath] = value.trim()
-				} else {
-					delete plugin.settings.FOLDER_TAGS[folderPath]
-				}
-				plugin.scheduleSave()
-			})
-		)
-		folder_tag.settingEl = row_cells[2] as HTMLElement
-		folder_tag.infoEl.remove()
-		folder_tag.controlEl.className += ' anki-center'
+		this.bindTextRow(row_cells[2] as HTMLElement, this.plugin.settings.FOLDER_TAGS[folderPath] || '', (value) => {
+			if (value.trim()) {
+				this.plugin.settings.FOLDER_TAGS[folderPath] = value.trim()
+			} else {
+				delete this.plugin.settings.FOLDER_TAGS[folderPath]
+			}
+		})
 	}
 
 	setup_folder_table(parent: HTMLElement) {
@@ -328,19 +438,25 @@ export class SettingsTab extends PluginSettingTab {
 			.sort()
 
 		if (availableFolders.length > 0) {
-			let selectedFolderToAdd = availableFolders[0]
+			let selectedFolderToAdd = ''
 			const add_rule = new Setting(parent)
 				.setName('Add folder rule')
-				.setDesc('Map a vault folder to a specific target Anki deck or tags.')
-			add_rule.settingEl.addClass('o2a-narrow-select')
+				.setDesc('Map a vault folder to a specific target Anki deck or tags. Start typing to search folders.')
 			add_rule
-				.addDropdown((dropdown) => {
-					for (const path of availableFolders) {
-						dropdown.addOption(path, path)
-					}
-					dropdown.setValue(selectedFolderToAdd)
-					dropdown.onChange((val) => {
-						selectedFolderToAdd = val
+				.addText((text) => {
+					text.setPlaceholder('folder/path')
+					const suggest = createFolderSuggest(plugin.app, text.inputEl, () => availableFolders)
+					suggest?.onSelect((value) => {
+						selectedFolderToAdd = value
+						applyValidationStyle(text.inputEl, null)
+					})
+					text.onChange((value) => {
+						selectedFolderToAdd = value.trim()
+						const invalid = selectedFolderToAdd !== '' && !isExistingFolder(plugin.app, selectedFolderToAdd)
+						applyValidationStyle(
+							text.inputEl,
+							invalid ? `Not a folder in this vault: ${selectedFolderToAdd}` : null
+						)
 					})
 				})
 				.addButton((button) => {
@@ -348,11 +464,17 @@ export class SettingsTab extends PluginSettingTab {
 						.setButtonText('Add')
 						.setClass('mod-cta')
 						.onClick(async () => {
-							if (selectedFolderToAdd) {
-								plugin.settings.FOLDER_DECKS[selectedFolderToAdd] = ''
-								await plugin.saveAllData()
-								this.setup_display()
+							if (selectedFolderToAdd === '' || !isExistingFolder(plugin.app, selectedFolderToAdd)) {
+								new Notice('Pick a folder in this vault first.')
+								return
 							}
+							if (configuredPaths.includes(selectedFolderToAdd)) {
+								new Notice('That folder already has a rule.')
+								return
+							}
+							plugin.settings.FOLDER_DECKS[selectedFolderToAdd] = ''
+							await plugin.saveAllData()
+							this.setup_display()
 						})
 				})
 		}
