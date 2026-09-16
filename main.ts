@@ -1,15 +1,16 @@
-import { Notice, Plugin, addIcon, TFile, TFolder, Editor } from 'obsidian'
+import { Notice, Plugin, addIcon } from 'obsidian'
+import type { TFile } from 'obsidian'
 import * as AnkiConnect from './src/anki'
-import { PluginSettings, ParsedSettings, StoredPluginData } from './src/interfaces/settings-interface'
+import { PluginSettings, StoredPluginData } from './src/interfaces/settings-interface'
 import { DEFAULT_IGNORED_FILE_GLOBS, SettingsTab } from './src/settings'
 import { ANKI_ICON } from './src/constants'
-import { settingToData } from './src/setting-to-data'
-import { FileManager, ScanCancelledError, type ScanControl } from './src/files-manager'
-import { FileHashes, extractNoteIdFromLine, findFirstNoteId } from './src/scan-optimizations'
-import { collectDryRunState, formatDryRunSummary } from './src/dry-run'
-import { launchAnki, probeAnkiStatus } from './src/anki-launch'
+import { FileHashes } from './src/scan-optimizations'
 import { migrateSettings } from './src/ui/settings-migration'
 import { buildDefaults } from './src/defaults-meta'
+import { ScanOrchestrator, createScanEnvironment } from './src/scan-orchestrator'
+import { openNoteInAnki, registerPluginCommands } from './src/commands'
+import { obsidianNoticePort } from './src/notices'
+import { type ScanControl } from './src/files-manager'
 
 export default class MyPlugin extends Plugin {
 	declare settings: PluginSettings
@@ -17,9 +18,9 @@ export default class MyPlugin extends Plugin {
 	fields_dict: Record<string, string[]> = {}
 	added_media: string[] = []
 	file_hashes: FileHashes = {}
-	scan_in_progress: boolean = false
 	schedule_id?: number
 	private saveTimer?: number
+	private orchestrator?: ScanOrchestrator
 
 	async getDefaultSettings(): Promise<PluginSettings> {
 		const settings: PluginSettings = {
@@ -183,153 +184,39 @@ export default class MyPlugin extends Plugin {
 	}
 
 	/**
-	 * Recursively traverse a TFolder and return all TFiles.
-	 * @param tfolder - The TFolder to start the traversal from.
-	 * @returns An array of TFiles found within the folder and its subfolders.
+	 * Scheduled-scan entry point (the auto-scan scheduler in settings calls
+	 * this); UI commands go straight to the orchestrator. Thin delegation —
+	 * the pipeline lives in ScanOrchestrator.
 	 */
-	getAllTFilesInFolder(tfolder: TFolder): TFile[] {
-		const allTFiles: TFile[] = []
-		// Check if the provided object is a TFolder
-		if (!(tfolder instanceof TFolder)) {
-			return allTFiles
-		}
-		// Iterate through the contents of the folder
-		tfolder.children.forEach((child) => {
-			// If it's a TFile, add it to the result
-			if (child instanceof TFile) {
-				allTFiles.push(child)
-			} else if (child instanceof TFolder) {
-				// If it's a TFolder, recursively call the function on it
-				const filesInSubfolder = this.getAllTFilesInFolder(child)
-				allTFiles.push(...filesInSubfolder)
-			}
-			// Ignore other types of files or objects
-		})
-		return allTFiles
+	async scanVault(file?: TFile | null, control: ScanControl = {}): Promise<void> {
+		await this.scanOrchestrator().scanVault(file, control)
 	}
 
-	async scanVault(file?: TFile | null, control: ScanControl = {}) {
-		if (this.scan_in_progress) {
-			new Notice('A vault scan is already in progress.')
-			return
-		}
-
-		this.scan_in_progress = true
-		try {
-			await this.scanVaultOnce(file, false, control)
-		} finally {
-			this.scan_in_progress = false
-		}
-	}
-
-	/**
-	 * Format the end-of-scan counts for humans (Notices) — the machine-readable
-	 * twin is the `[Obsidian_to_Anki] scan complete:` console one-liner below.
-	 */
-	private formatScanNotice(changed: number, total: number, added: number, updated: number, deleted: number): string {
-		return `Scan complete: +${added} ~${updated} -${deleted} (${changed}/${total} files)`
-	}
-
-	async scanVaultOnce(file?: TFile | null, dryRun = false, control: ScanControl = {}) {
-		console.info('Checking connection to Anki...')
-		const probe = await probeAnkiStatus()
-		console.info(`[Obsidian_to_Anki] anki status: ${probe.status}`)
-		if (probe.status === 'ready') {
-			new Notice(`Scanning vault (${dryRun ? 'dry-run' : 'sync'})...`)
-		} else if (probe.status === 'closed' && this.isAutoLaunchEnabled()) {
-			const outcome = await launchAnki(true)
-			if (outcome === 'launched-and-ready') {
-				new Notice('Anki is now running. Continuing the scan...')
-			} else {
-				new Notice('Anki is starting in the background. Run the scan again in a few seconds.')
-				return
-			}
-		} else {
-			new Notice(probe.message)
-			return
-		}
-		const data: ParsedSettings = await settingToData(this.app, this.settings, this.fields_dict)
-		const scanDirs = this.settings.Defaults['Scan Directories']
-		let manager = null
-		if (file !== undefined && file !== null) {
-			manager = new FileManager(this.app, data, [file], this.file_hashes, this.added_media)
-		} else if (scanDirs && scanDirs.length > 0) {
-			const markdownFiles = []
-			for (const dirPath of scanDirs) {
-				const scanDir = this.app.vault.getAbstractFileByPath(dirPath)
-				if (scanDir instanceof TFolder) {
-					console.info('Using custom scan directory: ' + scanDir.path)
-					markdownFiles.push(...this.getAllTFilesInFolder(scanDir))
-				} else {
-					new Notice('Error: incorrect path for scan directory ' + dirPath)
-				}
-			}
-			manager = new FileManager(this.app, data, markdownFiles, this.file_hashes, this.added_media)
-		} else {
-			manager = new FileManager(
-				this.app,
-				data,
-				this.app.vault.getMarkdownFiles(),
-				this.file_hashes,
-				this.added_media
+	private scanOrchestrator(): ScanOrchestrator {
+		if (this.orchestrator === undefined) {
+			this.orchestrator = new ScanOrchestrator(
+				createScanEnvironment(
+					this.app,
+					{
+						loadState: () => ({
+							settings: this.settings,
+							fieldsDict: this.fields_dict,
+							fileHashes: this.file_hashes,
+							addedMedia: this.added_media
+						}),
+						commitScanResults: (addedMedia, hashes) => {
+							this.added_media = addedMedia
+							for (const [key, entry] of Object.entries(hashes)) {
+								this.file_hashes[key] = entry
+							}
+							this.saveAllData()
+						}
+					},
+					{ isAutoLaunchEnabled: () => this.isAutoLaunchEnabled() }
+				)
 			)
 		}
-		const totalFiles = manager.files.length
-		try {
-			await manager.initialiseFiles(control)
-		} catch (error) {
-			if (error instanceof ScanCancelledError) {
-				console.info('[Obsidian_to_Anki] scan cancelled by user.')
-				new Notice('Scan cancelled.')
-				return
-			}
-			throw error
-		}
-		if (manager.ownFiles.length === 0) {
-			new Notice('No changed files found. Nothing to sync.')
-			console.info('No changed files found. Nothing to sync.')
-			return
-		}
-		if (dryRun) {
-			await this.reportDryRun(manager, totalFiles)
-			return
-		}
-		await manager.requests_1()
-		// Structured one-liner for CLI agents and log scraping:
-		// [Obsidian_to_Anki] scan complete: files_changed=2/120 added=5 updated=1 deleted=0
-		const added = manager.ownFiles.reduce((n, f) => n + f.all_notes_to_add.length, 0)
-		const updated = manager.ownFiles.reduce((n, f) => n + f.notes_to_edit.length, 0)
-		const deleted = manager.ownFiles.reduce((n, f) => n + f.notes_to_delete.length, 0)
-		console.info(
-			`[Obsidian_to_Anki] scan complete: files_changed=${manager.ownFiles.length}/${totalFiles} added=${added} updated=${updated} deleted=${deleted}`
-		)
-		new Notice(this.formatScanNotice(manager.ownFiles.length, totalFiles, added, updated, deleted))
-		this.added_media = Array.from(manager.added_media_set)
-		const hashes = manager.getHashes()
-		for (const [key, entry] of Object.entries(hashes)) {
-			this.file_hashes[key] = entry
-		}
-		this.saveAllData()
-	}
-
-	/**
-	 * Read-only preview path: same file discovery and parsing as a real scan,
-	 * but collects the diff via collectDryRunState instead of dispatching the
-	 * mutating batch. Never writes files, hashes or media state.
-	 */
-	async reportDryRun(manager: FileManager, totalFiles: number): Promise<void> {
-		const summary = await collectDryRunState(manager.ownFiles, {
-			hasNoteTypeChanges: manager.data.allow_note_type_changes,
-			orphanNoteIds: manager.orphanNoteIds,
-			orphanFileById: manager.orphanFileById()
-		})
-		summary.filesTotal = totalFiles
-		console.info(formatDryRunSummary(summary))
-		console.info('[Obsidian_to_Anki] dry-run details: ' + JSON.stringify(summary.changes))
-		new Notice(
-			`Dry-run: +${summary.wouldAdd} ~${summary.wouldUpdate} -${summary.wouldDelete} ` +
-				`convert ${summary.wouldConvert} (nothing written, see console)`
-		)
+		return this.orchestrator
 	}
 
 	async onload() {
@@ -371,76 +258,22 @@ export default class MyPlugin extends Plugin {
 
 		this.addSettingTab(new SettingsTab(this.app, this))
 
-		this.addRibbonIcon('anki', 'Obsidian_to_Anki - Scan Vault', async () => {
-			await this.scanVault(undefined)
-		})
+		const orchestrator = this.scanOrchestrator()
 
-		this.addCommand({
-			id: 'anki-scan-vault',
-			name: 'Scan Vault',
-			callback: async () => {
-				await this.scanVault(undefined)
-			}
+		registerPluginCommands(this, {
+			onScanVault: () => orchestrator.scanVault(undefined),
+			onScanFile: () => orchestrator.scanVault(this.app.workspace.getActiveFile()),
+			onDryRun: () => orchestrator.runDryRun(),
+			onOpenNote: (editor, mode) =>
+				openNoteInAnki(
+					{
+						invoke: (action, params) => AnkiConnect.invoke(action, params),
+						notify: (m) => obsidianNoticePort.notify(m)
+					},
+					editor,
+					mode
+				)
 		})
-
-		this.addCommand({
-			id: 'anki-scan-file',
-			name: 'Scan Current File',
-			callback: async () => {
-				await this.scanVault(this.app.workspace.getActiveFile())
-			}
-		})
-
-		this.addCommand({
-			id: 'anki-dry-run',
-			name: 'Dry Run (preview changes without writing)',
-			callback: async () => {
-				if (this.scan_in_progress) {
-					new Notice('A vault scan is already in progress.')
-					return
-				}
-				this.scan_in_progress = true
-				try {
-					await this.scanVaultOnce(undefined, true)
-				} finally {
-					this.scan_in_progress = false
-				}
-			}
-		})
-
-		this.addCommand({
-			id: 'anki-view-in-browser',
-			name: 'View Note in Anki Browser',
-			editorCallback: async (editor: Editor) => {
-				await this.openNoteInAnki(editor, 'browse')
-			}
-		})
-
-		this.addCommand({
-			id: 'anki-edit-note',
-			name: 'Edit Note in Anki',
-			editorCallback: async (editor: Editor) => {
-				await this.openNoteInAnki(editor, 'edit')
-			}
-		})
-	}
-
-	async openNoteInAnki(editor: Editor, mode: 'browse' | 'edit'): Promise<void> {
-		const cursorLine = editor.getLine(editor.getCursor().line)
-		const noteId = extractNoteIdFromLine(cursorLine) ?? findFirstNoteId(editor.getValue())
-		if (noteId === null) {
-			new Notice('No Anki note ID found in the active file.')
-			return
-		}
-		try {
-			if (mode === 'browse') {
-				await AnkiConnect.invoke('guiBrowse', { query: `nid:${noteId}` })
-			} else {
-				await AnkiConnect.invoke('guiEditNote', { note: noteId })
-			}
-		} catch (_e) {
-			new Notice("Couldn't connect to Anki! Check console for error message.")
-		}
 	}
 
 	async onunload() {

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
+import type { Editor } from 'obsidian'
 import * as AnkiConnect from '../../src/anki'
+import { openNoteInAnki } from '../../src/commands'
 import { extractNoteIdFromLine, findFirstNoteId } from '../../src/scan-optimizations'
 
 describe('gui commands: note ID resolution', () => {
@@ -45,35 +47,19 @@ describe('gui commands: AnkiConnect builders', () => {
 
 	it('openNoteInAnki invokes guiBrowse with the resolved ID', async () => {
 		const invokeSpy = vi.spyOn(AnkiConnect, 'invoke').mockResolvedValue(null)
-		// Exercise the resolution + dispatch contract without importing main.ts
-		// (its bundle imports the real 'obsidian' module at load time).
-		async function openNoteInAnki(
-			editor: { getLine: (line: number) => string; getCursor: () => { line: number }; getValue: () => string },
-			mode: 'browse' | 'edit'
-		): Promise<number | null> {
-			const cursorLine = editor.getLine(editor.getCursor().line)
-			const noteId = extractNoteIdFromLine(cursorLine) ?? findFirstNoteId(editor.getValue())
-			if (noteId === null) {
-				return null
-			}
-			if (mode === 'browse') {
-				await AnkiConnect.invoke('guiBrowse', { query: `nid:${noteId}` })
-			} else {
-				await AnkiConnect.invoke('guiEditNote', { note: noteId })
-			}
-			return noteId
-		}
+		const notify = vi.fn()
 		const editor = {
 			getLine: () => '<!--ID: 777-->',
 			getCursor: () => ({ line: 0 }),
 			getValue: () => ''
-		}
+		} as unknown as Editor
 
-		await openNoteInAnki(editor, 'browse')
+		await openNoteInAnki({ invoke: invokeSpy, notify }, editor, 'browse')
 		expect(invokeSpy).toHaveBeenCalledWith('guiBrowse', { query: 'nid:777' })
 
-		await openNoteInAnki(editor, 'edit')
+		await openNoteInAnki({ invoke: invokeSpy, notify }, editor, 'edit')
 		expect(invokeSpy).toHaveBeenCalledWith('guiEditNote', { note: 777 })
+		expect(notify).not.toHaveBeenCalled()
 		vi.restoreAllMocks()
 	})
 })

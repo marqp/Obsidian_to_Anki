@@ -1,7 +1,8 @@
 /*Class for managing a list of files, and their Anki requests.*/
 import { ParsedSettings, FileData } from './interfaces/settings-interface'
 import { AnkiConnectNoteAndID } from './interfaces/note-interface'
-import { App, TFile, TFolder, TAbstractFile, CachedMetadata, FileSystemAdapter, Notice } from 'obsidian'
+import { App, TFile, TFolder, TAbstractFile, CachedMetadata, FileSystemAdapter } from 'obsidian'
+import { obsidianNoticePort, type NoticePort } from './notices'
 import { AllFile } from './file'
 import * as AnkiConnect from './anki'
 import { basename } from 'path'
@@ -16,6 +17,10 @@ import {
 	VAULT_SCAN_YIELD_INTERVAL,
 	yieldToEventLoop
 } from './scan-optimizations'
+
+/** Re-exported from src/notices.ts for existing importers. */
+export type { NoticePort } from './notices'
+
 interface addNoteResponse {
 	result: number
 	error: string | null
@@ -105,9 +110,7 @@ export interface VaultPort {
 }
 
 /** Notice surface used by the scan; injectable so tests never touch the UI. */
-export interface NoticePort {
-	notify(message: string): void
-}
+// (Moved to src/notices.ts; re-exported above for existing importers.)
 
 function vaultPortFromApp(app: App): VaultPort {
 	return {
@@ -118,8 +121,6 @@ function vaultPortFromApp(app: App): VaultPort {
 		getFullPath: (path) => (app.vault.adapter as FileSystemAdapter).getFullPath(path)
 	}
 }
-
-const obsidianNoticePort: NoticePort = { notify: (message) => new Notice(message) }
 
 function difference<T>(setA: Set<T>, setB: Set<T>): Set<T> {
 	const _difference = new Set(setA)
