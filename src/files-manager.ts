@@ -90,6 +90,37 @@ export interface ScanIssue {
 	error: string
 }
 
+/**
+ * Everything the scan needs from the Obsidian side, behind one interface so
+ * the pipeline can run against fakes in unit tests (no App/Electron). The
+ * production adapter wraps App; see vaultPortFromApp.
+ */
+export interface VaultPort {
+	read(file: TFile): Promise<string>
+	modify(file: TFile, data: string): Promise<void>
+	getCache(path: string): CachedMetadata
+	getFirstLinkpathDest(linkpath: string, sourcePath: string): TFile | null
+	/** Absolute filesystem path for a vault file (desktop adapter only). */
+	getFullPath(path: string): string
+}
+
+/** Notice surface used by the scan; injectable so tests never touch the UI. */
+export interface NoticePort {
+	notify(message: string): void
+}
+
+function vaultPortFromApp(app: App): VaultPort {
+	return {
+		read: (file) => app.vault.read(file),
+		modify: (file, data) => app.vault.modify(file, data),
+		getCache: (path) => app.metadataCache.getCache(path) ?? {},
+		getFirstLinkpathDest: (linkpath, sourcePath) => app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath),
+		getFullPath: (path) => (app.vault.adapter as FileSystemAdapter).getFullPath(path)
+	}
+}
+
+const obsidianNoticePort: NoticePort = { notify: (message) => new Notice(message) }
+
 function difference<T>(setA: Set<T>, setB: Set<T>): Set<T> {
 	const _difference = new Set(setA)
 	for (const elem of setB) {
@@ -157,9 +188,20 @@ export class FileManager {
 	private modelChangeActions: AnkiConnect.AnkiConnectRequest[] = []
 	/** Failures collected by the last parse_requests_1 run (reset per scan). */
 	scanIssues: ScanIssue[] = []
+	private readonly vault: VaultPort
+	private readonly notifier: NoticePort
 
-	constructor(app: App, data: ParsedSettings, files: TFile[], file_hashes: FileHashes, added_media: string[]) {
+	constructor(
+		app: App,
+		data: ParsedSettings,
+		files: TFile[],
+		file_hashes: FileHashes,
+		added_media: string[],
+		ports: { vault?: VaultPort; notices?: NoticePort } = {}
+	) {
 		this.app = app
+		this.vault = ports.vault ?? vaultPortFromApp(app)
+		this.notifier = ports.notices ?? obsidianNoticePort
 		this.data = data
 
 		this.files = this.findFilesThatAreNotIgnored(files, data)
@@ -254,7 +296,7 @@ export class FileManager {
 
 		// Pass 2: Read candidate files with bounded concurrency (8 workers)
 		const readResults = await mapConcurrent(candidateFiles, 8, async (obFile) => {
-			const content = await this.app.vault.read(obFile)
+			const content = await this.vault.read(obFile)
 			return { obFile, content }
 		})
 		this.throwIfCancelled(control)
@@ -264,7 +306,7 @@ export class FileManager {
 			const { obFile, content } = readResults[index]
 
 			if (!isFileUnchanged(obFile.path, content, this.file_hashes)) {
-				const cache: CachedMetadata = this.app.metadataCache.getCache(obFile.path) ?? {}
+				const cache: CachedMetadata = this.vault.getCache(obFile.path)
 				const file = new AllFile(
 					content,
 					obFile.path,
@@ -409,13 +451,13 @@ export class FileManager {
 			const mediaLinks = difference(file.formatter.detectedMedia, this.added_media_set)
 			for (const mediaLink of mediaLinks) {
 				console.log('Adding media file: ', mediaLink)
-				const dataFile = this.app.metadataCache.getFirstLinkpathDest(mediaLink, file.path)
+				const dataFile = this.vault.getFirstLinkpathDest(mediaLink, file.path)
 				if (!dataFile) {
 					console.warn("Couldn't locate media file ", mediaLink)
 				} else {
 					// Located successfully, so treat as if we've added the media
 					this.added_media_set.add(mediaLink)
-					const realPath = (this.app.vault.adapter as FileSystemAdapter).getFullPath(dataFile.path)
+					const realPath = this.vault.getFullPath(dataFile.path)
 					temp.push(AnkiConnect.storeMediaFileByPath(basename(mediaLink), realPath))
 				}
 			}
@@ -442,7 +484,7 @@ export class FileManager {
 			media: response[5]
 		}
 		if (batch.media.result.length >= 1 && batch.media.result[0].error != null) {
-			new Notice('Please update AnkiConnect! The way the script has added media files has changed.')
+			this.notifier.notify('Please update AnkiConnect! The way the script has added media files has changed.')
 			console.warn('Please update AnkiConnect! The way the script has added media files has changed.')
 		}
 		let note_ids_array_by_file: Requests1Result[0]['result']
@@ -511,7 +553,7 @@ export class FileManager {
 			ownFile.writeIDs()
 			ownFile.removeEmpties()
 			if (ownFile.file !== ownFile.original_file) {
-				await this.app.vault.modify(obFile, ownFile.file)
+				await this.vault.modify(obFile, ownFile.file)
 			}
 		}
 		if (this.scanIssues.length > 0) {
@@ -604,7 +646,7 @@ export class FileManager {
 			} catch (e) {
 				// A local scan succeeded; a failed cloud sync must not fail it.
 				console.warn('AnkiWeb sync failed:', e)
-				new Notice('Sync to Anki completed, but AnkiWeb sync failed. Check console for details.')
+				this.notifier.notify('Sync to Anki completed, but AnkiWeb sync failed. Check console for details.')
 			}
 		}
 		console.info('All done!')
