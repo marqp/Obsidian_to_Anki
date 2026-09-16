@@ -125,4 +125,30 @@ describe('AllFile.scanFile end-to-end', () => {
 		file.writeIDs()
 		expect(file.file).toContain('<!--ID: 123-->')
 	})
+
+	it('writeIDs zips note_ids positionally across regular, inline and regexp adds', () => {
+		const content = [
+			'START',
+			'Basic',
+			'Front: Q1',
+			'Back: A1',
+			'END',
+			'Some text STARTI[Basic] Front: Qi Back: AiENDI more text',
+			'Q::qr',
+			'A::ar'
+		].join('\n')
+		const file = scan(content, buildFileData({ custom_regexps: { Basic: 'Q::(.*?)\\nA::(.*)' } }))
+
+		expect(file.notes_to_add).toHaveLength(1)
+		expect(file.inline_notes_to_add).toHaveLength(1)
+		expect(file.regex_notes_to_add).toHaveLength(1)
+		expect(file.pendingAdds.map((add) => add.kind)).toEqual(['note', 'inline', 'regex'])
+
+		file.note_ids = [11, 22, 33]
+		file.writeIDs()
+
+		expect(file.file).toContain('Back: A1\n<!--ID: 11-->\n')
+		expect(file.file).toContain('Ai<!--ID: 22--> ENDI')
+		expect(file.file).toContain('A::ar\n<!--ID: 33-->\n')
+	})
 })
