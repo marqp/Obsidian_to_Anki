@@ -144,3 +144,39 @@ describe('FormatConverter.memoCache', () => {
 		expect((formatter as any).memoCache.size).toBe(1)
 	})
 })
+
+describe('FormatConverter code highlighting (bundled subset)', () => {
+	it('highlights a registered language identically to the old wrapper contract', () => {
+		const formatter = createFormatter()
+		const out = formatter.format('```python\nprint("a<b>&c")\n```', false, false)
+
+		expect(out).toContain('<code class="hljs python language-python">')
+		expect(out).toContain('hljs-built_in')
+		expect(out).toContain('print')
+		// Entity decode round-trip: showdown escapes, hljs re-escapes.
+		expect(out).toContain('&quot;a&lt;b&gt;&amp;c&quot;')
+	})
+
+	it('keeps plain (unhighlightable) code escaped without spans', () => {
+		const formatter = createFormatter()
+		const out = formatter.format('```\n\u9019\u4e0d\u662f\u7a0b\u5f0f\u78bc\n```', false, false)
+
+		expect(out).toContain('<code class="hljs">')
+		expect(out).not.toContain('hljs-keyword')
+	})
+
+	it('strips the fence language tag from the visible text', () => {
+		const formatter = createFormatter()
+		const out = formatter.format('```js\nlet a = 1;\n```', false, false)
+
+		expect(out).not.toContain('```')
+		expect(out).toContain('<span class="hljs-keyword">let</span> a')
+	})
+
+	it('auto-detects a registered language for untagged blocks', () => {
+		const formatter = createFormatter()
+		const out = formatter.format('```\nSELECT a FROM b;\n```', false, false)
+
+		expect(out).toContain('hljs-keyword')
+	})
+})

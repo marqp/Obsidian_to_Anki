@@ -3,8 +3,7 @@ import { basename, extname } from 'path'
 import { Converter } from 'showdown'
 import { CachedMetadata } from 'obsidian'
 import * as c from './constants'
-
-import showdownHighlight from 'showdown-highlight'
+import { codeHighlightExtension } from './highlight'
 
 const ANKI_MATH_REGEXP: RegExp = /(\\\[[\s\S]*?\\\])|(\\\([\s\S]*?\\\))/g
 const HIGHLIGHT_REGEXP: RegExp = /==(.*?)==/g
@@ -37,7 +36,7 @@ const converter: Converter = new Converter({
 	tasklists: true,
 	simpleLineBreaks: true,
 	requireSpaceBeforeHeadingText: true,
-	extensions: [showdownHighlight]
+	extensions: [codeHighlightExtension()]
 })
 
 function escapeHtml(unsafe: string): string {

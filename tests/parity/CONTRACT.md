@@ -97,6 +97,16 @@ structural diff by design and serve as living documentation:
   `tests/unit/format.test.ts`. The parity harness runs with empty
   `FILE_LINK_FIELDS`, so `format_note_with_url` is never exercised there —
   this divergence cannot break the gate by construction.
+- `hljs-subset` (bundle slimming, PR-16): the fork replaced
+  `showdown-highlight` with an internal extension (`src/highlight.ts`) that
+  registers 24 languages plus a curated auto-detect set. Registered-language
+  fences highlight byte-identically; untagged or unregistered-language fences
+  may auto-detect differently (full registry could pick e.g. `x86asm`; the
+  subset picks a registered language or none). Measured over a 42-case corpus:
+  identical everywhere except 8 auto-detect-only cases, several of them
+  strictly better picks (short SQL no longer classified as CSS). `showdown-highlight`
+  stays a devDependency because the pinned upstream's `src/format.ts` imports
+  it; the fork bundle no longer ships the 193-grammar registry.
 
 ## Updating the upstream pin
 

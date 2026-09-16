@@ -3,7 +3,9 @@
 	"entry": ["main.ts"],
 	"project": ["main.ts", "src/**/*.ts"],
 	"ignore": ["tests/**", "vitest.config.mjs", "eslint.config.mjs", "stryker.config.mjs", "esbuild.config.mjs", "knip.json"],
-	"ignoreDependencies": ["byte-base64", "@vitest/coverage-v8", "showdown-highlight", "showdown", "multimatch", "ts-md5"],
+	// showdown-highlight: dev-only, exists to compile the pinned upstream in
+	// tests/parity (its src/format.ts imports it). Not part of the fork bundle.
+	"ignoreDependencies": ["@vitest/coverage-v8", "showdown", "multimatch", "ts-md5", "showdown-highlight"],
 	"treatConfigHintsAsErrors": false,
 	"ignoreIssues": {
 		// Public AnkiConnect builders: kept as API surface for present/future call sites.
