@@ -6,15 +6,10 @@ logs
 coverage
 .stryker-tmp
 reports
-tests/defaults
-tests/specs
-tests/anki
-tests/parity
 *.json
 *.md
 *.yml
 *.yaml
 *.css
-wdio.conf.ts
 package-lock.json
 pnpm-lock.yaml

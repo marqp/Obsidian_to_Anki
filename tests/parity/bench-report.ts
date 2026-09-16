@@ -44,7 +44,10 @@ export function summarize(values: number[]): BenchStats {
  * upstream totals. Returns wins per side and a two-sided p-value under the
  * null hypothesis of no difference. Non-parametric — no normality assumed.
  */
-export function signTest(forkTotals: number[], upstreamTotals: number[]): { forkWins: number; upstreamWins: number; ties: number; pValue: number } {
+export function signTest(
+	forkTotals: number[],
+	upstreamTotals: number[]
+): { forkWins: number; upstreamWins: number; ties: number; pValue: number } {
 	let forkWins = 0
 	let upstreamWins = 0
 	let ties = 0
