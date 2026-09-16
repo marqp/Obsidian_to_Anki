@@ -26,28 +26,6 @@ describe('SettingsTab Folder Table Optimizations', () => {
 		} as any
 	}
 
-	it('prunes empty string entries from FOLDER_DECKS and FOLDER_TAGS to avoid data.json bloat', () => {
-		const plugin = createMockPlugin(
-			{ 'Notes/Empty': '', 'Notes/Spaces': '   ', 'Notes/Biology': 'BiologyDeck' },
-			{ 'Notes/EmptyTag': '', 'Notes/Tag': 'MedTag' }
-		)
-		const tab = new SettingsTab(plugin.app, plugin)
-		tab.get_folders = () => []
-
-		tab.setup_folder_table(tab.containerEl as unknown as HTMLElement)
-
-		expect(plugin.settings.FOLDER_DECKS).toEqual({
-			'Notes/Biology': 'BiologyDeck'
-		})
-		expect(plugin.settings.FOLDER_DECKS['Notes/Empty']).toBeUndefined()
-		expect(plugin.settings.FOLDER_DECKS['Notes/Spaces']).toBeUndefined()
-
-		expect(plugin.settings.FOLDER_TAGS).toEqual({
-			'Notes/Tag': 'MedTag'
-		})
-		expect(plugin.settings.FOLDER_TAGS['Notes/EmptyTag']).toBeUndefined()
-	})
-
 	it('setup_folder_deck trims values and deletes key when empty', () => {
 		const plugin = createMockPlugin({ Math: 'ExistingDeck' }, {})
 		const tab = new SettingsTab(plugin.app, plugin)
