@@ -57,6 +57,16 @@ export function string_insert(text: string, position_inserts: Array<[number, str
 	return parts.join('')
 }
 
+/**
+ * One future Anki ID waiting to be stamped into the Markdown. The kind
+ * selects the ID format at write time (inline IDs trail a space, regexp
+ * IDs start on a fresh line).
+ */
+export interface PendingAdd {
+	position: number
+	kind: 'note' | 'inline' | 'regex'
+}
+
 function spans(pattern: RegExp, text: string): Array<[number, number]> {
 	/*Return a list of span-tuples for matches of pattern in text.*/
 	const output: Array<[number, number]> = []
@@ -101,7 +111,6 @@ abstract class AbstractFile {
 	frontmatter_has_deck = false
 
 	notes_to_add: AnkiConnectNote[] = []
-	id_indexes: number[] = []
 	notes_to_edit: AnkiConnectNoteAndID[] = []
 	notes_to_delete: number[] = []
 	all_notes_to_add: AnkiConnectNote[] = []
@@ -389,9 +398,14 @@ export class AllFile extends AbstractFile {
 	ignore_spans: [number, number][] = []
 	custom_regexps: Record<string, string>
 	inline_notes_to_add: AnkiConnectNote[] = []
-	inline_id_indexes: number[] = []
 	regex_notes_to_add: AnkiConnectNote[] = []
-	regex_id_indexes: number[] = []
+	/**
+	 * Where each future Anki ID must be stamped, in add order (regular notes,
+	 * then inline, then custom-regexp). writeIDs zips this positionally with
+	 * note_ids, replacing the three parallel id_indexes arrays and their
+	 * offset arithmetic.
+	 */
+	pendingAdds: PendingAdd[] = []
 
 	constructor(file_contents: string, path: string, url: string, data: FileData, file_cache: CachedMetadata) {
 		super(file_contents, path, url, data, file_cache)
@@ -430,19 +444,47 @@ export class AllFile extends AbstractFile {
 		this.notes_to_add = []
 		this.inline_notes_to_add = []
 		this.regex_notes_to_add = []
-		this.id_indexes = []
-		this.inline_id_indexes = []
-		this.regex_id_indexes = []
+		this.pendingAdds = []
 		this.notes_to_edit = []
 		this.notes_to_delete = []
 		this.note_edit_deck_map = []
+	}
+
+	/**
+	 * Shared add-vs-edit classification for scanPattern and search(), in the
+	 * exact historical order (null -> unknown-ID with CLOZE_ERROR skip ->
+	 * edit). Callers differ only in what each outcome does, so each branch
+	 * is a callback. Returns false only for the CLOZE_ERROR skip, letting
+	 * search() undo its ignore-span bookkeeping for non-notes.
+	 */
+	private resolveParsed(
+		parsed: AnkiConnectNoteAndID,
+		opts: {
+			onNew: (identifier: number | null) => void
+			onUnknownId: (identifier: number | null) => void
+			onEdit: () => void
+		}
+	): boolean {
+		if (parsed.identifier == null) {
+			opts.onNew(parsed.identifier)
+			return true
+		}
+		if (!this.data.EXISTING_IDS.has(parsed.identifier)) {
+			if (parsed.identifier == CLOZE_ERROR) {
+				return false
+			}
+			opts.onUnknownId(parsed.identifier)
+			return true
+		}
+		opts.onEdit()
+		return true
 	}
 
 	scanPattern(
 		pattern: RegExp,
 		createNote: (text: string) => AbstractNote,
 		notesToAdd: AnkiConnectNote[],
-		idIndexes: number[]
+		kind: 'note' | 'inline'
 	) {
 		for (const note_match of this.file.matchAll(pattern)) {
 			const [note, position]: [string, number] = [
@@ -456,21 +498,23 @@ export class AllFile extends AbstractFile {
 				this.data,
 				this.data.add_context ? this.getContextAtIndex(note_match.index) : ''
 			)
-			if (parsed.identifier == null) {
-				parsed.note.tags.push(...this.global_tags.split(TAG_SEP))
-				notesToAdd.push(parsed.note)
-				idIndexes.push(position)
-			} else if (!this.data.EXISTING_IDS.has(parsed.identifier)) {
-				if (parsed.identifier == CLOZE_ERROR) {
-					continue
-				} else if (parsed.identifier == NOTE_TYPE_ERROR) {
-					console.warn('Did not recognise note type ', parsed.note.modelName, ' in file ', this.path)
-				} else {
-					console.warn('Note with id', parsed.identifier, ' in file ', this.path, ' does not exist in Anki!')
+			this.resolveParsed(parsed, {
+				onNew: () => {
+					parsed.note.tags.push(...this.global_tags.split(TAG_SEP))
+					notesToAdd.push(parsed.note)
+					this.pendingAdds.push({ position, kind })
+				},
+				onUnknownId: (identifier) => {
+					if (identifier == NOTE_TYPE_ERROR) {
+						console.warn('Did not recognise note type ', parsed.note.modelName, ' in file ', this.path)
+					} else {
+						console.warn('Note with id', identifier, ' in file ', this.path, ' does not exist in Anki!')
+					}
+				},
+				onEdit: () => {
+					this.notes_to_edit.push(parsed)
 				}
-			} else {
-				this.notes_to_edit.push(parsed)
-			}
+			})
 		}
 	}
 
@@ -486,7 +530,7 @@ export class AllFile extends AbstractFile {
 					this.formatter
 				),
 			this.notes_to_add,
-			this.id_indexes
+			'note'
 		)
 	}
 
@@ -502,7 +546,7 @@ export class AllFile extends AbstractFile {
 					this.formatter
 				),
 			this.inline_notes_to_add,
-			this.inline_id_indexes
+			'inline'
 		)
 	}
 
@@ -510,6 +554,9 @@ export class AllFile extends AbstractFile {
 		//Search the file for regex matches
 		//ignoring matches inside ignore_spans,
 		//and adding any matches to ignore_spans.
+		const warnUnknownId = (identifier: number | null): void => {
+			console.warn('Note with id', identifier, ' in file ', this.path, ' does not exist in Anki!')
+		}
 		for (const search_id of [true, false]) {
 			for (const search_tags of [true, false]) {
 				const id_str = search_id ? ID_REGEXP_STR : ''
@@ -535,31 +582,34 @@ export class AllFile extends AbstractFile {
 						this.data.add_context ? this.getContextAtIndex(matchPos) : ''
 					)
 					if (search_id) {
-						if (parsed.identifier == null || !this.data.EXISTING_IDS.has(parsed.identifier)) {
-							if (parsed.identifier == CLOZE_ERROR) {
-								// This means it wasn't actually a note! So we should remove it from ignore_spans
-								this.ignore_spans.pop()
-								continue
+						const consumed = this.resolveParsed(parsed, {
+							onNew: warnUnknownId,
+							onUnknownId: warnUnknownId,
+							onEdit: () => {
+								this.notes_to_edit.push(parsed)
 							}
-							console.warn(
-								'Note with id',
-								parsed.identifier,
-								' in file ',
-								this.path,
-								' does not exist in Anki!'
-							)
-						} else {
-							this.notes_to_edit.push(parsed)
-						}
-					} else {
-						if (parsed.identifier == CLOZE_ERROR) {
+						})
+						if (!consumed) {
 							// This means it wasn't actually a note! So we should remove it from ignore_spans
 							this.ignore_spans.pop()
-							continue
 						}
-						parsed.note.tags.push(...this.global_tags.split(TAG_SEP))
-						this.regex_notes_to_add.push(parsed.note)
-						this.regex_id_indexes.push(matchPos + match[0].length)
+						continue
+					}
+					// Without an ID group every match is a fresh note (the
+					// CLOZE_ERROR branch below is unreachable by construction,
+					// kept only to preserve the historical shape).
+					const consumed = this.resolveParsed(parsed, {
+						onNew: () => {
+							parsed.note.tags.push(...this.global_tags.split(TAG_SEP))
+							this.regex_notes_to_add.push(parsed.note)
+							this.pendingAdds.push({ position: matchPos + match[0].length, kind: 'regex' })
+						},
+						onUnknownId: () => undefined,
+						onEdit: () => undefined
+					})
+					if (!consumed) {
+						// This means it wasn't actually a note! So we should remove it from ignore_spans
+						this.ignore_spans.pop()
 					}
 				}
 			}
@@ -585,29 +635,24 @@ export class AllFile extends AbstractFile {
 	}
 
 	writeIDs() {
-		const normal_inserts: [number, string][] = []
-		this.id_indexes.forEach((id_position: number, index: number) => {
+		// note_ids runs in add order (regular, inline, regexp), exactly the
+		// order pendingAdds was appended in, so a positional zip replaces the
+		// old offset arithmetic (index, index + notes_to_add.length, ...).
+		const inserts: Array<[number, string]> = []
+		this.pendingAdds.forEach((add: PendingAdd, index: number) => {
 			const identifier: number | null = this.note_ids[index]
-			if (identifier) {
-				normal_inserts.push([id_position, id_to_str(identifier, false, this.data.comment)])
+			if (!identifier) {
+				return
+			}
+			if (add.kind === 'inline') {
+				inserts.push([add.position, id_to_str(identifier, true, this.data.comment)])
+			} else if (add.kind === 'regex') {
+				inserts.push([add.position, '\n' + id_to_str(identifier, false, this.data.comment)])
+			} else {
+				inserts.push([add.position, id_to_str(identifier, false, this.data.comment)])
 			}
 		})
-		const inline_inserts: [number, string][] = []
-		this.inline_id_indexes.forEach((id_position: number, index: number) => {
-			const identifier: number | null = this.note_ids[index + this.notes_to_add.length] //Since regular then inline
-			if (identifier) {
-				inline_inserts.push([id_position, id_to_str(identifier, true, this.data.comment)])
-			}
-		})
-		const regex_inserts: [number, string][] = []
-		this.regex_id_indexes.forEach((id_position: number, index: number) => {
-			const identifier: number | null =
-				this.note_ids[index + this.notes_to_add.length + this.inline_notes_to_add.length] // Since regular then inline then regex
-			if (identifier) {
-				regex_inserts.push([id_position, '\n' + id_to_str(identifier, false, this.data.comment)])
-			}
-		})
-		this.file = string_insert(this.file, normal_inserts.concat(inline_inserts).concat(regex_inserts))
+		this.file = string_insert(this.file, inserts)
 		this.fix_newline_ids()
 	}
 }
