@@ -8,7 +8,7 @@
 ## Setup
 
 - [setup.md](./setup.md) — Anki + AnkiConnect + plugin install (BRAT) + first run.
-- [usage.md](./usage.md) — commands, scan flow, dry-run, CLI/headless, Python script.
+- [usage.md](./usage.md) — commands, scan flow, dry-run, CLI/headless.
 
 ## Writing cards
 

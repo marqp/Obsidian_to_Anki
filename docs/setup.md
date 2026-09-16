@@ -31,20 +31,6 @@
 
 You do not need Anki running to open Obsidian afterwards, only to scan.
 
-## Python script users
-
-3. Install [Python](https://www.python.org/downloads/) 3.8+.
-4. New users: download `obstoanki_setup.py` from the
-   [releases page](https://github.com/marqp/Obsidian_to_Anki/releases), place it
-   in the target folder (e.g. your notes folder), and run it. It downloads the
-   script and dependencies. Existing users can re-run their existing setup script
-   to update.
-5. Run `obsidian_to_anki.py`. First run generates `obsidian_to_anki_config.ini`.
-
-The script needs permission to: create the config file, read scanned files, and
-create/rename/remove its backup file in the used directory. It also changes the
-working directory temporarily to resolve local image paths.
-
 ## Verify the install
 
 1. `curl -sf localhost:8765` must succeed (Anki + AnkiConnect up).

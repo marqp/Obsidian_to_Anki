@@ -30,12 +30,3 @@ Dry-run needs Anki up too (live `notesInfo`/`cardsInfo` for the diff).
 | Cloze block skipped | No `{{cN::}}` in fields | Add cloze syntax or use a non-Cloze type |
 | `Tags:A` ignored | Missing space after colon | `Tags: A B` |
 | `Scan Directories` path silently skipped | Typo or file path instead of folder | Invalid paths get a red border in settings; scans continue with the valid ones |
-
-## Script (Python)
-
-- Won't start: run `python3 {path}/obsidian_to_anki.py` directly; needs Python 3.8+
-  (`os` features from 3.6+; no Python 2).
-- `pip` issues: see the [pip user guide](https://pip.pypa.io/en/stable/user_guide/).
-- `Gooey` install fails: v2.5.0+ falls back to CLI automatically.
-- Scheduling: Task Scheduler (Windows) or `cron` (macOS/Linux); plugin-side
-  `Scheduling Interval` only runs while Obsidian is open.

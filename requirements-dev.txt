@@ -1,2 +1,0 @@
-# Pinned Python test dependencies for fast unit suite (tests/py-unit).
-pytest>=8.3,<10

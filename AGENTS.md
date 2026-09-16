@@ -20,10 +20,11 @@ behavior intentionally diverged (orphan deletion, updateNote, dry-run — see RE
 - **ESLint 9 flat** (`no-explicit-any: error`) + **Prettier** (`useTabs: true`).
 - **StrykerJS** mutation testing, nightly + `src/**` PRs (`mutation.yml`), break threshold 60.
 - **esbuild** bundles `main.ts` → `main.js` (`esbuild.config.mjs`, CJS, browser platform, `es2022` target).
-- E2E: **Descoped from automated CI** (legacy WebdriverIO + Docker suite restricted to manual `workflow_dispatch`; core quality enforced by Vitest, Parity harness, Stryker, and Python unit suites).
-- **Python CLI** (`obsidian_to_anki.py`, standalone): surgical parity with the TS engine
-  (stat fast-path, `START[ ]*` blocks, linear `string_insert`). Fast unit suite in
-  `tests/py-unit/` (stdlib + pytest only; third-party imports stubbed in `conftest.py`).
+- E2E: **Descoped from automated CI** (legacy WebdriverIO + Docker suite restricted to manual `workflow_dispatch`; core quality enforced by Vitest, Parity harness, and Stryker).
+- **No Python CLI.** The standalone `obsidian_to_anki.py` was removed (decision:
+  hand-synced dual engine); the TS plugin is the single engine. Only
+  `obsidian_to_anki_config.ini` (sample) and `obsidian_to_anki_data.json`
+  (empty seed) remain tracked as inert legacy files — see contribution rules.
 
 ## Obsidian CLI workflow (manual, agent-friendly)
 
@@ -107,17 +108,17 @@ CI (`ci.yml`, pnpm): tsc → lint → format:check → test → build.
   (`var(--background-primary)`, `var(--text-normal)`, `var(--interactive-accent)`).
 - **No parser shielding on primary scans (deliberate NO-GO, spike 2026-09).** A `START...END`
   block inside a fenced code block still parses as a card — fixing that would require span
-  filtering in `scanPattern` + symmetric filtering in `getNoteIdsInFile` + a new mechanism in
-  the Python CLI, for a didactic edge case no fixture covers. Measured span-build cost was
+  filtering in `scanPattern` + symmetric filtering in `getNoteIdsInFile`, for a
+  didactic edge case no fixture covers. Measured span-build cost was
   negligible (~0.12ms/file), so cost was not the blocker — regression surface was. The one
   exception: `getNoteIdsInFile` ignores IDs inside fenced code blocks, so a doc example like
   ` ```<!--ID: 999-->``` ` can never shield a phantom note from orphan deletion. Do not
   re-propose primary-scan shielding without re-running the spike matrix (fence-in-card,
-  card-in-fence, unclosed fence, inline `::`, E2E fixture audit, Python estimate).
+  card-in-fence, unclosed fence, inline `::`, E2E fixture audit).
 
 ## tests/ map (generated vs. source)
 
-- **Fixtures (commit):** `tests/unit/`, `tests/py-unit/` (fast CLI-script unit tests, no Anki/Docker), `tests/mocks/`.
+- **Fixtures (commit):** `tests/unit/`, `tests/mocks/`.
 - **Parity harness (fork vs pinned upstream, no Anki/Docker):** `tests/parity/` builds both
   engines from source (upstream via `git worktree` at the SHA in `tests/parity/config.json`,
   per-side `settingToData` so each runs its genuine regexes) and diffs canonical outputs
@@ -134,9 +135,9 @@ CI (`ci.yml`, pnpm): tsc → lint → format:check → test → build.
   justification — never a silent ignore.
 - Keep commits sliced (tooling → strict/typing → tests → features). Never mix a Prettier reformat
   with functional changes in one commit.
-- **Do not move the root `.py` files.** `obsidian_to_anki.py` resolves its config/data paths
-  relative to `__file__` and existing users auto-update from release assets. Same for `obsidian_to_anki_config.ini` (sample) and
-  `obsidian_to_anki_data.json` (empty seed) — tracked on purpose.
+- **Do not move the legacy root files.** `obsidian_to_anki_config.ini` (sample) and
+  `obsidian_to_anki_data.json` (empty seed) stay tracked on purpose as inert
+  leftovers of the removed Python CLI — same paths, no consumers in code.
 - `Images/` has external hotlinks; `versions.json` is
   required by the Obsidian release flow. Leave both alone.
 
