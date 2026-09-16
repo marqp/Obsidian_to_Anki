@@ -25,8 +25,11 @@ const AUDIO_EXTS: string[] = ['.wav', '.m4a', '.flac', '.mp3', '.wma', '.aac', '
 const PARA_OPEN: string = '<p>'
 const PARA_CLOSE: string = '</p>'
 
-let cloze_unset_num: number = 1
-
+// Module singleton by measurement, not by accident: constructing a showdown
+// Converter per FormatConverter instance regressed linear-x4 by ~3.7x
+// (bench: fork advantage collapsed 4.63x -> 1.38x). There is no per-file
+// converter config, so sharing is behavior-preserving. Mutable per-format
+// state (cloze counter, memo) stays instance-owned below.
 const converter: Converter = new Converter({
 	simplifiedAutoLink: true,
 	literalMidWordUnderscores: true,
@@ -51,6 +54,7 @@ export class FormatConverter {
 	vault_name: string
 	detectedMedia: Set<string>
 	private memoCache: Map<string, string>
+	private clozeUnsetNum: number = 1
 
 	constructor(file_cache: CachedMetadata, vault_name: string) {
 		this.vault_name = vault_name
@@ -99,8 +103,8 @@ export class FormatConverter {
 
 	cloze_repl(_1: string, match_id: string, match_content: string): string {
 		if (match_id == undefined) {
-			const result = '{{c' + cloze_unset_num.toString() + '::' + match_content + '}}'
-			cloze_unset_num += 1
+			const result = '{{c' + this.clozeUnsetNum.toString() + '::' + match_content + '}}'
+			this.clozeUnsetNum += 1
 			return result
 		}
 		const result = '{{c' + match_id + '::' + match_content + '}}'
@@ -109,8 +113,12 @@ export class FormatConverter {
 
 	curly_to_cloze(text: string): string {
 		/*Change text in curly brackets to Anki-formatted cloze.*/
-		text = text.replace(CLOZE_REGEXP, this.cloze_repl)
-		cloze_unset_num = 1
+		// Arrow wrapper: cloze_repl reads instance state, so it must not be
+		// passed unbound as the replace callback.
+		text = text.replace(CLOZE_REGEXP, (match, match_id, match_content) =>
+			this.cloze_repl(match, match_id, match_content)
+		)
+		this.clozeUnsetNum = 1
 		return text
 	}
 
@@ -249,6 +257,10 @@ export class FormatConverter {
 		if (add_highlight_css) {
 			formatted = '<link href="' + c.CODE_CSS_URL + '" rel="stylesheet">' + formatted
 		}
+		// Deliberately unbounded: the cache lives and dies with one AllFile
+		// scan, and every formatted output is retained in notes_to_add anyway,
+		// so the Map never dominates memory. A 500-entry FIFO cap was measured
+		// to thrash on repeated content (linear-x4: 4.6x -> 1.4x advantage).
 		this.memoCache.set(memoKey, formatted)
 		return formatted
 	}
