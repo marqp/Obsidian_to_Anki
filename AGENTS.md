@@ -81,6 +81,14 @@ CI (`ci.yml`, pnpm): tsc → lint → format:check → test → build.
 
 ## Architecture boundaries (do not break)
 
+- **Code highlighting is a curated hljs subset** (`src/highlight.ts`: core + 24
+  languages + curated auto-detect). Do not re-import `showdown-highlight` or the
+  full `highlight.js` entry in `src/` — that regresses the bundle from ~290 KB
+  to 1.35 MB (193 grammars). `showdown-highlight` exists as a devDependency
+  solely so the pinned upstream builds in `tests/parity`; registered-language
+  output is parity-pinned, auto-detect divergences are documented in
+  `tests/parity/CONTRACT.md`.
+
 - **`obsidian` is types-only.** Unit tests alias it to `tests/mocks/obsidian.ts`
   (`vitest.config.mjs`). Never import Obsidian runtime APIs in code covered by unit tests.
 - **Anki transport is injected.** Production uses `ObsidianRequestUrlTransport`

@@ -86,6 +86,9 @@ export async function buildSides(repoRoot: string, upstreamWorktree: string): Pr
 			// Resolve third-party imports (showdown, ts-md5) from the fork's
 			// own node_modules: it has the same dependency names as the
 			// pinned upstream (verified against its package.json).
+			// NOTE: `showdown-highlight` is kept as a fork devDependency
+			// solely so the pinned upstream's src/format.ts can build here —
+			// the fork bundle no longer ships it (see src/highlight.ts).
 			nodePaths: [path.join(repoRoot, 'node_modules')],
 			logLevel: 'silent',
 			// Same legacy-config handling as build-helpers.mjs: the pinned
