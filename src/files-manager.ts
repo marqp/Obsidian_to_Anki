@@ -64,12 +64,43 @@ interface Requests1Result {
 	}
 }
 
+/**
+ * The requests_1 batch with names instead of positional indexes, so
+ * reordering the batch in requests_1() can no longer silently desync
+ * parse_requests_1(). Built once from the raw wire shape (the single cast
+ * stays the documented trust boundary); entries 3/4 (updates, deletes) are
+ * fire-and-forget and intentionally unread.
+ */
+interface Requests1Batch {
+	addedIds: Requests1Result[0]
+	notesInfo: Requests1Result[1]
+	tagList: Requests1Result[2]
+	updates: Requests1Result[3]
+	deletes: Requests1Result[4]
+	media: Requests1Result[5]
+}
+
+/** A single note/batch failure collected during parse_requests_1. */
+export interface ScanIssue {
+	/** File whose note failed ('' for batch-level failures). */
+	file: string
+	/** Machine-stable category; the console summary groups by it. */
+	kind: 'add-notes' | 'note-info' | 'add-note'
+	/** The AnkiConnect error message (never the full payload). */
+	error: string
+}
+
 function difference<T>(setA: Set<T>, setB: Set<T>): Set<T> {
 	const _difference = new Set(setA)
 	for (const elem of setB) {
 		_difference.delete(elem)
 	}
 	return _difference
+}
+
+/** Message text for a ScanIssue (mirrors the transport's error rendering). */
+function issueMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error)
 }
 
 /** True when a changeDeck payload (or a multi wrapping them) actually moves cards. */
@@ -124,6 +155,8 @@ export class FileManager {
 	private useUpdateNote = false
 	private useUpdateNoteModel = false
 	private modelChangeActions: AnkiConnect.AnkiConnectRequest[] = []
+	/** Failures collected by the last parse_requests_1 run (reset per scan). */
+	scanIssues: ScanIssue[] = []
 
 	constructor(app: App, data: ParsedSettings, files: TFile[], file_hashes: FileHashes, added_media: string[]) {
 		this.app = app
@@ -318,6 +351,7 @@ export class FileManager {
 
 	async requests_1() {
 		const requests: AnkiConnect.AnkiConnectRequest[] = []
+		this.scanIssues = []
 		// One reflection call per scan decides which late actions this daemon
 		// supports. Failures degrade to the legacy paths (see detectSupportedActions).
 		const supported = await AnkiConnect.detectSupportedActions(['updateNote', 'updateNoteModel'])
@@ -399,19 +433,28 @@ export class FileManager {
 		// Trust boundary: the wire payload is cast once to the batch shape,
 		// dropping the createDeck entry (index 0), which needs no processing.
 		const response = this.requests_1_result.slice(1) as unknown as Requests1Result
-		if (response[5].result.length >= 1 && response[5].result[0].error != null) {
+		const batch: Requests1Batch = {
+			addedIds: response[0],
+			notesInfo: response[1],
+			tagList: response[2],
+			updates: response[3],
+			deletes: response[4],
+			media: response[5]
+		}
+		if (batch.media.result.length >= 1 && batch.media.result[0].error != null) {
 			new Notice('Please update AnkiConnect! The way the script has added media files has changed.')
 			console.warn('Please update AnkiConnect! The way the script has added media files has changed.')
 		}
 		let note_ids_array_by_file: Requests1Result[0]['result']
 		try {
-			note_ids_array_by_file = AnkiConnect.parse(response[0])
+			note_ids_array_by_file = AnkiConnect.parse(batch.addedIds)
 		} catch (error) {
 			console.error('Error: ', error)
-			note_ids_array_by_file = response[0].result
+			note_ids_array_by_file = batch.addedIds.result
+			this.scanIssues.push({ file: '', kind: 'add-notes', error: issueMessage(error) })
 		}
-		const note_info_array_by_file = AnkiConnect.parse(response[1])
-		const tag_list: string[] = AnkiConnect.parse(response[2])
+		const note_info_array_by_file = AnkiConnect.parse(batch.notesInfo)
+		const tag_list: string[] = AnkiConnect.parse(batch.tagList)
 		for (let i = 0; i < note_ids_array_by_file.length; i++) {
 			const file = this.ownFiles[i]
 			let file_response: addNoteResponse[]
@@ -420,6 +463,7 @@ export class FileManager {
 			} catch (error) {
 				console.error('Error: ', error)
 				file_response = note_ids_array_by_file[i].result
+				this.scanIssues.push({ file: file.path, kind: 'note-info', error: issueMessage(error) })
 			}
 			file.note_ids = []
 			for (let j = 0; j < file_response.length; j++) {
@@ -436,6 +480,7 @@ export class FileManager {
 						error
 					)
 					file.note_ids.push(response.result)
+					this.scanIssues.push({ file: file.path, kind: 'add-note', error: issueMessage(error) })
 				}
 			}
 		}
@@ -468,6 +513,11 @@ export class FileManager {
 			if (ownFile.file !== ownFile.original_file) {
 				await this.app.vault.modify(obFile, ownFile.file)
 			}
+		}
+		if (this.scanIssues.length > 0) {
+			// Separate line from the machine-readable `scan complete:` summary
+			// (owned by main.ts) so agent scraping never breaks.
+			console.info('[Obsidian_to_Anki] scan issues: ' + JSON.stringify(this.scanIssues))
 		}
 		await this.requests_2()
 	}
