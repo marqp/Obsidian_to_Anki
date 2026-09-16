@@ -8,6 +8,7 @@ import { FileManager, ScanCancelledError, type ScanControl } from './src/files-m
 import { FileHashes, extractNoteIdFromLine, findFirstNoteId } from './src/scan-optimizations'
 import { collectDryRunState, formatDryRunSummary } from './src/dry-run'
 import { launchAnki, probeAnkiStatus } from './src/anki-launch'
+import { migrateSettings } from './src/ui/settings-migration'
 
 export default class MyPlugin extends Plugin {
 	declare settings: PluginSettings
@@ -17,6 +18,7 @@ export default class MyPlugin extends Plugin {
 	file_hashes: FileHashes = {}
 	scan_in_progress: boolean = false
 	schedule_id?: number
+	private saveTimer?: number
 
 	async getDefaultSettings(): Promise<PluginSettings> {
 		const settings: PluginSettings = {
@@ -100,10 +102,16 @@ export default class MyPlugin extends Plugin {
 				fields_dict: {}
 			})
 			new Notice('Default settings successfully generated!')
-			return default_sets
-		} else {
-			return current_data.settings
+			return migrateSettings(default_sets).settings
 		}
+		// Schema migration runs once here — never in the settings display
+		// path. saveData (not saveAllData) so unloaded sections
+		// (Added Media, File Hashes, fields_dict) are preserved verbatim.
+		const { settings, dirty } = migrateSettings(current_data.settings)
+		if (dirty) {
+			await this.saveData({ ...current_data, settings })
+		}
+		return settings
 	}
 
 	async loadAddedMedia(snapshot?: StoredPluginData | null): Promise<string[]> {
@@ -145,6 +153,22 @@ export default class MyPlugin extends Plugin {
 			'File Hashes': this.file_hashes,
 			fields_dict: this.fields_dict
 		})
+	}
+
+	/**
+	 * Debounced persist for high-frequency settings writers (every keystroke
+	 * in a text field used to hit data.json). Explicit actions (scan end,
+	 * buttons, migration) keep immediate saveAllData; the timer is cleared
+	 * on unload, which always performs one final unconditional save.
+	 */
+	scheduleSave(): void {
+		if (this.saveTimer !== undefined) {
+			window.clearTimeout(this.saveTimer)
+		}
+		this.saveTimer = window.setTimeout(() => {
+			this.saveTimer = undefined
+			void this.saveAllData()
+		}, 250)
 	}
 
 	syncTransportKey(): void {
@@ -436,7 +460,10 @@ export default class MyPlugin extends Plugin {
 
 	async onunload() {
 		console.log('Saving settings for Obsidian_to_Anki...')
+		if (this.saveTimer !== undefined) {
+			window.clearTimeout(this.saveTimer)
+			this.saveTimer = undefined
+		}
 		this.saveAllData()
-		console.log('unloading Obsidian_to_Anki...')
 	}
 }

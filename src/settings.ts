@@ -63,7 +63,7 @@ export class SettingsTab extends PluginSettingTab {
 				.setValue(regexp_section.hasOwnProperty(note_type) ? regexp_section[note_type] : '')
 				.onChange((value) => {
 					plugin.settings['CUSTOM_REGEXPS'][note_type] = value
-					plugin.saveAllData()
+					plugin.scheduleSave()
 				})
 		)
 		custom_regexp.settingEl = row_cells[1] as HTMLElement
@@ -97,7 +97,7 @@ export class SettingsTab extends PluginSettingTab {
 			)
 			dropdown.onChange((value) => {
 				plugin.settings.FILE_LINK_FIELDS[note_type] = value
-				plugin.saveAllData()
+				plugin.scheduleSave()
 			})
 		})
 		link_field.settingEl = row_cells[2] as HTMLElement
@@ -118,7 +118,7 @@ export class SettingsTab extends PluginSettingTab {
 			)
 			dropdown.onChange((value) => {
 				plugin.settings.CONTEXT_FIELDS[note_type] = value
-				plugin.saveAllData()
+				plugin.scheduleSave()
 			})
 		})
 		context_field.settingEl = row_cells[3] as HTMLElement
@@ -139,9 +139,7 @@ export class SettingsTab extends PluginSettingTab {
 			header_row.appendChild(th)
 		}
 		const main_body = note_type_table.createTBody()
-		if (!plugin.settings.hasOwnProperty('CONTEXT_FIELDS')) {
-			plugin.settings.CONTEXT_FIELDS = {}
-		}
+		// Shape is guaranteed by loadSettings migration; this path only renders.
 		for (const note_type of plugin.note_types) {
 			const row = main_body.insertRow()
 
@@ -166,7 +164,7 @@ export class SettingsTab extends PluginSettingTab {
 			new Setting(syntax_settings).setName(key).addText((text) =>
 				text.setValue(plugin.settings['Syntax'][key]).onChange((value) => {
 					plugin.settings['Syntax'][key] = value
-					plugin.saveAllData()
+					plugin.scheduleSave()
 				})
 			)
 		}
@@ -176,59 +174,6 @@ export class SettingsTab extends PluginSettingTab {
 		const plugin = this.plugin
 		const defaults_settings = parent.createEl('h3', { text: 'Defaults' })
 
-		// Migration from old setting
-		if (plugin.settings['Defaults'].hasOwnProperty('Scan Directory')) {
-			const oldValue = plugin.settings['Defaults']['Scan Directory']
-			if (typeof oldValue === 'string' && oldValue.trim() !== '') {
-				plugin.settings['Defaults']['Scan Directories'] = [oldValue]
-			} else {
-				plugin.settings['Defaults']['Scan Directories'] = []
-			}
-			delete plugin.settings['Defaults']['Scan Directory']
-			plugin.saveAllData()
-		}
-
-		if (!plugin.settings['Defaults'].hasOwnProperty('Scan Directories')) {
-			plugin.settings['Defaults']['Scan Directories'] = []
-		}
-
-		// To account for new add context
-		if (!plugin.settings['Defaults'].hasOwnProperty('Add Context')) {
-			plugin.settings['Defaults']['Add Context'] = false
-		}
-		// To account for new scheduling interval
-		if (!plugin.settings['Defaults'].hasOwnProperty('Scheduling Interval')) {
-			plugin.settings['Defaults']['Scheduling Interval'] = 0
-		}
-		// To account for new highlights to clozes
-		if (!plugin.settings['Defaults'].hasOwnProperty('CurlyCloze - Highlights to Clozes')) {
-			plugin.settings['Defaults']['CurlyCloze - Highlights to Clozes'] = false
-		}
-		// To account for new add obsidian tags
-		if (!plugin.settings['Defaults'].hasOwnProperty('Add Obsidian Tags')) {
-			plugin.settings['Defaults']['Add Obsidian Tags'] = false
-		}
-		// To account for new Anki API key
-		if (!plugin.settings['Defaults'].hasOwnProperty('Anki API Key')) {
-			plugin.settings['Defaults']['Anki API Key'] = ''
-		}
-		// To account for new AnkiWeb sync toggle
-		if (!plugin.settings['Defaults'].hasOwnProperty('Sync to AnkiWeb')) {
-			plugin.settings['Defaults']['Sync to AnkiWeb'] = false
-		}
-		// To account for orphaned-note deletion
-		if (!plugin.settings['Defaults'].hasOwnProperty('Delete Removed Notes')) {
-			plugin.settings['Defaults']['Delete Removed Notes'] = true
-		}
-		// To account for new note-type change toggle
-		if (!plugin.settings['Defaults'].hasOwnProperty('Allow Note Type Changes')) {
-			plugin.settings['Defaults']['Allow Note Type Changes'] = false
-		}
-		// To account for Anki auto-launch toggle
-		if (!plugin.settings['Defaults'].hasOwnProperty('Auto-launch Anki')) {
-			plugin.settings['Defaults']['Auto-launch Anki'] = false
-		}
-
 		new Setting(defaults_settings)
 			.setName('Scan Directories')
 			.setDesc(
@@ -236,7 +181,10 @@ export class SettingsTab extends PluginSettingTab {
 					' Invalid paths are highlighted and ignored at scan time (the scan continues with the valid ones).'
 			)
 			.addTextArea((text) => {
-				text.setValue(plugin.settings.Defaults['Scan Directories'].join('\n'))
+				// Read-only fallback: loadSettings migration guarantees the array,
+				// but a hand-edited data.json must not crash the render.
+				const storedDirs = plugin.settings.Defaults['Scan Directories'] ?? []
+				text.setValue(storedDirs.join('\n'))
 					.setPlaceholder('path/to/folder1\npath/to/folder2')
 					.onChange((value) => {
 						const scanDirs = value
@@ -244,7 +192,7 @@ export class SettingsTab extends PluginSettingTab {
 							.map((dir) => dir.trim())
 							.filter((dir) => dir !== '')
 						plugin.settings.Defaults['Scan Directories'] = scanDirs
-						plugin.saveAllData()
+						plugin.scheduleSave()
 						// Inline validation: unknown paths get a red border via
 						// the Obsidian theme variable, cleared when fixed or empty.
 						const invalid = scanDirs.filter((dir) => !isExistingFolder(plugin.app, dir))
@@ -273,7 +221,7 @@ export class SettingsTab extends PluginSettingTab {
 					.addText((text) =>
 						text.setValue(defaultValue).onChange((value) => {
 							plugin.settings['Defaults'][key] = value
-							plugin.saveAllData()
+							plugin.scheduleSave()
 						})
 					)
 			} else if (typeof defaultValue === 'boolean') {
@@ -283,7 +231,7 @@ export class SettingsTab extends PluginSettingTab {
 					.addToggle((toggle) =>
 						toggle.setValue(defaultValue).onChange((value) => {
 							plugin.settings['Defaults'][key] = value
-							plugin.saveAllData()
+							plugin.scheduleSave()
 						})
 					)
 			} else if (typeof defaultValue === 'number') {
@@ -297,7 +245,7 @@ export class SettingsTab extends PluginSettingTab {
 							.setDynamicTooltip()
 							.onChange(async (value) => {
 								plugin.settings['Defaults'][key] = value
-								await plugin.saveAllData()
+								plugin.scheduleSave()
 								if (plugin.hasOwnProperty('schedule_id')) {
 									window.clearInterval(plugin.schedule_id)
 								}
@@ -337,7 +285,7 @@ export class SettingsTab extends PluginSettingTab {
 				} else {
 					delete plugin.settings.FOLDER_DECKS[folderPath]
 				}
-				plugin.saveAllData()
+				plugin.scheduleSave()
 			})
 		)
 		folder_deck.settingEl = row_cells[1] as HTMLElement
@@ -355,7 +303,7 @@ export class SettingsTab extends PluginSettingTab {
 				} else {
 					delete plugin.settings.FOLDER_TAGS[folderPath]
 				}
-				plugin.saveAllData()
+				plugin.scheduleSave()
 			})
 		)
 		folder_tag.settingEl = row_cells[2] as HTMLElement
@@ -367,25 +315,8 @@ export class SettingsTab extends PluginSettingTab {
 		const plugin = this.plugin
 		parent.createEl('h3', { text: 'Folder settings' })
 
-		if (!plugin.settings.hasOwnProperty('FOLDER_DECKS')) {
-			plugin.settings.FOLDER_DECKS = {}
-		}
-		if (!plugin.settings.hasOwnProperty('FOLDER_TAGS')) {
-			plugin.settings.FOLDER_TAGS = {}
-		}
-
-		// Prune empty string entries to avoid data.json bloat
-		for (const key of Object.keys(plugin.settings.FOLDER_DECKS)) {
-			if (!plugin.settings.FOLDER_DECKS[key] || plugin.settings.FOLDER_DECKS[key].trim() === '') {
-				delete plugin.settings.FOLDER_DECKS[key]
-			}
-		}
-		for (const key of Object.keys(plugin.settings.FOLDER_TAGS)) {
-			if (!plugin.settings.FOLDER_TAGS[key] || plugin.settings.FOLDER_TAGS[key].trim() === '') {
-				delete plugin.settings.FOLDER_TAGS[key]
-			}
-		}
-
+		// Shape (including empty-string pruning) is guaranteed by loadSettings
+		// migration; this path only renders.
 		const configuredPaths = Array.from(
 			new Set([...Object.keys(plugin.settings.FOLDER_DECKS), ...Object.keys(plugin.settings.FOLDER_TAGS)])
 		).sort()
@@ -560,9 +491,8 @@ export class SettingsTab extends PluginSettingTab {
 	setup_ignore_files(parent: HTMLElement) {
 		const plugin = this.plugin
 		const ignored_files_settings = parent.createEl('h3', { text: 'Ignored File Settings' })
-		plugin.settings['IGNORED_FILE_GLOBS'] = plugin.settings.hasOwnProperty('IGNORED_FILE_GLOBS')
-			? plugin.settings['IGNORED_FILE_GLOBS']
-			: DEFAULT_IGNORED_FILE_GLOBS
+		// Read-only fallback like the Scan Directories textarea above.
+		const storedGlobs = plugin.settings.IGNORED_FILE_GLOBS ?? DEFAULT_IGNORED_FILE_GLOBS
 		const descriptionFragment = document.createDocumentFragment()
 		descriptionFragment.createEl('span', {
 			text: 'Glob patterns for files to ignore. You can add multiple patterns. One per line. Have a look at the '
@@ -577,14 +507,14 @@ export class SettingsTab extends PluginSettingTab {
 			.setName('Patterns to ignore')
 			.setDesc(descriptionFragment)
 			.addTextArea((text) => {
-				text.setValue(plugin.settings.IGNORED_FILE_GLOBS.join('\n'))
+				text.setValue(storedGlobs.join('\n'))
 					.setPlaceholder("Examples: '**/*.excalidraw.md', 'Templates/**'")
 					.onChange((value) => {
 						let ignoreLines = value.split('\n')
 						ignoreLines = ignoreLines.filter((e) => e.trim() != '') //filter out empty lines and blank lines
 						plugin.settings.IGNORED_FILE_GLOBS = ignoreLines
 
-						plugin.saveAllData()
+						plugin.scheduleSave()
 					})
 				text.inputEl.rows = 10
 				text.inputEl.cols = 30
