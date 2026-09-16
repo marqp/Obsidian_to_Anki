@@ -220,7 +220,8 @@ export function createParityHarness(options: HarnessOptions) {
 				for (const id of file.notes_to_delete) {
 					deletes.push(id)
 				}
-				const fileAdds = file.notes_to_add.length + file.inline_notes_to_add.length + file.regex_notes_to_add.length
+				const fileAdds =
+					file.notes_to_add.length + file.inline_notes_to_add.length + file.regex_notes_to_add.length
 				const newIds = Array.from({ length: fileAdds }, () => nextId++)
 				file.note_ids = [...newIds]
 				file.writeIDs()
@@ -234,9 +235,9 @@ export function createParityHarness(options: HarnessOptions) {
 				deletes: [...deletes].sort((a, b) => a - b),
 				inserts,
 				finalMarkdown,
-				warnings: (
-					['unknown-id', 'unknown-model', 'cloze-skip', 'other'] as const
-				).flatMap((category) => (bucket[category] > 0 ? [{ category, count: bucket[category] }] : [])),
+				warnings: (['unknown-id', 'unknown-model', 'cloze-skip', 'other'] as const).flatMap((category) =>
+					bucket[category] > 0 ? [{ category, count: bucket[category] }] : []
+				),
 				errors
 			}
 		} finally {
