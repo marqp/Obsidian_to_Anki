@@ -50,12 +50,14 @@ describe('settingToData configuration parser', () => {
 	} as unknown as App
 
 	it('correctly maps vault name, fields dict, collections, and template', async () => {
-		vi.spyOn(AnkiConnect, 'invoke').mockResolvedValueOnce([101, 202, 303])
+		const invokeSpy = vi.spyOn(AnkiConnect, 'invoke').mockResolvedValueOnce([101, 202, 303])
 
 		const settings = createMockSettings()
 		const fieldsDict = { Basic: ['Front', 'Back'] }
 
 		const result = await settingToData(mockApp, settings, fieldsDict)
+
+		expect(invokeSpy).toHaveBeenCalledWith('findNotes', { query: '' })
 
 		expect(result.vault_name).toBe('TestVault')
 		expect(result.fields_dict).toBe(fieldsDict)

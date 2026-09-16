@@ -99,6 +99,29 @@ describe('FormatConverter.format spot-checks', () => {
 	})
 })
 
+describe('FormatConverter.format_note_with_frozen_fields', () => {
+	it('appends frozen text per field', () => {
+		const formatter = createFormatter()
+		const note = { modelName: 'Basic', fields: { Front: 'Q', Back: 'A' } } as never
+		formatter.format_note_with_frozen_fields(note, { Basic: { Front: '-frozen-', Back: '-b-' } })
+
+		expect((note as { fields: Record<string, string> }).fields['Front']).toBe('Q-frozen-')
+		expect((note as { fields: Record<string, string> }).fields['Back']).toBe('A-b-')
+	})
+
+	it('keeps parity-pinned concat semantics for a field with no frozen entry', () => {
+		// `'' + undefined` -> "undefined". Reachable when a custom regexp
+		// yields more captures than the note type has fields (the junk
+		// 'undefined' key); the custom-regexp parity fixture pins upstream's
+		// exact behavior — do not "fix" this to ''.
+		const formatter = createFormatter()
+		const note = { modelName: 'Basic', fields: { undefined: '' } } as never
+		formatter.format_note_with_frozen_fields(note, { Basic: {} })
+
+		expect((note as { fields: Record<string, string> }).fields['undefined']).toBe('undefined')
+	})
+})
+
 describe('FormatConverter.cloze numbering', () => {
 	it('numbers unnumbered clozes per call without leaking across instances', () => {
 		const first = createFormatter()

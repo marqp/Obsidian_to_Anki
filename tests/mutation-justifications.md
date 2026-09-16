@@ -7,10 +7,20 @@ ideas for the rest.
 
 - Scope: `stryker.config.mjs` (`src/scan-optimizations.ts`, `src/constants.ts`,
   `src/note.ts`, `src/setting-to-data.ts`), break threshold 60.
-- Last reviewed: 2026-09-16, score **92.09** (note.ts 94.53, constants.ts 100).
-  Baseline at release 4.0.0 was 80.10 (note.ts 71.64); the kill-set PRs
-  (`note.test.ts` edge cases, `file-scan.test.ts` custom-regexp tags,
-  `format.test.ts` code-shielding) account for the delta.
+- Last reviewed: 2026-09-16 post-PR-10, score **91.75** (note.ts 93.66,
+  constants.ts 100, setting-to-data 83.61). Peak was 92.09 after the kill-set
+  PR (#23); PR-10 moved function bodies around, which reshuffles line numbers
+  and the NoCoverage set (5 vs 3 in note.ts) without losing any killed mutant
+  category. Baseline at release 4.0.0 was 80.10.
+
+## Parity-pinned behaviors (do not "fix")
+
+- `format_note_with_frozen_fields` concatenates `value + frozen[field]` with
+  NO `?? ''` fallback: for a field key without a frozen entry this yields the
+  literal string `"undefined"` (reachable via the junk key custom regexps can
+  produce). PR-10 tried the "defensive" fallback and the `custom-regexp`
+  parity fixture caught the wire-format change immediately. Unit-pinned in
+  `format.test.ts` ("keeps parity-pinned concat semantics…").
 
 ## How to use this file
 
@@ -30,22 +40,22 @@ ideas for the rest.
 
 ### src/note.ts
 
-- L148 `this.delete = false` → `true`: the `delete` field is write-only —
+- L149 `this.delete = false` → `true`: the `delete` field is write-only —
   no reader in `src/`, `main.ts` or tests. Keep as documentation of intent;
   follow-up: delete the field (dead, zero-risk, needs no test).
-- L206/L219 `lastLine === undefined` guards: `String.split` never yields an
+- L207/L220 `lastLine === undefined` guards: `String.split` never yields an
   empty array, so the guard is unreachable via the public API. Keep as
-  defensive code (also covers the NoCoverage twin on L206).
-- L243 `if (!this.field_names) return {}`: `field_names` is always an array
+  defensive code (also covers the NoCoverage twin on L207).
+- L244 `if (!this.field_names) return {}`: `field_names` is always an array
   (default `[]`). Defensive; unreachable.
-- L261/L262 `InlineNote.getSplitText` override: its result is never read —
+- L262/L263 `InlineNote.getSplitText` override: its result is never read —
   `getFields` re-splits `this.text` itself. Dead override; follow-up: delete
   it (and confirm `AbstractNote` still requires the method for `Note`).
-- L280 `.trim()` on the tags slice: masked downstream by design —
+- L281 `.trim()` on the tags slice: masked downstream by design —
   `formatNoteFields` trims every field before formatting, so the trim here
   is defense in depth. Removing it would be behavior-neutral today and
   brittle tomorrow; keep.
-- L292 `result.index ?? 0`: `String.match` always sets `index` on success,
+- L293 `result.index ?? 0`: `String.match` always sets `index` on success,
   so the fallback is dead; `index > 0` is unreachable in valid flows
   (ID/tags are always trailing when present). Keep.
 
@@ -72,15 +82,19 @@ ideas for the rest.
 All ten are `String.raw` fragments and regexp flags — killable with sharper
 `settingToData` unit tests asserting built-regexp behavior (not strings):
 mid-line `TARGET DECK`/`FILE TAGS` must NOT match once the `^` anchor is
-removed (kills L40/L44); `FROZEN`/`DELETE` lines must not match without `m`
-(kills L37/L41/L45); missing `Delete Removed Notes` key must default `true`
-(kills L71); empty flag strings must break matching (kills L36/L48/L52/L61).
+removed (kills L46/L50); `FROZEN`/`DELETE` lines must not match without `m`
+(kills L43/L47/L51); missing `Delete Removed Notes` key must default `true`
+(kills L77); empty flag strings must break matching (kills L42/L54/L58/L67).
 
 ### src/note.ts NoCoverage
 
-- L100 `'<br>'` separator: needs an explicit context-append test asserting
+- L101 `'<br>'` separator: needs an explicit context-append test asserting
   the separator itself (current tests cover the path, not the literal).
-- L359 `url = ''` default: call `parse()` without the url argument once.
+- L340/L341 `this.match.pop() ?? ''` fallbacks (new in PR-10, replacing the
+  `!` assertions): unreachable under the `search()` flag contract (the group
+  exists when the flag is on), so no test can distinguish the fallback;
+  `parseInt('') -> NaN` is the pinned equivalent. Keep as defensive code.
+- L362 `url = ''` default: call `parse()` without the url argument once.
 
 ## Out of scope for this log
 
@@ -90,5 +104,8 @@ removed (kills L40/L44); `FROZEN`/`DELETE` lines must not match without `m`
   Wave 2/3 test seams land; nightly-only if PR-time cost exceeds ~8 min).
 - Mini-bug found while writing the kill-set (not a mutant): `RegexNote`
   with more captures than fields creates a junk `'undefined'` key
-  (`note.ts` `getFields` loop bounds only on `captures`). Filed as
-  follow-up — fixing it changes wire payloads and needs parity proof.
+  (`note.ts` `getFields` loop bounds only on `captures`). Deliberately NOT
+  fixed: the parity fixture `custom-regexp` pins the upstream-identical
+  output including the junk key's `"undefined"` concat value (see
+  "Parity-pinned behaviors" above). A fix would be a wire-format change
+  needing an explicit CONTRACT.md divergence entry.

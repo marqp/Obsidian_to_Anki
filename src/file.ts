@@ -133,8 +133,7 @@ abstract class AbstractFile {
 
 	setup_frozen_fields_dict() {
 		const frozen_fields_dict: FROZEN_FIELDS_DICT = {}
-		for (const note_type in this.data.fields_dict) {
-			const fields: string[] = this.data.fields_dict[note_type]
+		for (const [note_type, fields] of Object.entries(this.data.fields_dict)) {
 			const temp_dict: Record<string, string> = {}
 			for (const field of fields) {
 				temp_dict[field] = ''
@@ -620,8 +619,7 @@ export class AllFile extends AbstractFile {
 		this.setupScan()
 		this.scanNotes()
 		this.scanInlineNotes()
-		for (const note_type in this.custom_regexps) {
-			const regexp_str: string = this.custom_regexps[note_type]
+		for (const [note_type, regexp_str] of Object.entries(this.custom_regexps)) {
 			if (regexp_str) {
 				this.search(note_type, regexp_str)
 			}

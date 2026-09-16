@@ -46,10 +46,11 @@ export function formatNoteFields(
 	formatter: FormatConverter
 ): Record<string, string> {
 	const isCloze = modelName.includes('Cloze') && curlyCloze
-	for (const key in fields) {
-		fields[key] = formatter.format(fields[key].trim(), isCloze, highlightsToCloze).trim()
+	const formatted: Record<string, string> = {}
+	for (const [key, value] of Object.entries(fields)) {
+		formatted[key] = formatter.format(value.trim(), isCloze, highlightsToCloze).trim()
 	}
-	return fields
+	return formatted
 }
 
 export interface BuildAnkiNoteParams {
@@ -107,11 +108,11 @@ export function buildAnkiNote(params: BuildAnkiNoteParams): AnkiConnectNoteAndID
 
 	const finalTags = [...tags]
 	if (data.add_obs_tags) {
-		for (const key in template.fields) {
-			for (const match of template.fields[key].matchAll(OBS_TAG_REGEXP)) {
+		for (const [key, value] of Object.entries(template.fields)) {
+			for (const match of value.matchAll(OBS_TAG_REGEXP)) {
 				finalTags.push(match[1])
 			}
-			template.fields[key] = template.fields[key].replace(OBS_TAG_REGEXP, '')
+			template.fields[key] = value.replace(OBS_TAG_REGEXP, '')
 		}
 	}
 	template.tags.push(...finalTags)
@@ -334,8 +335,10 @@ export class RegexNote {
 	) {
 		this.match = match
 		this.note_type = note_type
-		this.identifier = id ? parseInt(this.match.pop()!) : null
-		this.tags = tags ? this.match.pop()!.slice(TAG_PREFIX.length).split(TAG_SEP) : []
+		// `?? ''` keeps the historical parseInt('') -> NaN behavior without
+		// asserting on an element the regex contract guarantees.
+		this.identifier = id ? parseInt(this.match.pop() ?? '') : null
+		this.tags = tags ? (this.match.pop() ?? '').slice(TAG_PREFIX.length).split(TAG_SEP) : []
 		this.field_names = fields_dict[note_type]
 		this.curly_cloze = curly_cloze
 		this.formatter = formatter

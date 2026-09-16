@@ -321,8 +321,8 @@ export default class MyPlugin extends Plugin {
 		new Notice(this.formatScanNotice(manager.ownFiles.length, totalFiles, added, updated, deleted))
 		this.added_media = Array.from(manager.added_media_set)
 		const hashes = manager.getHashes()
-		for (const key in hashes) {
-			this.file_hashes[key] = hashes[key]
+		for (const [key, entry] of Object.entries(hashes)) {
+			this.file_hashes[key] = entry
 		}
 		this.saveAllData()
 	}
