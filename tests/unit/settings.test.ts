@@ -128,6 +128,15 @@ describe('SettingsTab Folder Table Optimizations', () => {
 		expect(visible.length).toBe(1)
 	})
 
+	it('renders the folder-rule picker when unconfigured folders exist', () => {
+		const plugin = createMockPlugin({}, {})
+		const tab = new SettingsTab(plugin.app, plugin)
+		const folder = { path: 'Cards', children: [] }
+		tab.get_folders = () => [folder as never]
+
+		expect(() => tab.setup_folder_table(tab.containerEl as unknown as HTMLElement)).not.toThrow()
+	})
+
 	it('settings tables render as real tables inside scrollers (overflow regression)', () => {
 		const plugin = createMockPlugin({ 'Notes/Biology': 'BiologyDeck' }, { 'Notes/Tag': 'MedTag' })
 		const tab = new SettingsTab(plugin.app, plugin)

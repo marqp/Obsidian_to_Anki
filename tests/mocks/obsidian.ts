@@ -154,11 +154,44 @@ export class PluginSettingTab {
 	) {}
 }
 
+/**
+ * Minimal AbstractInputSuggest stub: enough for settings.ts folder picker to
+ * construct, filter, and select. Keeps the same public surface the plugin uses
+ * (constructor, setValue/getValue, onSelect, getSuggestions, renderSuggestion).
+ */
+export abstract class AbstractInputSuggest<T> {
+	private selectedCallback: ((value: T) => void) | null = null
+	constructor(
+		public app: App,
+		public inputEl: any
+	) {}
+	abstract getSuggestions(query: string): T[] | Promise<T[]>
+	abstract renderSuggestion(value: T, el: any): void
+	selectSuggestion(value: T): void {
+		this.setValue(String(value))
+		if (this.selectedCallback) {
+			this.selectedCallback(value)
+		}
+	}
+	onSelect(callback: (value: T) => void): this {
+		this.selectedCallback = callback
+		return this
+	}
+	setValue(value: string): void {
+		this.inputEl.value = value
+	}
+	getValue(): string {
+		return this.inputEl.value ?? ''
+	}
+	open(): void {}
+	close(): void {}
+}
+
 export class Setting {
 	settingEl = {}
 	infoEl = { remove() {} }
 	controlEl = { className: '' }
-	inputEl = { rows: 0, cols: 0 }
+	inputEl = { rows: 0, cols: 0, value: '', title: '', style: {} as Record<string, string> }
 	constructor(containerEl: any) {}
 	setName(name: string) {
 		return this
@@ -171,9 +204,13 @@ export class Setting {
 			setValue() {
 				return this
 			},
+			setPlaceholder() {
+				return this
+			},
 			onChange() {
 				return this
-			}
+			},
+			inputEl: this.inputEl
 		})
 		return this
 	}
