@@ -92,8 +92,13 @@ export class FormatConverter {
 		note: AnkiConnectNote,
 		frozen_fields_dict: Record<string, Record<string, string>>
 	): void {
-		for (const field in note.fields) {
-			note.fields[field] += frozen_fields_dict[note.modelName][field]
+		const frozen = frozen_fields_dict[note.modelName]
+		for (const [field, value] of Object.entries(note.fields)) {
+			// No `?? ''` here: exact string-concat semantics are parity-pinned.
+			// For an unknown field key the concatenation yields the literal
+			// "undefined" (upstream behavior) — the parity fixture
+			// custom-regexp would flag any change.
+			note.fields[field] = value + frozen[field]
 		}
 	}
 
