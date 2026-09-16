@@ -50,8 +50,12 @@ object `FileHashes` / `EXISTING_IDS` Set. Item verdicts:
 - #649 (xhr content-type, +1/−0): obsolete — transport is `requestUrl`, no XHR.
 - #557 (file-link filename label): cherry-picked in 4.0.0 (`format_note_with_url`
   now renders `Obsidian - <filename>`; unit-tested in `format.test.ts`).
-- #537 (HTML entities as obsidian tags): already covered — the fork's unicode
-  `OBS_TAG_REGEXP` (`note.ts:15`) matches a superset including the `&#039;` case.
+- #537 (HTML entities as obsidian tags): superseded — the fork's unicode
+  `OBS_TAG_REGEXP` (`note.ts:15`) matches a superset including the `&#039;` case
+  (the lookbehind `(?<=^|[\t ])` can never fire after `&`), while additionally
+  supporting unicode and hyphens that upstream `/(?:&#\d+;)|#(\w+)/g` drops.
+  Locked by unit vectors in `tests/unit/note.test.ts` ("ignores HTML entities
+  while keeping unicode/hyphen tags").
 - #584 (updateNoteTags + scan-current-file): superseded — the fork has
   `anki-scan-file` + `scanVaultOnce`, and goes further with consolidated
   `updateNote` (apiReflect-gated) instead of `updateNoteTags` alone.
@@ -87,6 +91,12 @@ structural diff by design and serve as living documentation:
   intentionally supports trailing spaces after `START`/`END` markers. This is
   syntax behavior users can hit by accident, so it is pinned as a known
   divergence rather than silently absorbed.
+- `file-link-label` (upstream #557, cherry-picked in 4.0.0): the backlink the
+  fork appends to `FILE_LINK_FIELDS` renders `Obsidian - <filename>` instead of
+  upstream's bare `Obsidian`. Deliberate UX improvement, unit-tested in
+  `tests/unit/format.test.ts`. The parity harness runs with empty
+  `FILE_LINK_FIELDS`, so `format_note_with_url` is never exercised there —
+  this divergence cannot break the gate by construction.
 
 ## Updating the upstream pin
 
