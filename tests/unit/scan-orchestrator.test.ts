@@ -8,7 +8,6 @@ import {
 	getAllTFilesInFolder,
 	type PreviewCallbacks,
 	type ScanEnvironment,
-	type ScanPreview,
 	type ScanState
 } from '../../src/scan-orchestrator'
 import type { DryRunSummary } from '../../src/dry-run'
