@@ -159,13 +159,21 @@ function isModelMismatch(local: AnkiConnectNote, anki: AnkiNoteInfo): boolean {
 	return Boolean(local.modelName && anki.modelName && local.modelName !== anki.modelName)
 }
 
+function normalizeText(value: string): string {
+	// Anki normalizes to NFC server-side; macOS checkouts often yield NFD.
+	// Comparing without normalizing reports phantom updates for identical
+	// text (Yanki areFieldsEqual/areTagsEqual pattern, scoped to equality —
+	// the real scan still writes submitted strings verbatim).
+	return value.normalize('NFC')
+}
+
 function normalizeTags(tags: string[]): string[] {
-	return [...new Set(tags.filter((tag) => tag.length > 0))].sort()
+	return [...new Set(tags.filter((tag) => tag.length > 0).map(normalizeText))].sort()
 }
 
 function isContentMismatch(local: AnkiConnectNote, anki: AnkiNoteInfo): boolean {
 	for (const field of Object.keys(local.fields)) {
-		if ((anki.fields[field]?.value ?? '') !== local.fields[field]) {
+		if (normalizeText(anki.fields[field]?.value ?? '') !== normalizeText(local.fields[field])) {
 			return true
 		}
 	}

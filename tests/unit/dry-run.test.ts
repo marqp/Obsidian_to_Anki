@@ -116,8 +116,50 @@ describe('collectDryRunState: exact diff', () => {
 		}
 	})
 
-	it('detects deck moves via cardsInfo and converts via model mismatch', async () => {
+	it('treats NFC/NFD-equivalent text as identical but keeps case significant', async () => {
 		const { setTransport } = await import('../../src/anki')
+		const invokeMock = vi.fn(async (action: string) => {
+			if (action === 'notesInfo') {
+				return [
+					{
+						// NFC form server-side; local note carries NFD below.
+						noteId: 41,
+						modelName: 'Basic',
+						tags: ['café'],
+						fields: { Front: { order: 0, value: 'café' } },
+						cards: []
+					},
+					{
+						// Same letters, different case: still a real diff.
+						noteId: 42,
+						modelName: 'Basic',
+						tags: ['keep'],
+						fields: { Front: { order: 0, value: 'keep' } },
+						cards: []
+					}
+				]
+			}
+			throw new Error(`unexpected action in dry-run: ${action}`)
+		})
+		setTransport({ invoke: invokeMock })
+		const files = createManagerFiles(
+			createParsedSettings(),
+			[
+				// NFD 'e' + combining acute: NFC-equal to the Anki side.
+				{ id: 41, fields: { Front: 'cafe\u0301' }, tags: ['cafe\u0301'] },
+				{ id: 42, fields: { Front: 'Keep' }, tags: ['keep'] }
+			],
+			[]
+		)
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+
+		expect(summary.wouldUpdate).toBe(1)
+		expect(summary.changes.filter((c) => c.kind === 'update').map((c) => c.noteId)).toEqual([42])
+		expect(invokeMock.mock.calls.map((call) => call[0])).toEqual(['notesInfo'])
+	})
+
+	it('detects deck moves via cardsInfo and converts via model mismatch', async () => {		const { setTransport } = await import('../../src/anki')
 		const invokeMock = vi.fn(async (action: string) => {
 			if (action === 'notesInfo') {
 				return [
