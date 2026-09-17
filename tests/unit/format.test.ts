@@ -180,3 +180,18 @@ describe('FormatConverter code highlighting (bundled subset)', () => {
 		expect(out).toContain('hljs-keyword')
 	})
 })
+
+describe('FormatConverter.format memo flags', () => {
+	it('keys the memo on cloze flags, not just text', () => {
+		const formatter = createFormatter()
+		expect(formatter.format('{a}', true, false)).toContain('{{c1::a}}')
+		// Same text, flags off: must recompute, not serve the cloze hit.
+		expect(formatter.format('{a}', false, false)).not.toContain('{{c')
+	})
+
+	it('keys the memo on cloze flags in either call order', () => {
+		const formatter = createFormatter()
+		expect(formatter.format('{a}', false, false)).not.toContain('{{c')
+		expect(formatter.format('{a}', true, false)).toContain('{{c1::a}}')
+	})
+})
