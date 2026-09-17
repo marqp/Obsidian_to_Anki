@@ -90,7 +90,7 @@ export interface ScanIssue {
 	/** File whose note failed ('' for batch-level failures). */
 	file: string
 	/** Machine-stable category; the console summary groups by it. */
-	kind: 'add-notes' | 'note-info' | 'add-note'
+	kind: 'add-notes' | 'note-info' | 'add-note' | 'notes-info' | 'note-info-file' | 'tag-list'
 	/** The AnkiConnect error message (never the full payload). */
 	error: string
 }
@@ -496,8 +496,26 @@ export class FileManager {
 			note_ids_array_by_file = batch.addedIds.result
 			this.scanIssues.push({ file: '', kind: 'add-notes', error: issueMessage(error) })
 		}
-		const note_info_array_by_file = AnkiConnect.parse(batch.notesInfo)
-		const tag_list: string[] = AnkiConnect.parse(batch.tagList)
+		// Per-file fault isolation: one file's malformed notesInfo must not
+		// abort the remaining files (or the tag list, ID stamping, and
+		// requests_2 below). Failures become ScanIssues; the file keeps its
+		// empty deck-map defaults and the scan continues.
+		let note_info_array_by_file: Requests1Result[1]['result']
+		try {
+			note_info_array_by_file = AnkiConnect.parse(batch.notesInfo)
+		} catch (error) {
+			console.error('Error: ', error)
+			note_info_array_by_file = []
+			this.scanIssues.push({ file: '', kind: 'notes-info', error: issueMessage(error) })
+		}
+		let tag_list: string[]
+		try {
+			tag_list = AnkiConnect.parse(batch.tagList)
+		} catch (error) {
+			console.error('Error: ', error)
+			tag_list = []
+			this.scanIssues.push({ file: '', kind: 'tag-list', error: issueMessage(error) })
+		}
 		for (let i = 0; i < note_ids_array_by_file.length; i++) {
 			const file = this.ownFiles[i]
 			let file_response: addNoteResponse[]
@@ -529,7 +547,14 @@ export class FileManager {
 		}
 		for (let i = 0; i < note_info_array_by_file.length; i++) {
 			const file = this.ownFiles[i]
-			const file_response = AnkiConnect.parse(note_info_array_by_file[i])
+			let file_response: Requests1Result[1]['result'][number]['result']
+			try {
+				file_response = AnkiConnect.parse(note_info_array_by_file[i])
+			} catch (error) {
+				console.error('Error: ', error)
+				this.scanIssues.push({ file: file.path, kind: 'note-info-file', error: issueMessage(error) })
+				continue
+			}
 			const temp: number[] = []
 			file.note_edit_deck_map = []
 			for (let j = 0; j < file_response.length; j++) {
