@@ -34,6 +34,21 @@ describe('groupDryRunChanges', () => {
 		expect(groups[0].entries.map((e) => e.noteId)).toEqual([3, 5, 2, 9])
 	})
 
+	it('sorts groups and null ids deterministically (comparator pin)', () => {
+		const groups = groupDryRunChanges(
+			summaryWith([
+				{ kind: 'add', file: 'd.md', deck: 'D', modelName: 'Basic' },
+				{ kind: 'update', file: 'c.md', noteId: 9, deck: 'D', modelName: 'Basic', fields: ['Front'] },
+				{ kind: 'update', file: 'c.md', deck: 'D', modelName: 'Basic', fields: ['Back'] },
+				{ kind: 'add', file: 'a.md', deck: 'D', modelName: 'Basic' },
+				{ kind: 'delete', file: 'b.md', noteId: 1 }
+			])
+		)
+		expect(groups.map((g: DryRunGroup) => g.displayFile)).toEqual(['a.md', 'b.md', 'c.md', 'd.md'])
+		// Null ids sort before numbered ones inside the same kind.
+		expect(groups[2].entries.map((e) => e.noteId)).toEqual([undefined, 9])
+	})
+
 	it('buckets unattributed orphans under (unknown file)', () => {
 		const groups = groupDryRunChanges(summaryWith([{ kind: 'delete', file: '', noteId: 41 }]))
 		expect(groups).toHaveLength(1)
@@ -63,6 +78,7 @@ describe('formatChangeLine', () => {
 		expect(formatChangeLine({ kind: 'convert', file: 'f', noteId: 8, fromModel: 'A', toModel: 'B' })).toBe(
 			'⇄ #8 A→B'
 		)
+		expect(formatChangeLine({ kind: 'convert', file: 'f', noteId: 8, fromModel: 'A' })).toBe('⇄ #8 A→')
 		expect(formatChangeLine({ kind: 'add', file: 'f' })).toBe('+ /')
 		expect(formatChangeLine({ kind: 'update', file: 'f' })).toBe('~ #?  ()')
 	})
