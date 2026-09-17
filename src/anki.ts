@@ -17,6 +17,36 @@ export interface AnkiTransport {
 	invoke<T = unknown>(action: string, params?: Record<string, unknown>): Promise<T>
 }
 
+/** Upper bound for a single AnkiConnect round-trip (previously unbounded). */
+export const REQUEST_TIMEOUT_MS = 30_000
+
+/**
+ * Race a transport promise against a timeout. Renderer-safe (globalThis
+ * timers, no Node imports) so both transports share it. The timer is always
+ * cleared; slow-but-finite bulk multis on huge vaults stay well under it.
+ */
+export function withRequestTimeout<T>(promise: Promise<T>, action: string, ms = REQUEST_TIMEOUT_MS): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined
+	const timeout = new Promise<T>((_, reject) => {
+		timer = setTimeout(() => reject(new Error(`AnkiConnect request timed out after ${ms}ms: ${action}`)), ms)
+	})
+	return Promise.race([promise, timeout]).finally(() => {
+		if (timer !== undefined) {
+			clearTimeout(timer)
+		}
+	})
+}
+
+/**
+ * Reject non-object AnkiConnect bodies (proxy HTML, empty resets) instead of
+ * silently returning undefined. Plain {} stays lenient (legacy + test mock).
+ */
+export function assertResponseShape(action: string, data: unknown): void {
+	if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+		throw new AnkiConnectError(action, 'malformed response from AnkiConnect')
+	}
+}
+
 export function buildPayload(action: string, params: Record<string, unknown>, apiKey = ''): Record<string, unknown> {
 	if (apiKey) {
 		return { action, version: 6, params, key: apiKey }
@@ -57,13 +87,17 @@ export class ObsidianRequestUrlTransport implements AnkiTransport {
 
 	async invoke<T = unknown>(action: string, params: Record<string, unknown> = {}): Promise<T> {
 		try {
-			const res = await requestUrl({
-				url: 'http://127.0.0.1:' + this.port.toString(),
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(buildPayload(action, params, this.apiKey))
-			})
+			const res = await withRequestTimeout(
+				requestUrl({
+					url: 'http://127.0.0.1:' + this.port.toString(),
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(buildPayload(action, params, this.apiKey))
+				}),
+				action
+			)
 			const data = res.json
+			assertResponseShape(action, data)
 			if (data.error) {
 				throw new AnkiConnectError(action, data.error)
 			}
@@ -83,12 +117,16 @@ export class FetchTransport implements AnkiTransport {
 
 	async invoke<T = unknown>(action: string, params: Record<string, unknown> = {}): Promise<T> {
 		try {
-			const res = await fetch('http://127.0.0.1:' + this.port.toString(), {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(buildPayload(action, params, this.apiKey))
-			})
+			const res = await withRequestTimeout(
+				fetch('http://127.0.0.1:' + this.port.toString(), {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(buildPayload(action, params, this.apiKey))
+				}),
+				action
+			)
 			const data = await res.json()
+			assertResponseShape(action, data)
 			if (data.error) {
 				throw new AnkiConnectError(action, data.error)
 			}

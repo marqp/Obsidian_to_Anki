@@ -91,6 +91,16 @@ scratch copy, run only the suspect file, confirm red, restore):
   Becomes observable (and killed) the day a non-empty array default lands.
 - `src/dry-run.ts` L103 `if (identifier == null) continue` removal: falls
   through to the `!anki` guard on the next line, which skips identically.
+- `src/dry-run.ts` deck stats (`?.type` → `.type`): the `deck === undefined`
+  guard above implies `cardInfoById` presence — both maps are built in the
+  same `cardInfos` loop, so direct access cannot throw. Verified by hand
+  (mutant passes the suite).
+- `src/dry-run.ts` deck-sort comparator (`<=`/`>=`/branch variants): deck
+  names are map keys, hence distinct — same strict-weak-ordering argument
+  as the view comparator above; a 3-deck unsorted fixture pins the order.
+- `src/anki.ts` `withRequestTimeout` (`if (true)` variant): the timer is
+  always assigned before the race, so unconditional clearing is identical;
+  the `if (false)`/removal variants die via the clearTimeout spy.
 - `src/dry-run.ts` L163 single-tag sets: `.some()` vs `.every()` converge
   when both tag lists have ≤ 1 element (the tag-diff fixture); extend the
   fixture to multi-tag divergence to separate them (backlog).

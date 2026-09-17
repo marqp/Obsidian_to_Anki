@@ -22,7 +22,16 @@ export interface DryRunSummary {
 	wouldUpdate: number
 	wouldDelete: number
 	wouldConvert: number
+	/** Live cards touched per deck (read-only review confidence). */
+	decks: DryRunDeckStat[]
 	changes: DryRunChange[]
+}
+
+/** Cards the preview would touch in one deck (Anki `type === 0` counts as new). */
+export interface DryRunDeckStat {
+	deck: string
+	cards: number
+	new: number
 }
 
 interface AnkiNoteInfo {
@@ -36,6 +45,8 @@ interface AnkiNoteInfo {
 interface AnkiCardInfo {
 	cardId: number
 	deck: string
+	/** Anki card type: 0 = new (learning/review/relearning are non-zero). */
+	type?: number
 }
 
 /**
@@ -109,9 +120,11 @@ export async function collectDryRunState(
 	const uniqueCardIds = [...new Set(cardIds)]
 	const cardInfos = uniqueCardIds.length ? await fetchCardsInfo(uniqueCardIds) : []
 	const deckByCardId = new Map<number, string>()
+	const cardInfoById = new Map<number, AnkiCardInfo>()
 	for (const card of cardInfos) {
 		if (card) {
 			deckByCardId.set(card.cardId, card.deck)
+			cardInfoById.set(card.cardId, card)
 		}
 	}
 
@@ -172,6 +185,7 @@ export async function collectDryRunState(
 		wouldUpdate,
 		wouldDelete: orphanNoteIds.length,
 		wouldConvert,
+		decks: collectDeckStats(uniqueCardIds, deckByCardId, cardInfoById),
 		changes: [
 			...changes,
 			...orphanNoteIds.map((noteId) => ({
@@ -211,6 +225,32 @@ function isContentMismatch(local: AnkiConnectNote, anki: AnkiNoteInfo): boolean 
 	const localTags = normalizeTags(local.tags)
 	const ankiTags = normalizeTags(anki.tags ?? [])
 	return localTags.length !== ankiTags.length || localTags.some((tag, index) => tag !== ankiTags[index])
+}
+
+/**
+ * Per-deck review confidence from the already-fetched cardsInfo: how many
+ * live cards the preview touches per deck, and how many are new. Pure
+ * display data — never computed locally, never written.
+ */
+function collectDeckStats(
+	cardIds: number[],
+	deckByCardId: Map<number, string>,
+	cardInfoById: Map<number, AnkiCardInfo>
+): DryRunDeckStat[] {
+	const byDeck = new Map<string, DryRunDeckStat>()
+	for (const cardId of cardIds) {
+		const deck = deckByCardId.get(cardId)
+		if (deck === undefined) {
+			continue
+		}
+		const stat = byDeck.get(deck) ?? { deck, cards: 0, new: 0 }
+		stat.cards += 1
+		if (cardInfoById.get(cardId)?.type === 0) {
+			stat.new += 1
+		}
+		byDeck.set(deck, stat)
+	}
+	return [...byDeck.values()].sort((a, b) => (a.deck < b.deck ? -1 : a.deck > b.deck ? 1 : 0))
 }
 
 function isDeckMismatch(file: AllFile, anki: AnkiNoteInfo, deckByCardId: Map<number, string>): boolean {

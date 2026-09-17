@@ -43,6 +43,7 @@ function mixedSummary(): DryRunSummary {
 		wouldUpdate: 1,
 		wouldDelete: 1,
 		wouldConvert: 0,
+		decks: [{ deck: 'Default', cards: 3, new: 1 }],
 		changes: [
 			{ kind: 'add', file: 'b.md', deck: 'Default', modelName: 'Basic' },
 			{ kind: 'update', file: 'a.md', noteId: 5, deck: 'Default', modelName: 'Basic', fields: ['Front'] },
@@ -59,6 +60,7 @@ function zeroingSummary(): DryRunSummary {
 		wouldUpdate: 0,
 		wouldDelete: 2,
 		wouldConvert: 0,
+		decks: [],
 		changes: [
 			{ kind: 'delete', file: 'a.md', noteId: 1 },
 			{ kind: 'delete', file: 'a.md', noteId: 2 }
@@ -73,7 +75,12 @@ describe('DryRunModal', () => {
 
 		expect(texts(modal.contentEl, 'h2')).toEqual(['Approve Anki sync'])
 		expect(texts(modal.contentEl, 'p')[0]).toContain('would_add=1')
-		expect(texts(modal.contentEl, 'li')).toEqual(['~ #5 Default (Front)', '+ Default/Basic', '- #7'])
+		expect(texts(modal.contentEl, 'li')).toEqual([
+			'Default — 3 cards (1 new)',
+			'~ #5 Default (Front)',
+			'+ Default/Basic',
+			'- #7'
+		])
 		expect(buttons(modal.contentEl).map((b) => b.text)).toEqual(['Cancel', 'Sync now'])
 	})
 

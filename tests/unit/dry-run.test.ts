@@ -320,6 +320,75 @@ describe('collectDryRunState: exact diff', () => {
 		])
 	})
 
+	it('aggregates touched cards per deck with new counts', async () => {
+		const { setTransport } = await import('../../src/anki')
+		const invokeMock = vi.fn(async (action: string) => {
+			if (action === 'notesInfo') {
+				return [
+					{
+						noteId: 62,
+						modelName: 'Basic',
+						tags: [],
+						fields: { Front: { order: 0, value: 'w' } },
+						cards: [201]
+					},
+					{
+						noteId: 64,
+						modelName: 'Basic',
+						tags: [],
+						fields: { Front: { order: 0, value: 'v' } },
+						cards: [401]
+					},
+					{
+						noteId: 61,
+						modelName: 'Basic',
+						tags: [],
+						fields: { Front: { order: 0, value: 'q' } },
+						cards: [101, 102]
+					},
+					{
+						noteId: 63,
+						modelName: 'Basic',
+						tags: [],
+						fields: { Front: { order: 0, value: 'z' } },
+						cards: [301]
+					}
+				]
+			}
+			if (action === 'cardsInfo') {
+				return [
+					{ cardId: 201, deck: 'B', type: 2 },
+					{ cardId: 401, deck: 'C', type: 0 },
+					{ cardId: 101, deck: 'A', type: 0 },
+					{ cardId: 102, deck: 'A', type: 2 }
+				]
+			}
+			throw new Error(`unexpected action in dry-run: ${action}`)
+		})
+		setTransport({ invoke: invokeMock })
+		const files = createManagerFiles(
+			createParsedSettings(),
+			[
+				{ id: 62, fields: { Front: 'w' }, tags: [], deck: 'B', cardIds: [201] },
+				{ id: 64, fields: { Front: 'v' }, tags: [], deck: 'C', cardIds: [401] },
+				{ id: 61, fields: { Front: 'q' }, tags: [], deck: 'A', cardIds: [101, 102] },
+				// Card 301 never comes back from cardsInfo: skipped, never counted.
+				{ id: 63, fields: { Front: 'z' }, tags: [], deck: 'C', cardIds: [301] }
+			],
+			[]
+		)
+		files[0].target_deck = 'A'
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+
+		expect(summary.wouldUpdate).toBe(0)
+		expect(summary.decks).toEqual([
+			{ deck: 'A', cards: 2, new: 1 },
+			{ deck: 'B', cards: 1, new: 0 },
+			{ deck: 'C', cards: 1, new: 1 }
+		])
+	})
+
 	it('attributes orphans to an empty file when no map is handed over', async () => {
 		const { setTransport } = await import('../../src/anki')
 		const invokeMock = vi.fn(async () => [])
@@ -449,6 +518,7 @@ describe('formatDryRunSummary', () => {
 			wouldUpdate: 1,
 			wouldDelete: 0,
 			wouldConvert: 1,
+			decks: [],
 			changes: []
 		}
 		expect(formatDryRunSummary(summary)).toBe(

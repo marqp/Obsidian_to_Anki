@@ -155,5 +155,7 @@ CI (`ci.yml`, pnpm): tsc → lint → format:check → test → build.
 - AnkiConnect lives at `127.0.0.1:8765`.
 - `getActiveFile()` returns `TFile | null` — `scanVault` accepts null.
 - `tests/mocks/obsidian.ts` also shims `document` for Node — extend it, don't work around it.
-- Release flow (`obsidian-release.yml`): tag → build → draft GitHub release with
+- Release flow (`obsidian-release.yml`): tag → build → attest (`main.js`,
+  `manifest.json` via `actions/attest@v4`; verify with
+  `gh attestation verify main.js --repo marqp/Obsidian_to_Anki`) → draft GitHub release with
   `main.js`, `manifest.json`, `styles.css`. Keep `package.json` and `manifest.json` versions in sync.
