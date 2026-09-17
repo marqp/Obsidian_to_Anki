@@ -1,5 +1,14 @@
-import { describe, it, expect, vi } from 'vitest'
-import { AnkiConnectError, AnkiTransport, FetchTransport, setTransport, invoke, parse } from '../../src/anki'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import {
+	AnkiConnectError,
+	AnkiTransport,
+	FetchTransport,
+	ObsidianRequestUrlTransport,
+	setTransport,
+	invoke,
+	parse
+} from '../../src/anki'
+import { requestedUrls, clearRequestedUrls } from '../mocks/obsidian'
 
 describe('Transport: AnkiTransport & AnkiConnectError', () => {
 	it('throws AnkiConnectError with action and message when Anki returns error', async () => {
@@ -47,5 +56,39 @@ describe('Transport: AnkiTransport & AnkiConnectError', () => {
 		)
 
 		globalThis.fetch = originalFetch
+	})
+
+	it('FetchTransport throws AnkiConnectError when Anki returns error', async () => {
+		const originalFetch = globalThis.fetch
+		globalThis.fetch = vi.fn().mockResolvedValue({
+			json: async () => ({ result: null, error: 'collection is open' })
+		}) as unknown as typeof fetch
+
+		const transport = new FetchTransport(8765)
+		await expect(transport.invoke('sync')).rejects.toThrow('AnkiConnect [sync]: collection is open')
+		await expect(transport.invoke('sync')).rejects.toBeInstanceOf(AnkiConnectError)
+
+		globalThis.fetch = originalFetch
+	})
+
+	it('ObsidianRequestUrlTransport omits the key by default, sends it when set', async () => {
+		clearRequestedUrls()
+		await new ObsidianRequestUrlTransport().invoke('modelNames')
+		const request = requestedUrls[0] as {
+			url: string
+			method: string
+			headers: Record<string, string>
+			body: string
+		}
+		expect(request.url).toBe('http://127.0.0.1:8765')
+		expect(request.method).toBe('POST')
+		expect(request.headers).toEqual({ 'Content-Type': 'application/json' })
+		const anonymous = JSON.parse(request.body)
+		expect(anonymous).not.toHaveProperty('key')
+
+		clearRequestedUrls()
+		await new ObsidianRequestUrlTransport(8765, 's3cret').invoke('modelNames')
+		const keyed = JSON.parse((requestedUrls[0] as { body: string }).body)
+		expect(keyed).toMatchObject({ key: 's3cret' })
 	})
 })

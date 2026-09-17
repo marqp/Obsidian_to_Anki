@@ -179,6 +179,113 @@ describe('collectDryRunState: exact diff', () => {
 		expect(summary.changes.filter((c) => c.kind === 'delete').map((c) => c.noteId)).toEqual([301, 302])
 		expect(invokeMock).not.toHaveBeenCalled()
 	})
+
+	it('pins every skip rule, tag normalization and orphan attribution exactly', async () => {
+		const { setTransport } = await import('../../src/anki')
+		const invokeMock = vi.fn(async (action: string, params: { notes?: number[]; cards?: number[] }) => {
+			if (action === 'notesInfo') {
+				expect(params.notes).toEqual([31, 32, 33, 34, 35])
+				return [
+					{
+						noteId: 31,
+						modelName: 'Basic',
+						tags: ['keep'],
+						fields: { Front: { order: 0, value: 'q' }, Back: { order: 1, value: 'a' } },
+						cards: []
+					},
+					{
+						noteId: 32,
+						modelName: 'Basic',
+						tags: ['b', 'a'],
+						fields: { Front: { order: 0, value: 'q' } },
+						cards: []
+					},
+					{
+						noteId: 33,
+						modelName: 'Basic',
+						tags: [],
+						fields: { Text: { order: 0, value: 'c' } },
+						cards: []
+					},
+					{
+						noteId: 35,
+						modelName: 'Basic',
+						tags: [],
+						fields: { Front: { order: 0, value: 'q2' } },
+						cards: []
+					}
+				]
+			}
+			throw new Error(`unexpected action in dry-run: ${action}`)
+		})
+		setTransport({ invoke: invokeMock })
+		const files = createManagerFiles(
+			createParsedSettings(),
+			[
+				// empty-string local field, missing in Anki: '' matches the ??
+				// fallback, so no update (fallback-value pin)
+				{ id: 31, fields: { Front: 'q', Back: 'a', Extra: '' }, tags: ['keep'] },
+				// same tags in different order plus an empty (dropped by
+				// normalization) -> identical (normalization pin)
+				{ id: 32, fields: { Front: 'q' }, tags: ['a', '', 'b'], model: 'Basic' },
+				// model mismatch with conversions off -> neither convert nor
+				// update, even though the field also differs (gating pin)
+				{ id: 33, fields: { Text: 'c-local' }, tags: [], model: 'Cloze' },
+				// unknown to Anki -> silently skipped
+				{ id: 34, fields: { Front: 'q' }, tags: [] },
+				// non-empty local field missing in Anki -> update
+				// (optional-chain pin: direct access would throw)
+				{ id: 35, fields: { Front: 'q2', Extra: 'new' }, tags: [] }
+			],
+			[{ deckName: 'Default', modelName: 'Basic' }]
+		)
+		// ID-less edits never reach notesInfo (see the params assertion above).
+		files[0].notes_to_edit.push({
+			identifier: null,
+			note: {
+				deckName: 'Default',
+				modelName: 'Basic',
+				fields: { Front: 'ghost' },
+				options: { allowDuplicate: true },
+				tags: []
+			}
+		})
+
+		const summary = await collectDryRunState(files, {
+			hasNoteTypeChanges: false,
+			orphanNoteIds: [401],
+			orphanFileById: new Map([[401, 'gone.md']])
+		})
+
+		// No cards anywhere, so cardsInfo is never consulted.
+		expect(invokeMock.mock.calls.map((call) => call[0])).toEqual(['notesInfo'])
+		expect(summary.wouldAdd).toBe(1)
+		expect(summary.wouldUpdate).toBe(1)
+		expect(summary.wouldDelete).toBe(1)
+		expect(summary.wouldConvert).toBe(0)
+		expect(summary.changes).toEqual([
+			{ kind: 'add', file: 'dry-run.md', deck: 'Default', modelName: 'Basic' },
+			{
+				kind: 'update',
+				file: 'dry-run.md',
+				noteId: 35,
+				deck: 'Default',
+				modelName: 'Basic',
+				fields: ['Front', 'Extra']
+			},
+			{ kind: 'delete', file: 'gone.md', noteId: 401 }
+		])
+	})
+
+	it('attributes orphans to an empty file when no map is handed over', async () => {
+		const { setTransport } = await import('../../src/anki')
+		const invokeMock = vi.fn(async () => [])
+		setTransport({ invoke: invokeMock })
+
+		const summary = await collectDryRunState([], { hasNoteTypeChanges: false, orphanNoteIds: [402] })
+
+		expect(summary.changes).toEqual([{ kind: 'delete', file: '', noteId: 402 }])
+	})
 })
 
 describe('formatDryRunSummary', () => {

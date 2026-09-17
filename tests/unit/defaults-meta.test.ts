@@ -46,6 +46,32 @@ describe('DEFAULTS_META single source', () => {
 		expect(defaults['Scan Directories']).toEqual([])
 	})
 
+	it('pins every default value exactly (mutation pin for the whole table)', () => {
+		expect(buildDefaults()).toEqual({
+			'Scan Directories': [],
+			Tag: 'Obsidian_to_Anki',
+			Deck: 'Default',
+			'Scheduling Interval': 0,
+			'Add File Link': false,
+			'Add Context': false,
+			CurlyCloze: false,
+			'CurlyCloze - Highlights to Clozes': false,
+			'ID Comments': true,
+			'Add Obsidian Tags': false,
+			'Anki API Key': '',
+			'Sync to AnkiWeb': false,
+			'Allow Note Type Changes': false,
+			'Delete Removed Notes': true,
+			'Auto-launch Anki': false
+		})
+	})
+
+	it('keeps a non-empty description for every default (UI text is covered)', () => {
+		for (const meta of DEFAULTS_META) {
+			expect(meta.description.length).toBeGreaterThan(0)
+		}
+	})
+
 	it('migration can fill every default from the meta list', () => {
 		const settings = { Defaults: {} } as unknown as PluginSettings
 		const { settings: migrated, dirty } = migrateSettings(settings)

@@ -45,6 +45,10 @@ describe('gui commands: AnkiConnect builders', () => {
 		expect(AnkiConnect.sync()).toEqual({ action: 'sync', version: 6, params: {} })
 	})
 
+	it('getTags builder produces a paramless action', () => {
+		expect(AnkiConnect.getTags()).toEqual({ action: 'getTags', version: 6, params: {} })
+	})
+
 	it('openNoteInAnki invokes guiBrowse with the resolved ID', async () => {
 		const invokeSpy = vi.spyOn(AnkiConnect, 'invoke').mockResolvedValue(null)
 		const notify = vi.fn()

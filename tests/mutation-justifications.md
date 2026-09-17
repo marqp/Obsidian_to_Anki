@@ -5,13 +5,17 @@ test or a written justification — never a silent ignore. This file is the
 written-justification side of that rule, plus a backlog of concrete kill
 ideas for the rest.
 
-- Scope: `stryker.config.mjs` (`src/scan-optimizations.ts`, `src/constants.ts`,
-  `src/note.ts`, `src/setting-to-data.ts`), break threshold 60.
-- Last reviewed: 2026-09-16 post-PR-10, score **91.75** (note.ts 93.66,
-  constants.ts 100, setting-to-data 83.61). Peak was 92.09 after the kill-set
-  PR (#23); PR-10 moved function bodies around, which reshuffles line numbers
-  and the NoCoverage set (5 vs 3 in note.ts) without losing any killed mutant
-  category. Baseline at release 4.0.0 was 80.10.
+- Scope: `stryker.config.mjs` — full engine (every `src/` module except
+  `settings.ts`, which is Obsidian-UI without a DOM in tests). Extended in
+  Wave 5 (PR-15); previously only `scan-optimizations.ts`, `constants.ts`,
+  `note.ts`, `setting-to-data.ts`.
+- Last reviewed: 2026-09-17 post-PR-15, score **70.44** (break threshold 60).
+  requests.ts 100, notices.ts 100, commands.ts 100, constants.ts 100;
+  dry-run.ts 82.96, anki.ts 85.40, scan-orchestrator.ts 83.33.
+  Pre-extension peak was 92.09 on the 4-file scope — the drop is new files
+  with real tests but incomplete perTest attribution (see mapping misses),
+  plus pre-existing parse-heavy gaps now visible (file/files-manager/format
+  backlog below). Baseline at release 4.0.0 was 80.10.
 
 ## Parity-pinned behaviors (do not "fix")
 
@@ -37,6 +41,44 @@ ideas for the rest.
    inside a mangled slice.
 
 ## Accepted survivors (keep, do not "fix")
+
+### perTest-mapping misses (hand-verified red, Stryker reports Survived)
+
+Stryker runs ~7 tests per mutant on average here, and the attribution is
+incomplete: several mutants die immediately when their owning suite runs
+but survive the official run. Verified by hand (apply replacement to a
+scratch copy, run only the suspect file, confirm red, restore):
+
+- `src/anki.ts` L12 error-message template → `""`: `transport.test.ts`
+  fails 2 tests by hand. Genuine tests exist; attribution misses them.
+- `src/scan-orchestrator.ts` L125 `probe.status === 'ready'` → `false`:
+  `scan-orchestrator.test.ts` fails 9 tests by hand. Same verdict covers
+  the ready/auto-launch/scanDirs/cancel/no-changes string and branch
+  survivors in that file (L135–L225): the owning suite asserts every one
+  of those strings and branches.
+- `src/dry-run.ts` L125 convert `changes.push` removal: `dry-run.test.ts`
+  fails the convert test by hand (`find` returns `undefined`).
+- Same signature (assertion exists, mutant survives) for `dry-run.ts`
+  L177 tag-compare → `false` (old exact-diff test id 13), L185/L188 deck
+  comparison (deck-move test), and `src/anki.ts` L97 FetchTransport
+  `if (data.error)` both directions (success + error tests exist).
+- Protocol: before "fixing" any survivor below, hand-verify first — a red
+  run means the test already exists and only the attribution is missing.
+
+### Equivalent mutants (unobservable, keep)
+
+- `src/defaults-meta.ts` L104 `[...meta.value]` → `[]`: the only array
+  value in the table is already empty, so the spread is unobservable.
+  Becomes observable (and killed) the day a non-empty array default lands.
+- `src/dry-run.ts` L103 `if (identifier == null) continue` removal: falls
+  through to the `!anki` guard on the next line, which skips identically.
+- `src/dry-run.ts` L163 single-tag sets: `.some()` vs `.every()` converge
+  when both tag lists have ≤ 1 element (the tag-diff fixture); extend the
+  fixture to multi-tag divergence to separate them (backlog).
+- `src/note.ts` L340/L341, L207/L220, L244, L281, L293 entries from the
+  pre-extension scope are unchanged (see below).
+
+## Out of scope for this log
 
 ### src/note.ts
 
@@ -98,10 +140,15 @@ removed (kills L46/L50); `FROZEN`/`DELETE` lines must not match without `m`
 
 ## Out of scope for this log
 
-- Files outside the Stryker `mutate` list (`file.ts`, `files-manager.ts`,
-  `format.ts`, `dry-run.ts`, `anki.ts`, …) have unit + parity + bench
-  coverage but no mutation signal yet — see roadmap (extend scope after the
-  Wave 2/3 test seams land; nightly-only if PR-time cost exceeds ~8 min).
+- `settings.ts` stays out of both gates (Obsidian-UI, 47% lines, no DOM in
+  tests). Deliberate, documented in `vitest.config.mjs`.
+- `file.ts` (54.43), `files-manager.ts` (48.71), `format.ts` (47.79) have
+  pre-existing parse-heavy gaps now visible under the extended scope
+  (64/61/44 NoCoverage mutants). They are covered by unit + parity + bench,
+  but were never mutation-tested. Incremental kill-sets welcome; highest
+  value first: `files-manager.ts` orphan/media branches (ports seam makes
+  them testable without Obsidian), `file.ts` custom-regexp paths,
+  `format.ts` cloze branches.
 - Mini-bug found while writing the kill-set (not a mutant): `RegexNote`
   with more captures than fields creates a junk `'undefined'` key
   (`note.ts` `getFields` loop bounds only on `captures`). Deliberately NOT

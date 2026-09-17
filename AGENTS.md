@@ -16,7 +16,8 @@ behavior intentionally diverged (orphan deletion, updateNote, dry-run — see RE
   `pnpm install` silently skips the vitest-runner patch and mutation scores don't reproduce).
 - **Node 22**, **TypeScript `strict: true`** (`tsconfig.json` includes only `main.ts` + `src/`).
 - **Vitest 5** unit/regression tests + **v8 coverage gate** (70% lines/functions over
-  `src/{scan-optimizations,constants,note,setting-to-data,format,file}.ts`), enforced by `pnpm test`.
+  every engine module in `src/` except `settings.ts`, which is Obsidian-UI without a
+  DOM in tests), enforced by `pnpm test`.
 - **ESLint 9 flat** (`no-explicit-any: error`) + **Prettier** (`useTabs: true`).
 - **StrykerJS** mutation testing, nightly + `src/**` PRs (`mutation.yml`), break threshold 60.
 - **esbuild** bundles `main.ts` → `main.js` (`esbuild.config.mjs`, CJS, browser platform, `es2022` target).

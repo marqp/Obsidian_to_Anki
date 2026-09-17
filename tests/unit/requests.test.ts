@@ -114,13 +114,19 @@ describe('buildNoteInfo', () => {
 
 describe('groupTargetDecks / buildChangeDecks', () => {
 	it('moves every card to the file target for single-deck files', () => {
-		expect(groupTargetDecks(false, 'Default', [1, 2], [{ deck: 'Default', card_ids: [1, 2] }])).toEqual(
+		// The lone override deck differs from the file target on purpose:
+		// the `<= 1` fast path must win over the grouped merge.
+		expect(groupTargetDecks(false, 'Default', [1, 2], [{ deck: 'Other', card_ids: [1, 2] }])).toEqual(
 			new Map([['Default', [1, 2]]])
 		)
 	})
 
 	it('frontmatter forces the file target even with overrides', () => {
 		expect(groupTargetDecks(true, 'FM', [1], [{ deck: 'Other', card_ids: [1] }])).toEqual(new Map([['FM', [1]]]))
+	})
+
+	it('treats an empty deck map as single-deck (no overrides to merge)', () => {
+		expect(groupTargetDecks(false, 'Default', [1, 2], [])).toEqual(new Map([['Default', [1, 2]]]))
 	})
 
 	it('merges per-note overrides by deck and skips empty groups', () => {

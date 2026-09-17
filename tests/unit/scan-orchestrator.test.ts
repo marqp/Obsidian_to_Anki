@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { App, TFile, TFolder } from 'obsidian'
+import * as AnkiConnect from '../../src/anki'
 import {
 	ScanOrchestrator,
 	createScanEnvironment,
@@ -329,5 +330,33 @@ describe('createScanEnvironment', () => {
 		// Production manager factory over empty input.
 		const manager = env.createManager(env.app, createParsedSettings(), [], {}, [])
 		expect(manager.files).toEqual([])
+	})
+
+	it('production defaults probe, launch-guard and parse settings', async () => {
+		AnkiConnect.setTransport({
+			invoke: async (action: string) => {
+				if (action === 'requestPermission') {
+					return { permission: 'granted', version: 6 }
+				}
+				return []
+			}
+		})
+		const state: ScanState = {
+			settings: makePluginSettings(),
+			fieldsDict: {},
+			fileHashes: {},
+			addedMedia: []
+		}
+		const env = createScanEnvironment(
+			new App(),
+			{ loadState: () => state, commitScanResults: () => undefined },
+			{ isAutoLaunchEnabled: () => false }
+		)
+		const probe = await env.probeAnki()
+		expect(probe.status).toBe('ready')
+		await expect(env.launchAnki(false)).resolves.toBe('skipped-disabled')
+		const data = await env.toData(env.app, state.settings, {})
+		expect(data.vault_name).toBe('test-vault')
+		expect(data.EXISTING_IDS.size).toBe(0)
 	})
 })
