@@ -104,6 +104,28 @@ describe('custom matches inside code and math do not become cards', () => {
 	})
 })
 
+describe('overlapping customs are claimed once, longest pattern wins', () => {
+	it('three overlapping patterns yield one note from the longest', () => {
+		const file = scanAll(
+			'Q::qr\nA::ar',
+			testFileData({
+				fields_dict: { Basic: ['Front', 'Back'], Mid: ['Front', 'Back'], Other: ['Front', 'Back'] },
+				custom_regexps: {
+					Basic: 'Q::(.*)',
+					Mid: 'Q::(.+)\\nA::ar',
+					Other: 'Q::(.*?)\\nA::(.*)'
+				}
+			})
+		)
+
+		// Longest (Other, 18) claims the block; Mid (15) and Basic (7) find
+		// their spans contained and skip. Insertion order would add 3 notes.
+		expect(file.regex_notes_to_add).toHaveLength(1)
+		expect(file.regex_notes_to_add[0].modelName).toBe('Other')
+		expect(file.regex_notes_to_add[0].fields).toMatchObject({ Front: 'qr', Back: 'ar' })
+	})
+})
+
 describe('metadata lines shield customs but keep applying', () => {
 	it('shields a custom matching the FROZEN block', () => {
 		const file = scanAll(

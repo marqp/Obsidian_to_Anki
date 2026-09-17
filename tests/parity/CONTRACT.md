@@ -107,6 +107,16 @@ structural diff by design and serve as living documentation:
   strictly better picks (short SQL no longer classified as CSS). `showdown-highlight`
   stays a devDependency because the pinned upstream's `src/format.ts` imports
   it; the fork bundle no longer ships the 193-grammar registry.
+- `custom-overlap` (longest-first matching): with two or more overlapping
+  custom regexps, the fork runs the longest pattern first so the most
+  specific match claims the region once; upstream runs insertion order and
+  can add duplicate notes (short and long both claim). Single-pattern scans
+  — including the `custom-regexp` fixture — are unaffected. Deliberately NOT
+  extended to an inline-code guard: single-backtick spans and fences are
+  already shielded via the existing `OBS_CODE_REGEXP`/`OBS_DISPLAY_CODE_REGEXP`
+  ignore-spans, and odd-backtick counting would only cover exotic
+  multi-backtick arrangements. The 2026-09 no-shielding NO-GO on primary
+  scans is untouched (this only reorders `search()`, never `scanPattern`).
 
 ## Updating the upstream pin
 

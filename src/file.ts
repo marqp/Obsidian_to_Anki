@@ -107,6 +107,20 @@ function* findignore(
 	}
 }
 
+/**
+ * Order custom patterns longest-first so overlapping customs are claimed by
+ * the most specific pattern (SR inlineSeparators precedent). Without this,
+ * insertion order decides and both the short and long pattern add duplicate
+ * notes. Stable for ties; single-pattern scans (including the parity
+ * fixture) are unaffected. Deliberately NOT an inline-code guard: single
+ * backtick spans and fences are already shielded via OBS_CODE_REGEXP /
+ * OBS_DISPLAY_CODE_REGEXP pushes in add_spans_to_ignore, and odd-backtick
+ * counting would only cover exotic multi-backtick arrangements.
+ */
+function longestFirst(entries: Array<[string, string]>): Array<[string, string]> {
+	return [...entries].sort((a, b) => b[1].length - a[1].length)
+}
+
 abstract class AbstractFile {
 	file: string
 	path: string
@@ -579,7 +593,7 @@ export class AllFile extends AbstractFile {
 		this.setupScan()
 		this.scanNotes()
 		this.scanInlineNotes()
-		for (const [note_type, regexp_str] of Object.entries(this.custom_regexps)) {
+		for (const [note_type, regexp_str] of longestFirst(Object.entries(this.custom_regexps))) {
 			if (regexp_str) {
 				this.search(note_type, regexp_str)
 			}
