@@ -361,6 +361,44 @@ describe('collectDryRunState: exact diff', () => {
 		expect(invokeMock.mock.calls.map((call) => call[0])).toEqual(['notesInfo', 'notesInfo', 'notesInfo'])
 	})
 
+	it('stops exactly at batch boundaries (no trailing empty batch)', async () => {
+		const { setTransport } = await import('../../src/anki')
+		const seenNotes: number[][] = []
+		const seenCards: number[][] = []
+		const invokeMock = vi.fn(async (action: string, params: { notes?: number[]; cards?: number[] }) => {
+			if (action === 'notesInfo') {
+				seenNotes.push(params.notes ?? [])
+				return (params.notes ?? []).map((id) => ({
+					noteId: id,
+					modelName: 'Basic',
+					tags: [],
+					fields: {},
+					cards: [91000 + (id - 2000) * 3, 91001 + (id - 2000) * 3, 91002 + (id - 2000) * 3]
+				}))
+			}
+			if (action === 'cardsInfo') {
+				seenCards.push(params.cards ?? [])
+				return (params.cards ?? []).map((cardId) => ({ cardId, deck: 'Default' }))
+			}
+			throw new Error(`unexpected action in dry-run: ${action}`)
+		})
+		setTransport({ invoke: invokeMock })
+		// Exactly one full notes batch (256); 256 x 3 cards spill cardsInfo
+		// into two batches (512 + 256). File targets stay undefined for the
+		// synthetic card ids, so the deck check skips them.
+		const edits = Array.from({ length: 256 }, (_, i) => ({ id: 2000 + i, fields: {}, tags: [] as string[] }))
+		const files = createManagerFiles(createParsedSettings(), edits, [])
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+
+		expect(seenNotes).toHaveLength(1)
+		expect(seenNotes[0]).toHaveLength(256)
+		expect(seenCards).toHaveLength(2)
+		expect(seenCards[0]).toHaveLength(512)
+		expect(seenCards[1]).toHaveLength(256)
+		expect(summary.wouldUpdate).toBe(0)
+	})
+
 	it('chunks cardsInfo into bounded batches', async () => {
 		const { setTransport } = await import('../../src/anki')
 		const seen: number[][] = []
