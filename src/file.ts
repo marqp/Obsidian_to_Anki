@@ -18,6 +18,18 @@ import { Md5 } from 'ts-md5'
 import * as AnkiConnect from './anki'
 import * as c from './constants'
 import { FormatConverter } from './format'
+import {
+	buildAddNotes,
+	buildChangeDecks,
+	buildCreateDecks,
+	buildDeleteNotes,
+	buildNoteInfo,
+	buildNoteUpdates,
+	buildUpdateTags,
+	groupTargetDecks,
+	joinedNoteTags,
+	noteTagsFor
+} from './requests'
 import { CachedMetadata, HeadingCache } from 'obsidian'
 
 const double_regexp: RegExp = /(?:\r\n|\r|\n)((?:\r\n|\r|\n)(?:<!--)?ID: \d+)/g
@@ -284,23 +296,15 @@ abstract class AbstractFile {
 	}
 
 	getCreateDecks(): AnkiConnect.AnkiConnectRequest {
-		const actions: AnkiConnect.AnkiConnectRequest[] = []
-		for (const note of this.all_notes_to_add) {
-			actions.push(AnkiConnect.createDeck(note.deckName))
-		}
-		return AnkiConnect.multi(actions)
+		return buildCreateDecks(this.all_notes_to_add)
 	}
 
 	getAddNotes(): AnkiConnect.AnkiConnectRequest {
-		const actions: AnkiConnect.AnkiConnectRequest[] = []
-		for (const note of this.all_notes_to_add) {
-			actions.push(AnkiConnect.addNote(note))
-		}
-		return AnkiConnect.multi(actions)
+		return buildAddNotes(this.all_notes_to_add)
 	}
 
 	getDeleteNotes(): AnkiConnect.AnkiConnectRequest {
-		return AnkiConnect.deleteNotes(this.notes_to_delete)
+		return buildDeleteNotes(this.notes_to_delete)
 	}
 
 	/**
@@ -309,47 +313,20 @@ abstract class AbstractFile {
 	 * false keeps the legacy updateNoteFields-only batch.
 	 */
 	getNoteUpdates(useUpdateNote: boolean): AnkiConnect.AnkiConnectRequest {
-		const actions: AnkiConnect.AnkiConnectRequest[] = []
-		for (const parsed of this.notes_to_edit) {
-			if (parsed.identifier == null) {
-				continue
-			}
-			if (useUpdateNote) {
-				actions.push(AnkiConnect.updateNote(parsed.identifier, parsed.note.fields, this.noteTagsFor(parsed)))
-			} else {
-				actions.push(AnkiConnect.updateNoteFields(parsed.identifier, parsed.note.fields))
-			}
-		}
-		return AnkiConnect.multi(actions)
+		return buildNoteUpdates(this.notes_to_edit, useUpdateNote, (parsed) => this.noteTagsFor(parsed))
 	}
 
 	/** Tags an existing note should carry in Anki: note tags plus file-level tags. */
 	noteTagsFor(parsed: AnkiConnectNoteAndID): string[] {
-		return (parsed.note.tags.join(' ') + ' ' + this.global_tags).split(' ').filter((tag) => tag.length > 0)
+		return noteTagsFor(parsed.note.tags, this.global_tags)
 	}
 
 	getNoteInfo(): AnkiConnect.AnkiConnectRequest {
-		const IDs: number[] = []
-		for (const parsed of this.notes_to_edit) {
-			if (parsed.identifier == null) {
-				continue
-			}
-			IDs.push(parsed.identifier)
-		}
-		return AnkiConnect.notesInfo(IDs)
+		return buildNoteInfo(this.notes_to_edit)
 	}
 
 	getChangeDecks(): AnkiConnect.AnkiConnectRequest {
-		const actions: AnkiConnect.AnkiConnectRequest[] = []
-		for (const [deck, cardIds] of this.getTargetDeckByCardGrouped()) {
-			if (cardIds.length > 0) {
-				actions.push(AnkiConnect.changeDeck(cardIds, deck))
-			}
-		}
-		if (actions.length === 1) {
-			return actions[0]
-		}
-		return AnkiConnect.multi(actions)
+		return buildChangeDecks(this.getTargetDeckByCardGrouped())
 	}
 
 	/**
@@ -368,28 +345,11 @@ abstract class AbstractFile {
 	}
 
 	private getTargetDeckByCardGrouped(): Map<string, number[]> {
-		if (this.frontmatter_has_deck || this.note_edit_deck_map.length <= 1) {
-			return new Map([[this.target_deck, [...this.card_ids]]])
-		}
-		const byDeck = new Map<string, number[]>()
-		for (const group of this.note_edit_deck_map) {
-			if (group.card_ids.length > 0) {
-				byDeck.set(group.deck, [...(byDeck.get(group.deck) ?? []), ...group.card_ids])
-			}
-		}
-		return byDeck
+		return groupTargetDecks(this.frontmatter_has_deck, this.target_deck, this.card_ids, this.note_edit_deck_map)
 	}
 
 	getUpdateTags(): AnkiConnect.AnkiConnectRequest {
-		const actions: AnkiConnect.AnkiConnectRequest[] = []
-		for (const parsed of this.notes_to_edit) {
-			if (parsed.identifier == null) {
-				continue
-			}
-			const tags = parsed.note.tags.join(' ') + ' ' + this.global_tags
-			actions.push(AnkiConnect.updateNoteTags(parsed.identifier, tags.split(' ')))
-		}
-		return AnkiConnect.multi(actions)
+		return buildUpdateTags(this.notes_to_edit, (parsed) => joinedNoteTags(parsed.note.tags, this.global_tags))
 	}
 }
 
