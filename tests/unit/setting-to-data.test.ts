@@ -189,3 +189,66 @@ describe('settingToData configuration parser', () => {
 		expect('START\nBasic\nFront: Q\nBack: A\nEND'.match(result.NOTE_REGEXP)).toBeNull()
 	})
 })
+
+describe('settingToData regexp part pinning', () => {
+	const pinApp = {
+		vault: {
+			getName: () => 'TestVault'
+		}
+	} as unknown as App
+
+	function pinSettings(): PluginSettings {
+		return {
+			CUSTOM_REGEXPS: {},
+			FILE_LINK_FIELDS: {},
+			CONTEXT_FIELDS: {},
+			FOLDER_DECKS: {},
+			FOLDER_TAGS: {},
+			Syntax: {
+				'Begin Note': 'START',
+				'End Note': 'END',
+				'Begin Inline Note': 'STARTI',
+				'End Inline Note': 'ENDI',
+				'Target Deck Line': 'TARGET DECK',
+				'File Tags Line': 'FILE TAGS',
+				'Delete Note Line': 'DELETE',
+				'Frozen Fields Line': 'FROZEN'
+			},
+			Defaults: {
+				'Scan Directories': [],
+				Tag: 'Obsidian_to_Anki',
+				Deck: 'D',
+				'Scheduling Interval': 0,
+				'Add File Link': false,
+				'Add Context': false,
+				CurlyCloze: false,
+				'CurlyCloze - Highlights to Clozes': false,
+				'ID Comments': true,
+				'Add Obsidian Tags': false,
+				'Anki API Key': '',
+				'Sync to AnkiWeb': false,
+				'Delete Removed Notes': true,
+				'Allow Note Type Changes': false,
+				'Auto-launch Anki': false
+			},
+			IGNORED_FILE_GLOBS: []
+		}
+	}
+
+	it('pins the FROZEN separator and flags literally', async () => {
+		vi.spyOn(AnkiConnect, 'invoke').mockResolvedValueOnce([])
+		const result = await settingToData(pinApp, pinSettings(), {})
+
+		expect(result.FROZEN_REGEXP.source).toContain(' - (.*?):')
+		expect(result.FROZEN_REGEXP.flags).toBe('g')
+	})
+
+	it('pins the global flag and trailing-space tolerance literally', async () => {
+		vi.spyOn(AnkiConnect, 'invoke').mockResolvedValueOnce([])
+		const result = await settingToData(pinApp, pinSettings(), {})
+
+		expect(result.NOTE_REGEXP.flags).toBe('gm')
+		expect(result.EMPTY_REGEXP.flags).toBe('g')
+		expect('START   \nBasic\nFront: Q\nBack: A\nEND   ').toMatchObject(result.NOTE_REGEXP)
+	})
+})

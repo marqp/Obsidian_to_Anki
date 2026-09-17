@@ -129,6 +129,22 @@ scratch copy, run only the suspect file, confirm red, restore):
   fixture to multi-tag divergence to separate them (backlog).
 - `src/note.ts` L340/L341, L207/L220, L244, L281, L293 entries from the
   pre-extension scope are unchanged (see below).
+- `src/note.ts` `InlineNote.getSplitText` body (`split(' ')` → `split("")`):
+  survives because `getFields` re-splits `this.text` itself — the override
+  exists only for the abstract contract. Verified by hand (mutant passes
+  the suite); removing the method breaks the `Note` override typecheck, so
+  the body stays with the unused-contract comment.
+- `src/scan-optimizations.ts` L132/L134/L181 block/initializer variants
+  (`if (false) return []`, `new Array()`): the empty-input short-circuit is
+  equivalent to mapping over `[]`, and `new Array(n)` vs `new Array()`
+  converge after indexed assignment; `yieldToEventLoop` removal is
+  timing-only. Accepted as unobservable (pre-existing entry).
+- `src/setting-to-data.ts` L58 trailing `[ ]*` removal and L77
+  `?? true` → `?? ""`: the trailing-space tolerance is parity-pinned by the
+  `trailing-spaces` CONTRACT fixture (harness, not unit), and the
+  `delete_removed_notes` truthiness default is pinned by the missing-key
+  test. Unit mutants on the fragment survive perTest attribution; the
+  behavior is covered at the parity/suite level.
 
 ## Out of scope for this log
 

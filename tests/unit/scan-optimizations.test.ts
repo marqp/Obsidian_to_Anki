@@ -7,7 +7,8 @@ import {
 	getFileContentHash,
 	getStoredHash,
 	isFileUnchanged,
-	isStatUnchanged
+	isStatUnchanged,
+	mapConcurrent
 } from '../../src/scan-optimizations'
 
 function createParsedSettings(existingIdCount = 3): ParsedSettings {
@@ -87,6 +88,24 @@ test('isStatUnchanged requires matching mtime and size on object entries', () =>
 	// Legacy string entries carry no stat shape: never a stat hit.
 	assert.equal(isStatUnchanged({ mtime: 200, size: 100 }, hash), false)
 	assert.equal(isStatUnchanged(undefined, { hash, mtime: 200, size: 100 }), false)
+	assert.equal(isStatUnchanged(undefined, undefined), false)
+})
+
+test('mapConcurrent preserves order and handles the empty input', async () => {
+	const seen: number[] = []
+	const doubled = await mapConcurrent([3, 1, 2], 2, async (value, index) => {
+		seen.push(index)
+		return value * 2
+	})
+
+	assert.deepEqual(doubled, [6, 2, 4])
+	assert.deepEqual(seen.sort(), [0, 1, 2])
+	assert.deepEqual(
+		await mapConcurrent([], 4, async () => {
+			throw new Error('must not run')
+		}),
+		[]
+	)
 })
 
 test('createFileData copies template fields instead of sharing them', () => {
