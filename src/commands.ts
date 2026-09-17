@@ -34,6 +34,7 @@ export interface PluginCommandHandlers {
 	onScanVault(): void | Promise<void>
 	onScanFile(): void | Promise<void>
 	onDryRun(): void | Promise<void>
+	onPreviewSync(): void | Promise<void>
 	onOpenNote(editor: Editor, mode: 'browse' | 'edit'): void | Promise<void>
 }
 
@@ -48,7 +49,7 @@ export interface CommandRegistrar {
 	addRibbonIcon(icon: string, title: string, callback: () => void): unknown
 }
 
-/** Register the ribbon icon and all five plugin commands (ids/names unchanged). */
+/** Register the ribbon icon and all six plugin commands (ids/names unchanged). */
 export function registerPluginCommands(registrar: CommandRegistrar, handlers: PluginCommandHandlers): void {
 	registrar.addRibbonIcon('anki', 'Obsidian_to_Anki - Scan Vault', () => {
 		void handlers.onScanVault()
@@ -75,6 +76,14 @@ export function registerPluginCommands(registrar: CommandRegistrar, handlers: Pl
 		name: 'Dry Run (preview changes without writing)',
 		callback: () => {
 			void handlers.onDryRun()
+		}
+	})
+
+	registrar.addCommand({
+		id: 'anki-preview-sync',
+		name: 'Preview Sync (confirm in modal before writing)',
+		callback: () => {
+			void handlers.onPreviewSync()
 		}
 	})
 

@@ -23,6 +23,7 @@ export default defineConfig({
 				'src/constants.ts',
 				'src/defaults-meta.ts',
 				'src/dry-run.ts',
+				'src/dry-run-view.ts',
 				'src/file.ts',
 				'src/files-manager.ts',
 				'src/format.ts',

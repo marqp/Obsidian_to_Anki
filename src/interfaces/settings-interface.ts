@@ -35,6 +35,7 @@ export interface PluginSettings {
 		'Delete Removed Notes': boolean
 		'Allow Note Type Changes': boolean
 		'Auto-launch Anki': boolean
+		'Confirm Before Sync': boolean
 		/** Legacy key, migrated to 'Scan Directories' on load and then deleted. */
 		'Scan Directory'?: string
 		[key: string]: string[] | string | number | boolean | undefined

@@ -94,6 +94,12 @@ export const DEFAULTS_META: DefaultMeta[] = [
 		value: false,
 		description:
 			'Launch Anki Desktop automatically when a scan finds it closed (desktop only, fire-and-forget). Off by default.'
+	},
+	{
+		key: 'Confirm Before Sync',
+		value: false,
+		description:
+			'Show a preview modal with the pending adds, updates and deletes before writing to Anki. Applies to Scan Vault and Scan Current File; the scheduler and headless dry-run stay non-interactive. Off by default.'
 	}
 ]
 

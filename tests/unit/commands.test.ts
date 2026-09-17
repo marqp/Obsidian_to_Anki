@@ -103,12 +103,13 @@ describe('registerPluginCommands', () => {
 		}
 	}
 
-	it('registers the ribbon and all five commands with stable ids', () => {
+	it('registers the ribbon and all six commands with stable ids', () => {
 		const registrar = makeRegistrar()
 		const handlers: PluginCommandHandlers = {
 			onScanVault: vi.fn(),
 			onScanFile: vi.fn(),
 			onDryRun: vi.fn(),
+			onPreviewSync: vi.fn(),
 			onOpenNote: vi.fn()
 		}
 		registerPluginCommands(registrar, handlers)
@@ -117,6 +118,7 @@ describe('registerPluginCommands', () => {
 			['anki-scan-vault', 'Scan Vault'],
 			['anki-scan-file', 'Scan Current File'],
 			['anki-dry-run', 'Dry Run (preview changes without writing)'],
+			['anki-preview-sync', 'Preview Sync (confirm in modal before writing)'],
 			['anki-view-in-browser', 'View Note in Anki Browser'],
 			['anki-edit-note', 'Edit Note in Anki']
 		])
@@ -128,6 +130,7 @@ describe('registerPluginCommands', () => {
 			onScanVault: vi.fn(),
 			onScanFile: vi.fn(),
 			onDryRun: vi.fn(),
+			onPreviewSync: vi.fn(),
 			onOpenNote: vi.fn()
 		}
 		registerPluginCommands(registrar, handlers)
@@ -135,12 +138,14 @@ describe('registerPluginCommands', () => {
 		registrar.commands[0].callback?.()
 		registrar.commands[1].callback?.()
 		registrar.commands[2].callback?.()
+		registrar.commands[3].callback?.()
 		const editor = makeEditor('', '')
-		registrar.commands[3].editorCallback?.(editor)
 		registrar.commands[4].editorCallback?.(editor)
+		registrar.commands[5].editorCallback?.(editor)
 		expect(handlers.onScanVault).toHaveBeenCalledTimes(2)
 		expect(handlers.onScanFile).toHaveBeenCalledTimes(1)
 		expect(handlers.onDryRun).toHaveBeenCalledTimes(1)
+		expect(handlers.onPreviewSync).toHaveBeenCalledTimes(1)
 		expect(handlers.onOpenNote).toHaveBeenCalledWith(editor, 'browse')
 		expect(handlers.onOpenNote).toHaveBeenCalledWith(editor, 'edit')
 	})

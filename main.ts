@@ -7,9 +7,11 @@ import { ANKI_ICON } from './src/constants'
 import { FileHashes } from './src/scan-optimizations'
 import { migrateSettings } from './src/ui/settings-migration'
 import { buildDefaults } from './src/defaults-meta'
-import { ScanOrchestrator, createScanEnvironment } from './src/scan-orchestrator'
+import { ScanOrchestrator, createScanEnvironment, type PreviewCallbacks } from './src/scan-orchestrator'
 import { openNoteInAnki, registerPluginCommands } from './src/commands'
 import { obsidianNoticePort } from './src/notices'
+import type { DryRunSummary } from './src/dry-run'
+import { DryRunModal } from './src/ui/dry-run-modal'
 import { type ScanControl } from './src/files-manager'
 
 export default class MyPlugin extends Plugin {
@@ -185,11 +187,11 @@ export default class MyPlugin extends Plugin {
 
 	/**
 	 * Scheduled-scan entry point (the auto-scan scheduler in settings calls
-	 * this); UI commands go straight to the orchestrator. Thin delegation —
-	 * the pipeline lives in ScanOrchestrator.
+	 * this); UI commands go straight to the orchestrator. Always direct —
+	 * unattended scans must never open a modal. Thin delegation.
 	 */
 	async scanVault(file?: TFile | null, control: ScanControl = {}): Promise<void> {
-		await this.scanOrchestrator().scanVault(file, control)
+		await this.scanOrchestrator().scanVault(file, control, { bypassConfirm: true })
 	}
 
 	private scanOrchestrator(): ScanOrchestrator {
@@ -212,11 +214,23 @@ export default class MyPlugin extends Plugin {
 							this.saveAllData()
 						}
 					},
-					{ isAutoLaunchEnabled: () => this.isAutoLaunchEnabled() }
+					{
+						isAutoLaunchEnabled: () => this.isAutoLaunchEnabled(),
+						shouldConfirmSync: () => this.isConfirmBeforeSync(),
+						openPreviewModal: (summary, callbacks) => this.openPreviewModal(summary, callbacks)
+					}
 				)
 			)
 		}
 		return this.orchestrator
+	}
+
+	private isConfirmBeforeSync(): boolean {
+		return this.settings['Defaults']['Confirm Before Sync'] === true
+	}
+
+	private openPreviewModal(summary: DryRunSummary, callbacks: PreviewCallbacks): void {
+		new DryRunModal(this.app, summary, callbacks).open()
 	}
 
 	async onload() {
@@ -264,6 +278,7 @@ export default class MyPlugin extends Plugin {
 			onScanVault: () => orchestrator.scanVault(undefined),
 			onScanFile: () => orchestrator.scanVault(this.app.workspace.getActiveFile()),
 			onDryRun: () => orchestrator.runDryRun(),
+			onPreviewSync: () => orchestrator.runPreviewSync(undefined),
 			onOpenNote: (editor, mode) =>
 				openNoteInAnki(
 					{

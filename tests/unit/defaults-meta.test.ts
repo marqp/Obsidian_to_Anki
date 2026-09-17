@@ -62,7 +62,8 @@ describe('DEFAULTS_META single source', () => {
 			'Sync to AnkiWeb': false,
 			'Allow Note Type Changes': false,
 			'Delete Removed Notes': true,
-			'Auto-launch Anki': false
+			'Auto-launch Anki': false,
+			'Confirm Before Sync': false
 		})
 	})
 
