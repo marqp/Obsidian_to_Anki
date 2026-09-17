@@ -137,6 +137,7 @@ Everything above works as in upstream. On top of that, this fork adds:
 ### Sync behavior
 * **Removed blocks delete their cards** — deleting a `START…END` block from a note deletes the card in Anki on the next scan, no `DELETE` line needed. Tracked per file, so renames and moves between files are safe; the first scan of a file only records IDs. Toggle: `Delete Removed Notes` (on by default).
 * **Dry-run preview** — command `Obsidian to Anki: Dry run` (also callable headless via the [Obsidian CLI](https://help.obsidian.md/cli): `obsidian "vault=My Vault" command id="obsidian-to-anki-plugin:anki-dry-run"`) prints exactly what a scan would add, update, delete or convert, without writing to files or Anki.
+* **Preview modal** — command `Obsidian to Anki: Preview Sync` shows the same diff grouped per file with `Sync now` / `Cancel` (delete-only plans get a destructive confirm). `Confirm Before Sync` (off by default) routes `Scan Vault` / `Scan Current File` through the modal too; the scheduler and headless dry-run stay non-interactive.
 * **Faster updates** — field+tag updates are consolidated into one `updateNote` call when the daemon supports it (probed per scan, legacy fallback otherwise).
 
 ### Anki connectivity
@@ -159,7 +160,7 @@ Everything above works as in upstream. On top of that, this fork adds:
 The plugin ID stays `obsidian-to-anki-plugin` on purpose: this fork is a
 drop-in replacement for the upstream plugin. Same ID means the same settings
 (`data.json`), the same command IDs (`obsidian-to-anki-plugin:anki-scan-vault`,
-`anki-scan-file`, `anki-dry-run`, `anki-view-in-browser`, `anki-edit-note`),
+`anki-scan-file`, `anki-dry-run`, `anki-preview-sync`, `anki-view-in-browser`, `anki-edit-note`),
 and the same install slot under BRAT — swap the remote to
 `marqp/Obsidian_to_Anki` and keep your vault, your `<!--ID: …-->` comments,
 and your Anki scheduling. Only the author (`marqp`) and the release artifacts

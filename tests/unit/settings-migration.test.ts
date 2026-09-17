@@ -35,7 +35,8 @@ function modernSettings(overrides: Partial<PluginSettings> = {}): PluginSettings
 			'Sync to AnkiWeb': false,
 			'Delete Removed Notes': true,
 			'Allow Note Type Changes': false,
-			'Auto-launch Anki': false
+			'Auto-launch Anki': false,
+			'Confirm Before Sync': false
 		},
 		IGNORED_FILE_GLOBS: [...DEFAULT_IGNORED_FILE_GLOBS],
 		...overrides

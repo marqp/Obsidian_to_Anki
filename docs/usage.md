@@ -10,6 +10,7 @@
 | Scan Vault | `obsidian-to-anki-plugin:anki-scan-vault` | Scan vault (or scan dirs), add/update/delete, stamp IDs |
 | Scan Current File | `obsidian-to-anki-plugin:anki-scan-file` | Same, active file only |
 | Dry Run | `obsidian-to-anki-plugin:anki-dry-run` | Preview adds/updates/deletes/conversions, no writes |
+| Preview Sync | `obsidian-to-anki-plugin:anki-preview-sync` | Same preview in an interactive modal; Sync writes, Cancel discards |
 | View Note in Anki Browser | `obsidian-to-anki-plugin:anki-view-in-browser` | Open card under cursor in Anki browser (`guiBrowse nid:…`) |
 | Edit Note in Anki | `obsidian-to-anki-plugin:anki-edit-note` | Open card under cursor for editing |
 
@@ -37,6 +38,15 @@ fields, tags (order-insensitive), or card decks differ.
 
 Delete entries in the JSON carry the file that last held the ID, so UIs can
 group them per file instead of showing a bare ID list.
+
+## Preview modal
+
+`Preview Sync` (and `Scan Vault` / `Scan Current File` when `Confirm Before Sync`
+is on in settings) shows the same diff grouped per file in a modal: `Sync now`
+writes to Anki, `Cancel` (or X/Escape) discards everything. Plans that only
+delete get a distinct destructive title (`Delete every Anki card?`) and CTA.
+`Dry Run` always stays non-interactive (Notice + console) so headless CLI flows
+never hang on UI; the scheduler never opens a modal either.
 
 Programmatic scans accept an optional control object (not exposed in the UI
 yet): `onProgress({ done, total, phase })` fires at each yield boundary

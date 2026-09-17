@@ -31,6 +31,7 @@ starts on General, and settings are never written on read.
 | `Delete Removed Notes` | **on** | Orphan deletion (see [sync](./sync.md)) |
 | `Allow Note Type Changes` | off | `updateNoteModel` conversion; target-model-missing fields discarded by Anki |
 | `Auto-launch Anki` | off | One detached spawn if Anki closed, 2 s wait, re-probe once (desktop only) |
+| `Confirm Before Sync` | off | Preview modal before Scan Vault / Scan Current File write to Anki |
 
 ## Syntax
 

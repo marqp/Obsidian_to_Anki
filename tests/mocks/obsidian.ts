@@ -297,6 +297,23 @@ export class Setting {
 
 export function addIcon(name: string, svg: string): void {}
 
+/** Minimal Modal: contentEl rendering + open/close lifecycle for modal tests. */
+export class Modal {
+	contentEl = makeMockEl('div')
+	app: App
+	constructor(app?: App) {
+		this.app = app ?? new App()
+	}
+	open(): void {
+		this.onOpen()
+	}
+	close(): void {
+		this.onClose()
+	}
+	onOpen(): void {}
+	onClose(): void {}
+}
+
 export const requestedUrls: unknown[] = []
 
 export function clearRequestedUrls(): void {

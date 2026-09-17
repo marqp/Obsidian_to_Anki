@@ -58,6 +58,16 @@ scratch copy, run only the suspect file, confirm red, restore):
   of those strings and branches.
 - `src/dry-run.ts` L125 convert `changes.push` removal: `dry-run.test.ts`
   fails the convert test by hand (`find` returns `undefined`).
+- `src/scan-orchestrator.ts` bypassConfirm routing (`if (true)` forcing the
+  modal path): `scan-orchestrator.test.ts` fails 3 tests by hand (direct
+  sync, bypass, and setting-off routing). Verdict covers the neighboring
+  confirm/empty/fallback string and branch survivors in `runPreviewSync`.
+- `src/scan-orchestrator.ts` commit-failure notice → `'ok'`: the
+  runPreviewSync commit-failure test fails by hand.
+- `src/dry-run-view.ts` group-sort comparator (`true ? 1 : 0`): passes the
+  view suite by hand too — V8 binary insertion still orders ≤22 distinct
+  keys correctly under this inconsistent comparator, so it is unobservable
+  at realistic group counts; see equivalent entry below.
 - Same signature (assertion exists, mutant survives) for `dry-run.ts`
   L177 tag-compare → `false` (old exact-diff test id 13), L185/L188 deck
   comparison (deck-move test), and `src/anki.ts` L97 FetchTransport
@@ -66,6 +76,13 @@ scratch copy, run only the suspect file, confirm red, restore):
   run means the test already exists and only the attribution is missing.
 
 ### Equivalent mutants (unobservable, keep)
+
+- `src/dry-run-view.ts` L43 group-sort comparator (`<`→`<=`, `>`→`>=`,
+  `>`→`<=`): group keys are map keys, hence always distinct — the variants
+  preserve strict weak ordering on distinct strings. Ordering itself is
+  pinned by the reversed 4-group test (any order-changing mutant, e.g. the
+  `noteId ?? 0` removal, dies). Deliberately locale-independent code-unit
+  comparison, not `localeCompare`.
 
 - `src/defaults-meta.ts` L104 `[...meta.value]` → `[]`: the only array
   value in the table is already empty, so the spread is unobservable.

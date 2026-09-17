@@ -6,9 +6,12 @@ import {
 	createScanEnvironment,
 	formatScanNotice,
 	getAllTFilesInFolder,
+	type PreviewCallbacks,
 	type ScanEnvironment,
+	type ScanPreview,
 	type ScanState
 } from '../../src/scan-orchestrator'
+import type { DryRunSummary } from '../../src/dry-run'
 import { ScanCancelledError, type FileManager, type ScanControl } from '../../src/files-manager'
 import type { ParsedSettings, PluginSettings } from '../../src/interfaces/settings-interface'
 import type { FileHashes } from '../../src/scan-optimizations'
@@ -48,7 +51,8 @@ function makePluginSettings(scanDirs: string[] = []): PluginSettings {
 			'Sync to AnkiWeb': false,
 			'Delete Removed Notes': true,
 			'Allow Note Type Changes': false,
-			'Auto-launch Anki': false
+			'Auto-launch Anki': false,
+			'Confirm Before Sync': false
 		},
 		IGNORED_FILE_GLOBS: []
 	}
@@ -106,6 +110,7 @@ function makeHarness(overrides: Partial<ScanEnvironment> = {}, scanDirs: string[
 		commitScanResults: (media, hashes) => committed.push({ media, hashes }),
 		probeAnki: () => Promise.resolve({ status: 'ready', message: 'ok' }),
 		isAutoLaunchEnabled: () => false,
+		shouldConfirmSync: () => false,
 		launchAnki: () => Promise.resolve('launched-pending'),
 		toData: () => Promise.resolve(data),
 		createManager: (_app, _data, files) => {
@@ -322,9 +327,11 @@ describe('createScanEnvironment', () => {
 				loadState: () => state,
 				commitScanResults: (media, hashes) => committed.push({ media, hashes })
 			},
-			{ isAutoLaunchEnabled: () => false }
+			{ isAutoLaunchEnabled: () => false, shouldConfirmSync: () => false }
 		)
 		expect(env.loadState()).toBe(state)
+		expect(env.shouldConfirmSync()).toBe(false)
+		expect(env.openPreviewModal).toBeUndefined()
 		env.commitScanResults(['x.png'], {})
 		expect(committed).toEqual([{ media: ['x.png'], hashes: {} }])
 		// Production manager factory over empty input.
@@ -350,7 +357,7 @@ describe('createScanEnvironment', () => {
 		const env = createScanEnvironment(
 			new App(),
 			{ loadState: () => state, commitScanResults: () => undefined },
-			{ isAutoLaunchEnabled: () => false }
+			{ isAutoLaunchEnabled: () => false, shouldConfirmSync: () => false }
 		)
 		const probe = await env.probeAnki()
 		expect(probe.status).toBe('ready')
@@ -358,5 +365,232 @@ describe('createScanEnvironment', () => {
 		const data = await env.toData(env.app, state.settings, {})
 		expect(data.vault_name).toBe('test-vault')
 		expect(data.EXISTING_IDS.size).toBe(0)
+	})
+})
+
+/** One pending add, wired so the dry-run collector reads manager state. */
+function armReadyChanges(h: { fake: FakeManager }): void {
+	const data = createParsedSettings()
+	h.fake.ownFiles = createManagerFiles(data, [], [{ deckName: 'Default', modelName: 'Basic' }])
+	const manager = h.fake as unknown as Record<string, unknown>
+	manager['data'] = { allow_note_type_changes: false }
+	manager['orphanNoteIds'] = []
+	manager['orphanFileById'] = () => new Map<number, string>()
+}
+
+function captureModal(): {
+	calls: Array<{ summary: DryRunSummary; callbacks: PreviewCallbacks }>
+	opener: (summary: DryRunSummary, callbacks: PreviewCallbacks) => void
+} {
+	const calls: Array<{ summary: DryRunSummary; callbacks: PreviewCallbacks }> = []
+	return {
+		calls,
+		opener: (summary, callbacks) => {
+			calls.push({ summary, callbacks })
+		}
+	}
+}
+
+async function tick(): Promise<void> {
+	await new Promise((resolve) => setTimeout(resolve, 0))
+	await new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+describe('previewScan', () => {
+	it('returns a ready preview with a commit that syncs on demand', async () => {
+		const h = makeHarness()
+		armReadyChanges(h)
+		const requests = vi.fn()
+		h.fake.requests_1 = requests
+
+		const preview = await h.orchestrator.previewScan()
+		expect(preview.status).toBe('ready')
+		if (preview.status !== 'ready') {
+			throw new Error('expected ready preview')
+		}
+		expect(preview.summary.wouldAdd).toBe(1)
+		expect(requests).not.toHaveBeenCalled()
+		expect(h.committed).toEqual([])
+
+		await preview.commit()
+		expect(requests).toHaveBeenCalledTimes(1)
+		expect(h.committed).toHaveLength(1)
+	})
+
+	it('returns empty when nothing changed', async () => {
+		const h = makeHarness()
+		const preview = await h.orchestrator.previewScan()
+		expect(preview).toEqual({ status: 'empty' })
+	})
+
+	it('returns aborted when Anki is not ready', async () => {
+		const h = makeHarness({
+			probeAnki: () => Promise.resolve({ status: 'needs-key', message: 'Set the API key.' })
+		})
+		const preview = await h.orchestrator.previewScan()
+		expect(preview).toEqual({ status: 'aborted' })
+		expect(h.createdWith).toEqual([])
+	})
+
+	it('propagates cancellation to the caller', async () => {
+		const h = makeHarness()
+		h.fake.initialiseFiles = () => Promise.reject(new ScanCancelledError())
+		await expect(h.orchestrator.previewScan()).rejects.toBeInstanceOf(ScanCancelledError)
+	})
+})
+
+describe('runPreviewSync', () => {
+	it('shares the scan-in-progress guard', async () => {
+		const h = makeHarness()
+		let release!: () => void
+		h.fake.initialiseFiles = () => new Promise<void>((resolve) => (release = resolve))
+		const first = h.orchestrator.runPreviewSync()
+		await tick()
+		await h.orchestrator.runPreviewSync()
+		expect(h.notices).toContain('A vault scan is already in progress.')
+		release()
+		await first
+		expect(h.notices).toContain('No changed files found. Nothing to sync.')
+	})
+
+	it('reports empty plans without opening a modal', async () => {
+		const modal = captureModal()
+		const h = makeHarness({ openPreviewModal: modal.opener })
+		await h.orchestrator.runPreviewSync()
+		expect(h.notices).toContain('No changed files found. Nothing to sync.')
+		expect(modal.calls).toEqual([])
+	})
+
+	it('falls back to the legacy notice preview without an opener', async () => {
+		const h = makeHarness()
+		armReadyChanges(h)
+		const requests = vi.fn()
+		h.fake.requests_1 = requests
+		await h.orchestrator.runPreviewSync()
+		expect(h.notices).toContain('Dry-run: +1 ~0 -0 convert 0 (nothing written, see console)')
+		expect(requests).not.toHaveBeenCalled()
+		expect(h.committed).toEqual([])
+		// Guard released: a later scan proceeds.
+		await h.orchestrator.runDryRun()
+		expect(h.notices).toContain('Dry-run: +1 ~0 -0 convert 0 (nothing written, see console)')
+	})
+
+	it('syncs on confirm and releases the guard', async () => {
+		const modal = captureModal()
+		const h = makeHarness({ openPreviewModal: modal.opener })
+		armReadyChanges(h)
+		const requests = vi.fn()
+		h.fake.requests_1 = requests
+
+		const run = h.orchestrator.runPreviewSync()
+		await tick()
+		expect(modal.calls).toHaveLength(1)
+		expect(modal.calls[0].summary.wouldAdd).toBe(1)
+		expect(requests).not.toHaveBeenCalled()
+		modal.calls[0].callbacks.onConfirm()
+		await run
+
+		expect(requests).toHaveBeenCalledTimes(1)
+		expect(h.committed).toHaveLength(1)
+		expect(h.notices).toContain('Scan complete: +1 ~0 -0 (1/0 files)')
+		// Guard released after confirm.
+		const second = h.orchestrator.runPreviewSync()
+		await tick()
+		expect(modal.calls).toHaveLength(2)
+		modal.calls[1].callbacks.onCancel()
+		await second
+	})
+
+	it('writes nothing on cancel and releases the guard', async () => {
+		const modal = captureModal()
+		const h = makeHarness({ openPreviewModal: modal.opener })
+		armReadyChanges(h)
+		const requests = vi.fn()
+		h.fake.requests_1 = requests
+
+		const run = h.orchestrator.runPreviewSync()
+		await tick()
+		modal.calls[0].callbacks.onCancel()
+		await run
+
+		expect(requests).not.toHaveBeenCalled()
+		expect(h.committed).toEqual([])
+		const second = h.orchestrator.runPreviewSync()
+		await tick()
+		expect(modal.calls).toHaveLength(2)
+		modal.calls[1].callbacks.onCancel()
+		await second
+	})
+
+	it('notices commit failures and releases the guard', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => undefined)
+		const modal = captureModal()
+		const h = makeHarness({ openPreviewModal: modal.opener })
+		armReadyChanges(h)
+		h.fake.requests_1 = () => Promise.reject(new Error('anki down'))
+
+		const run = h.orchestrator.runPreviewSync()
+		await tick()
+		modal.calls[0].callbacks.onConfirm()
+		await run
+
+		expect(h.notices).toContain('Sync failed. Check console for details.')
+		expect(h.committed).toEqual([])
+		const second = h.orchestrator.runPreviewSync()
+		await tick()
+		expect(modal.calls).toHaveLength(2)
+		modal.calls[1].callbacks.onCancel()
+		await second
+	})
+
+	it('reports cancellation without opening a modal', async () => {
+		const modal = captureModal()
+		const h = makeHarness({ openPreviewModal: modal.opener })
+		h.fake.initialiseFiles = () => Promise.reject(new ScanCancelledError())
+		await h.orchestrator.runPreviewSync()
+		expect(h.notices).toContain('Scan cancelled.')
+		expect(modal.calls).toEqual([])
+	})
+})
+
+describe('scanVault confirm routing', () => {
+	it('routes through the modal when Confirm Before Sync is on', async () => {
+		const modal = captureModal()
+		const h = makeHarness({ shouldConfirmSync: () => true, openPreviewModal: modal.opener })
+		armReadyChanges(h)
+		const requests = vi.fn()
+		h.fake.requests_1 = requests
+
+		const run = h.orchestrator.scanVault()
+		await tick()
+		expect(modal.calls).toHaveLength(1)
+		expect(requests).not.toHaveBeenCalled()
+		modal.calls[0].callbacks.onConfirm()
+		await run
+		expect(requests).toHaveBeenCalledTimes(1)
+	})
+
+	it('bypasses the modal for unattended scans even when the setting is on', async () => {
+		const modal = captureModal()
+		const h = makeHarness({ shouldConfirmSync: () => true, openPreviewModal: modal.opener })
+		armReadyChanges(h)
+		const requests = vi.fn()
+		h.fake.requests_1 = requests
+
+		await h.orchestrator.scanVault(undefined, {}, { bypassConfirm: true })
+		expect(modal.calls).toEqual([])
+		expect(requests).toHaveBeenCalledTimes(1)
+	})
+
+	it('scans directly when the setting is off', async () => {
+		const modal = captureModal()
+		const h = makeHarness({ shouldConfirmSync: () => false, openPreviewModal: modal.opener })
+		armReadyChanges(h)
+		const requests = vi.fn()
+		h.fake.requests_1 = requests
+
+		await h.orchestrator.scanVault()
+		expect(modal.calls).toEqual([])
+		expect(requests).toHaveBeenCalledTimes(1)
 	})
 })

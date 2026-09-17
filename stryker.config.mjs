@@ -5,14 +5,16 @@ export default {
 	plugins: ['@stryker-mutator/vitest-runner'],
 	reporters: ['progress', 'clear-text', 'html', 'json'],
 	mutate: [
-		// Mutation scope mirrors the coverage gate: engine modules only.
-		// settings.ts stays out (Obsidian-UI, no DOM in tests).
-		'src/anki.ts',
-		'src/anki-launch.ts',
-		'src/commands.ts',
-		'src/constants.ts',
-		'src/defaults-meta.ts',
-		'src/dry-run.ts',
+	// Mutation scope mirrors the coverage gate: engine modules only.
+	// settings.ts and ui/dry-run-modal.ts stay out (Obsidian-UI, no DOM in
+	// tests; the modal's view-model dry-run-view.ts is fully covered).
+	'src/anki.ts',
+	'src/anki-launch.ts',
+	'src/commands.ts',
+	'src/constants.ts',
+	'src/defaults-meta.ts',
+	'src/dry-run.ts',
+	'src/dry-run-view.ts',
 		'src/file.ts',
 		'src/files-manager.ts',
 		'src/format.ts',
