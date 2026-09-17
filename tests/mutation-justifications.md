@@ -9,13 +9,14 @@ ideas for the rest.
   `settings.ts`, which is Obsidian-UI without a DOM in tests). Extended in
   Wave 5 (PR-15); previously only `scan-optimizations.ts`, `constants.ts`,
   `note.ts`, `setting-to-data.ts`.
-- Last reviewed: 2026-09-17 post-PR-15, score **70.44** (break threshold 60).
-  requests.ts 100, notices.ts 100, commands.ts 100, constants.ts 100;
-  dry-run.ts 82.96, anki.ts 85.40, scan-orchestrator.ts 83.33.
-  Pre-extension peak was 92.09 on the 4-file scope — the drop is new files
-  with real tests but incomplete perTest attribution (see mapping misses),
-  plus pre-existing parse-heavy gaps now visible (file/files-manager/format
-  backlog below). Baseline at release 4.0.0 was 80.10.
+- Last reviewed: 2026-09-17 post-#38, score **94.05** on the scoped run
+  (`note.ts` 94.12, `scan-optimizations.ts` 92.38, `setting-to-data.ts`
+  96.72; break threshold 60). The pre-extension peak was 92.09 on the
+  4-file scope (release 4.0.0 baseline was 80.10); post-PR-15 the full-engine
+  number sat at 70.44 because new files shipped with real tests but
+  incomplete perTest attribution (see mapping misses). Historical note:
+  post-PR-15 per-file scores (requests.ts 100, dry-run.ts 82.96, anki.ts
+  85.40, scan-orchestrator.ts 83.33) describe that era, not current state.
 
 ## Parity-pinned behaviors (do not "fix")
 
@@ -148,19 +149,13 @@ scratch copy, run only the suspect file, confirm red, restore):
 
 ## Out of scope for this log
 
-### src/note.ts
+### src/note.ts (defensive guards — keep)
 
-- L149 `this.delete = false` → `true`: the `delete` field is write-only —
-  no reader in `src/`, `main.ts` or tests. Keep as documentation of intent;
-  follow-up: delete the field (dead, zero-risk, needs no test).
-- L207/L220 `lastLine === undefined` guards: `String.split` never yields an
+- L205/L218 `lastLine === undefined` guards: `String.split` never yields an
   empty array, so the guard is unreachable via the public API. Keep as
-  defensive code (also covers the NoCoverage twin on L207).
-- L244 `if (!this.field_names) return {}`: `field_names` is always an array
+  defensive code (also covers the NoCoverage twin on L205).
+- L242 `if (!this.field_names) return {}`: `field_names` is always an array
   (default `[]`). Defensive; unreachable.
-- L262/L263 `InlineNote.getSplitText` override: its result is never read —
-  `getFields` re-splits `this.text` itself. Dead override; follow-up: delete
-  it (and confirm `AbstractNote` still requires the method for `Note`).
 - L281 `.trim()` on the tags slice: masked downstream by design —
   `formatNoteFields` trims every field before formatting, so the trim here
   is defense in depth. Removing it would be behavior-neutral today and
@@ -168,35 +163,36 @@ scratch copy, run only the suspect file, confirm red, restore):
 - L293 `result.index ?? 0`: `String.match` always sets `index` on success,
   so the fallback is dead; `index > 0` is unreachable in valid flows
   (ID/tags are always trailing when present). Keep.
+## Resolved backlogs (done in #38 — kept as history)
 
-## Future kill-set (concrete test ideas, highest value first)
+### src/scan-optimizations.ts (`scan-optimizations.test.ts`)
 
-### src/scan-optimizations.ts
-
-- L21 `if (!entry) return undefined`: call `getStoredHash` with an unknown
-  path, assert `undefined` (currently only hit paths are tested).
-- L110 `typeof cachedEntry === 'string'` → `""`: feed a legacy string hash
-  entry (the `FileHashes` string shape AGENTS.md documents) and assert it is
-  treated as a hash, not an object.
-- L117 `hasOwnProperty` guard (×2): `isFileUnchanged` on a path absent from
-  `file_hashes`.
-- L121 `&&` → `true`: `isFileUnchanged` with changed content asserting `false`.
-- L161 `fields: { ...data.template.fields }` → `{}`: `createFileData`
-  asserting template fields are copied, not dropped.
+- L21 `if (!entry) return undefined` → pinned (`getStoredHash(undefined)`
+  is `undefined`).
+- L110 legacy string entries → pinned (treated as plain hashes; never a
+  stat hit).
+- L117 `hasOwnProperty` guard (×2) → pinned (absent path returns `false`;
+  present-changed returns `false`).
+- L161 template-fields copy → pinned (deep-equal but not shared; mutating
+  the copy leaves the source intact).
 - L132/L134/L181: accepted as unobservable (empty-input short-circuit is
-  equivalent to mapping over `[]`; `new Array(n)` vs `new Array()` converge
-  after indexed assignment; `yieldToEventLoop` removal is timing-only).
+  equivalent to mapping over `[]`; `new Array(n)` vs `new Array()`
+  converge after indexed assignment; `yieldToEventLoop` removal is
+  timing-only).
 
-### src/setting-to-data.ts
+### src/setting-to-data.ts (`setting-to-data.test.ts`)
 
-All ten are `String.raw` fragments and regexp flags — killable with sharper
-`settingToData` unit tests asserting built-regexp behavior (not strings):
-mid-line `TARGET DECK`/`FILE TAGS` must NOT match once the `^` anchor is
-removed (kills L46/L50); `FROZEN`/`DELETE` lines must not match without `m`
-(kills L43/L47/L51); missing `Delete Removed Notes` key must default `true`
-(kills L77); empty flag strings must break matching (kills L42/L54/L58/L67).
+- `^` anchors → pinned (mid-line `TARGET DECK`/`FILE TAGS`/`START` do not
+  match).
+- `m` flags on the anchored trio → pinned as designed (`NOTE`/`DECK`/`TAG`
+  are `multiline: true`); `FROZEN`/`DELETE` have no `^` anchor by
+  construction, so `multiline: false` is correct there (their multiline use
+  is via explicit `\n` in the pattern).
+- `Delete Removed Notes` missing → pinned (`?? true`).
+- Empty-string tokens → pinned (empty `Begin Note` breaks NOTE matching);
+  regexp source literals and `gm`/`g` flags pinned.
 
-### src/note.ts NoCoverage
+### src/note.ts NoCoverage — done in #38 (`note.test.ts`)
 
 - L101 `'<br>'` separator: pinned by the context-append test in
   `note.test.ts` (asserts the literal `A<br>Some context`).
@@ -216,13 +212,15 @@ removed (kills L46/L50); `FROZEN`/`DELETE` lines must not match without `m`
 
 - `settings.ts` stays out of both gates (Obsidian-UI, 47% lines, no DOM in
   tests). Deliberate, documented in `vitest.config.mjs`.
-- `file.ts` (54.43), `files-manager.ts` (48.71), `format.ts` (47.79) have
-  pre-existing parse-heavy gaps now visible under the extended scope
-  (64/61/44 NoCoverage mutants). They are covered by unit + parity + bench,
-  but were never mutation-tested. Incremental kill-sets welcome; highest
-  value first: `files-manager.ts` orphan/media branches (ports seam makes
-  them testable without Obsidian), `file.ts` custom-regexp paths,
-  `format.ts` cloze branches.
+- `file.ts`, `files-manager.ts`, `format.ts` had pre-existing parse-heavy
+  gaps when the scope was extended (then 54.43/48.71/47.79 with 64/61/44
+  NoCoverage mutants). Closed by the K1–K19 kill-sets and the A5
+  longest-first work (#36, #37): custom-regexp paths
+  (`custom-regexp-id.test.ts`, `custom-regexp-shielding.test.ts`),
+  orphan/media branches (`orphan-integration.test.ts`, `media-batch.test.ts`),
+  cloze branches (`format.test.ts`), plus the intentional `custom-overlap`
+  divergence in `tests/parity/CONTRACT.md`. Residual per-file scores live in
+  the Stryker report; no open backlog here.
 - Mini-bug found while writing the kill-set (not a mutant): `RegexNote`
   with more captures than fields creates a junk `'undefined'` key
   (`note.ts` `getFields` loop bounds only on `captures`). Deliberately NOT
