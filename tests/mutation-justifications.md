@@ -125,9 +125,10 @@ scratch copy, run only the suspect file, confirm red, restore):
 - `src/anki.ts` `withRequestTimeout` (`if (true)` variant): the timer is
   always assigned before the race, so unconditional clearing is identical;
   the `if (false)`/removal variants die via the clearTimeout spy.
-- `src/dry-run.ts` L163 single-tag sets: `.some()` vs `.every()` converge
-  when both tag lists have ≤ 1 element (the tag-diff fixture); extend the
-  fixture to multi-tag divergence to separate them (backlog).
+- `src/dry-run.ts` single vs multi-tag sets: `.some()` vs `.every()` is now
+  distinguished by the positional-divergence fixture in `dry-run.test.ts`
+  ("separates positional tag divergence across multi-tag sets", verified red
+  by hand-applying the `.every()` mutant: 5 tests fail). Resolved, no backlog.
 - `src/note.ts` L340/L341, L207/L220, L244, L281, L293 entries from the
   pre-extension scope are unchanged (see below).
 - `src/note.ts` `InlineNote.getSplitText` body (`split(' ')` → `split("")`):

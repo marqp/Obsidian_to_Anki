@@ -116,6 +116,49 @@ describe('collectDryRunState: exact diff', () => {
 		}
 	})
 
+	it('separates positional tag divergence across multi-tag sets', async () => {
+		// Kills the .some() vs .every() mutant at dry-run.ts L163: with
+		// single-element tag lists both quantifiers converge, so only a
+		// multi-tag divergence distinguishes them. .some() reports the first
+		// position where the sorted sets differ; .every() would demand ALL
+		// positions differ and miss this case.
+		const { setTransport } = await import('../../src/anki')
+		const invokeMock = vi.fn(async (action: string) => {
+			if (action === 'notesInfo') {
+				return [
+					{
+						noteId: 14,
+						modelName: 'Basic',
+						tags: ['alpha', 'WRONG', 'gamma'],
+						fields: { Front: { order: 0, value: 'q4' }, Back: { order: 1, value: 'a4' } },
+						cards: [104]
+					}
+				]
+			}
+			if (action === 'cardsInfo') {
+				return [{ cardId: 104, deck: 'Default' }]
+			}
+			throw new Error(`unexpected action in dry-run: ${action}`)
+		})
+		setTransport({ invoke: invokeMock })
+		const files = createManagerFiles(
+			createParsedSettings(),
+			[
+				// Same length, one position differs after normalization+sort:
+				// sorted local is [alpha, beta, gamma], sorted Anki is
+				// [WRONG, alpha, gamma] — .some() fires at index 0, .every()
+				// would stay silent because indexes 1..2 match.
+				{ id: 14, fields: { Front: 'q4', Back: 'a4' }, tags: ['gamma', 'beta', 'alpha'] }
+			],
+			[]
+		)
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+
+		expect(summary.wouldUpdate).toBe(1)
+		expect(summary.changes.filter((c) => c.kind === 'update').map((c) => c.noteId)).toEqual([14])
+	})
+
 	it('treats NFC/NFD-equivalent text as identical but keeps case significant', async () => {
 		const { setTransport } = await import('../../src/anki')
 		const invokeMock = vi.fn(async (action: string) => {
