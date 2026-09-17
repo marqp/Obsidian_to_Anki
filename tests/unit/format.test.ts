@@ -195,3 +195,33 @@ describe('FormatConverter.format memo flags', () => {
 		expect(formatter.format('{a}', true, false)).toContain('{{c1::a}}')
 	})
 })
+
+describe('FormatConverter.curly_to_cloze variants', () => {
+	it('numbers bare-digit and pipe forms without bumping the counter', () => {
+		const formatter = createFormatter()
+		expect(formatter.curly_to_cloze('{c1|b}')).toBe('{{c1::b}}')
+		expect(formatter.curly_to_cloze('{2:b}')).toBe('{{c2::b}}')
+	})
+
+	it('keeps an explicit number while auto-numbering around it', () => {
+		const formatter = createFormatter()
+		const out = formatter.format('{a} {{c5::b}} {c}', true, false)
+		expect(out).toContain('c1::a')
+		expect(out).toContain('c5::b')
+		expect(out).toContain('c2::c')
+	})
+})
+
+describe('FormatConverter.format highlights flag', () => {
+	it('ignores highlights_to_cloze when cloze is off', () => {
+		const formatter = createFormatter()
+		const out = formatter.format('==hi==', false, true)
+		expect(out).toContain('<mark>hi</mark>')
+		expect(out).not.toContain('{{c')
+	})
+
+	it('converts highlights to clozes when cloze is on', () => {
+		const formatter = createFormatter()
+		expect(formatter.format('==hi==', true, true)).toContain('{{c1::hi}}')
+	})
+})

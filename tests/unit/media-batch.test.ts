@@ -3,6 +3,7 @@ import { TFile, type App } from 'obsidian'
 import * as AnkiConnect from '../../src/anki'
 import { FileManager } from '../../src/files-manager'
 import { createParsedSettings } from './anki-test-helpers'
+import { clearNotices, createdNotices } from '../mocks/obsidian'
 import type { AllFile } from '../../src/file'
 
 afterEach(() => {
@@ -34,7 +35,8 @@ describe('requests_1 media batch', () => {
 	function mediaManager(
 		files: Array<{ path: string; media: string[] }>,
 		dest: (link: string) => TFile | null,
-		mediaResult: unknown[]
+		mediaResult: unknown[],
+		preseeded: string[] = []
 	) {
 		const vault = {
 			read: async () => '',
@@ -43,7 +45,7 @@ describe('requests_1 media batch', () => {
 			getFirstLinkpathDest: (link: string) => dest(link),
 			getFullPath: (path: string) => `/abs/${path}`
 		}
-		const manager = new FileManager({} as unknown as App, createParsedSettings(), [], {}, [], { vault })
+		const manager = new FileManager({} as unknown as App, createParsedSettings(), [], {}, preseeded, { vault })
 		manager.ownFiles = files.map((f) => scannedFile(f.path, f.media))
 		// ownFiles is normally narrowed by initialiseFiles; drive the batch directly.
 		manager.files = []
@@ -144,5 +146,53 @@ describe('requests_1 media batch', () => {
 		expect(warnSpy.mock.calls.some((args) => String(args[0]).includes("Couldn't locate media file"))).toBe(true)
 		expect(manager.added_media_set.has('img.png')).toBe(true)
 		expect(manager.added_media_set.has('ghost.png')).toBe(false)
+	})
+
+	it('strips subfolders to basename while keeping the full upload path', async () => {
+		const { manager, invokeMock } = mediaManager(
+			[{ path: 'a.md', media: ['sub/img.png'] }],
+			(link) => locatedFile(link),
+			[{ error: null }]
+		)
+
+		await manager.requests_1()
+
+		const multiCalls = invokeMock.mock.calls.filter((call) => call[0] === 'multi')
+		const payloads = multiCalls.flatMap((call) => {
+			const actions = (call[1] as { actions: AnkiConnect.AnkiConnectRequest[] }).actions
+			return (Array.isArray(actions) ? actions : []).flatMap((request) => {
+				const nested = request.params['actions']
+				return Array.isArray(nested) ? nested : [request]
+			})
+		}) as Array<{ action: string; params: { filename?: string; path?: string } }>
+		const uploads = payloads.filter((request) => request.action === 'storeMediaFile')
+		expect(uploads).toHaveLength(1)
+		expect(uploads[0].params.filename).toBe('img.png')
+		expect(uploads[0].params.path).toBe('/abs/sub/img.png')
+	})
+
+	it('skips pre-seeded media from a warm cache', async () => {
+		const { manager, invokeMock } = mediaManager(
+			[{ path: 'a.md', media: ['old.png', 'new.png'] }],
+			(link) => locatedFile(link),
+			[{ error: null }],
+			['old.png']
+		)
+
+		await manager.requests_1()
+
+		expect(uploadedFilenames(invokeMock)).toEqual(['new.png'])
+		expect(manager.added_media_set.has('old.png')).toBe(true)
+		expect(manager.added_media_set.has('new.png')).toBe(true)
+	})
+
+	it('notifies on the legacy media-batch error', async () => {
+		clearNotices()
+		const { manager } = mediaManager([{ path: 'a.md', media: [] }], () => null, [{ error: 'old api' }])
+		vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+		await manager.requests_1()
+
+		expect(createdNotices.some((message) => message.includes('Please update AnkiConnect'))).toBe(true)
 	})
 })
