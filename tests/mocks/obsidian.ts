@@ -1,5 +1,13 @@
+export const createdNotices: string[] = []
+
+export function clearNotices(): void {
+	createdNotices.length = 0
+}
+
 export class Notice {
-	constructor(public message: string) {}
+	constructor(public message: string) {
+		createdNotices.push(message)
+	}
 }
 
 export class TAbstractFile {
@@ -289,7 +297,14 @@ export class Setting {
 
 export function addIcon(name: string, svg: string): void {}
 
+export const requestedUrls: unknown[] = []
+
+export function clearRequestedUrls(): void {
+	requestedUrls.length = 0
+}
+
 export async function requestUrl(params: any): Promise<any> {
+	requestedUrls.push(params)
 	return {
 		status: 200,
 		text: '',
