@@ -159,7 +159,8 @@ describe('collectDryRunState: exact diff', () => {
 		expect(invokeMock.mock.calls.map((call) => call[0])).toEqual(['notesInfo'])
 	})
 
-	it('detects deck moves via cardsInfo and converts via model mismatch', async () => {		const { setTransport } = await import('../../src/anki')
+	it('detects deck moves via cardsInfo and converts via model mismatch', async () => {
+		const { setTransport } = await import('../../src/anki')
 		const invokeMock = vi.fn(async (action: string) => {
 			if (action === 'notesInfo') {
 				return [
@@ -329,8 +330,7 @@ describe('collectDryRunState: exact diff', () => {
 		expect(summary.changes).toEqual([{ kind: 'delete', file: '', noteId: 402 }])
 	})
 
-	it('chunks notesInfo into bounded batches with identical results', async () => {
-		const { setTransport } = await import('../../src/anki')
+	it('chunks notesInfo into bounded batches with identical results', async () => {		const { setTransport } = await import('../../src/anki')
 		const seen: number[][] = []
 		const invokeMock = vi.fn(async (action: string, params: { notes?: number[] }) => {
 			if (action === 'notesInfo') {

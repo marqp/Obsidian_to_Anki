@@ -43,8 +43,8 @@ interface AnkiCardInfo {
  * thousands of IDs risks daemon-side limits and huge payloads; chunks keep
  * the same semantics with bounded requests (Flashcards 256/512 pattern).
  */
-export const NOTES_INFO_BATCH_SIZE = 256
-export const CARDS_INFO_BATCH_SIZE = 512
+const NOTES_INFO_BATCH_SIZE = 256
+const CARDS_INFO_BATCH_SIZE = 512
 
 async function fetchNotesInfo(editIds: number[]): Promise<AnkiNoteInfo[]> {
 	const infos: AnkiNoteInfo[] = []
