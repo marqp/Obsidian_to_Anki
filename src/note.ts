@@ -125,7 +125,6 @@ export abstract class AbstractNote {
 	text: string
 	split_text: string[]
 	current_field_num: number
-	delete: boolean
 	identifier: number | null
 	tags: string[]
 	note_type: string
@@ -146,7 +145,6 @@ export abstract class AbstractNote {
 	) {
 		this.text = note_text.trim()
 		this.current_field_num = 0
-		this.delete = false
 		this.no_note_type = false
 		this.split_text = this.getSplitText()
 		this.identifier = this.getIdentifier()
@@ -260,6 +258,8 @@ export class InlineNote extends AbstractNote {
 	static TYPE_REGEXP: RegExp = /\[(.*?)\]/
 
 	getSplitText(): string[] {
+		// Unused: getFields re-splits this.text itself. Kept only to satisfy
+		// the AbstractNote contract (Note's override is load-bearing).
 		return this.text.split(' ')
 	}
 

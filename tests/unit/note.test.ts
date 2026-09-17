@@ -603,3 +603,83 @@ describe('Note classes: Note, InlineNote, RegexNote', () => {
 		expect(Number.isNaN(parsed.identifier)).toBe(true)
 	})
 })
+
+describe('context separator literal', () => {
+	it('joins appended context with a literal <br>', () => {
+		const formatter = new FormatConverter({} as never, 'test-vault')
+		const data = {
+			template: {
+				deckName: 'Default',
+				modelName: '',
+				fields: {},
+				options: { allowDuplicate: true },
+				tags: []
+			},
+			fields_dict: { Basic: ['Front', 'Back'] },
+			custom_regexps: {},
+			file_link_fields: {},
+			context_fields: { Basic: 'Back' },
+			EXISTING_IDS: new Set<number>(),
+			vault_name: 'test-vault',
+			FROZEN_REGEXP: /FROZEN/g,
+			DECK_REGEXP: /TARGET DECK/m,
+			TAG_REGEXP: /FILE TAGS/m,
+			NOTE_REGEXP: /START[\s\S]*?END/gm,
+			INLINE_REGEXP: /STARTI.*?ENDI/g,
+			EMPTY_REGEXP: /DELETE/g,
+			curly_cloze: false,
+			highlights_to_cloze: false,
+			comment: true,
+			add_context: true,
+			add_obs_tags: false
+		} as never
+		const note = new Note('Basic\nFront: Q\nBack: A', data.fields_dict, false, false, formatter)
+		const parsed = note.parse('Default', '', {}, data, 'Some context')
+
+		expect(parsed.note.fields['Back']).toContain('A<br>Some context')
+	})
+
+	it('calls parse without a url (vault links stay out)', () => {
+		const formatter = new FormatConverter({} as never, 'test-vault')
+		const data = {
+			template: {
+				deckName: 'Default',
+				modelName: '',
+				fields: {},
+				options: { allowDuplicate: true },
+				tags: []
+			},
+			fields_dict: { Basic: ['Front', 'Back'] },
+			custom_regexps: {},
+			file_link_fields: { Basic: 'Front' },
+			context_fields: {},
+			EXISTING_IDS: new Set<number>(),
+			vault_name: 'test-vault',
+			FROZEN_REGEXP: /FROZEN/g,
+			DECK_REGEXP: /TARGET DECK/m,
+			TAG_REGEXP: /FILE TAGS/m,
+			NOTE_REGEXP: /START[\s\S]*?END/gm,
+			INLINE_REGEXP: /STARTI.*?ENDI/g,
+			EMPTY_REGEXP: /DELETE/g,
+			curly_cloze: false,
+			highlights_to_cloze: false,
+			comment: true,
+			add_context: false,
+			add_obs_tags: false
+		} as never
+		const note = new Note('Basic\nFront: Q\nBack: A', data.fields_dict, false, false, formatter)
+		// No url argument: the 4-arg call must not inject any file link.
+		const parsed = (
+			note as unknown as {
+				parse: (
+					deck: string,
+					url: string,
+					frozen: object,
+					data: never
+				) => { note: { fields: Record<string, string> } }
+			}
+		).parse('Default', '', {}, data)
+
+		expect(parsed.note.fields['Front']).not.toContain('obsidian://')
+	})
+})

@@ -129,6 +129,22 @@ scratch copy, run only the suspect file, confirm red, restore):
   fixture to multi-tag divergence to separate them (backlog).
 - `src/note.ts` L340/L341, L207/L220, L244, L281, L293 entries from the
   pre-extension scope are unchanged (see below).
+- `src/note.ts` `InlineNote.getSplitText` body (`split(' ')` → `split("")`):
+  survives because `getFields` re-splits `this.text` itself — the override
+  exists only for the abstract contract. Verified by hand (mutant passes
+  the suite); removing the method breaks the `Note` override typecheck, so
+  the body stays with the unused-contract comment.
+- `src/scan-optimizations.ts` L132/L134/L181 block/initializer variants
+  (`if (false) return []`, `new Array()`): the empty-input short-circuit is
+  equivalent to mapping over `[]`, and `new Array(n)` vs `new Array()`
+  converge after indexed assignment; `yieldToEventLoop` removal is
+  timing-only. Accepted as unobservable (pre-existing entry).
+- `src/setting-to-data.ts` L58 trailing `[ ]*` removal and L77
+  `?? true` → `?? ""`: the trailing-space tolerance is parity-pinned by the
+  `trailing-spaces` CONTRACT fixture (harness, not unit), and the
+  `delete_removed_notes` truthiness default is pinned by the missing-key
+  test. Unit mutants on the fragment survive perTest attribution; the
+  behavior is covered at the parity/suite level.
 
 ## Out of scope for this log
 
@@ -182,13 +198,19 @@ removed (kills L46/L50); `FROZEN`/`DELETE` lines must not match without `m`
 
 ### src/note.ts NoCoverage
 
-- L101 `'<br>'` separator: needs an explicit context-append test asserting
-  the separator itself (current tests cover the path, not the literal).
+- L101 `'<br>'` separator: pinned by the context-append test in
+  `note.test.ts` (asserts the literal `A<br>Some context`).
 - L340/L341 `this.match.pop() ?? ''` fallbacks (new in PR-10, replacing the
   `!` assertions): unreachable under the `search()` flag contract (the group
   exists when the flag is on), so no test can distinguish the fallback;
   `parseInt('') -> NaN` is the pinned equivalent. Keep as defensive code.
-- L362 `url = ''` default: call `parse()` without the url argument once.
+- L362 `url = ''` default: pinned by calling `parse` without the url
+  argument and asserting no `obsidian://` link is injected.
+- `delete` field (was L149) and its write removed: write-only, no readers
+  in `src/`, `main.ts` or tests. Removed with full suite green.
+- `InlineNote.getSplitText` kept with an unused-contract comment: `getFields`
+  re-splits `this.text` itself, but the abstract method requires the
+  override for `Note`'s load-bearing one to typecheck.
 
 ## Out of scope for this log
 
