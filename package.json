@@ -1,6 +1,6 @@
 {
     "name": "obsidian-to-anki-plugin",
-    "version": "4.0.0",
+    "version": "4.1.0",
     "description": "Obsidian_to_Anki fork with additional features and performance gains.",
     "main": "main.js",
     "scripts": {
