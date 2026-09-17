@@ -132,3 +132,22 @@ describe('orphan deletion: initialiseFiles wiring', () => {
 		expect(manager.ownFiles[0].notes_to_delete).toEqual([2])
 	})
 })
+
+describe('orphanFileById attribution', () => {
+	afterEach(() => {
+		vi.restoreAllMocks()
+	})
+
+	it('attributes a duplicated orphan ID to the first file (first-wins)', () => {
+		const parsed = createParsedSettings({ delete_removed_notes: true })
+		const { app } = fakeApp('no note blocks here')
+		const hashes: FileHashes = {
+			'a.md': { hash: 'x', mtime: 1, size: 1, noteIds: [7] },
+			'b.md': { hash: 'y', mtime: 1, size: 1, noteIds: [7] }
+		}
+		const manager = new FileManager(app, parsed, [], hashes, [])
+		manager.orphanNoteIds = [7]
+
+		expect(manager.orphanFileById().get(7)).toBe('a.md')
+	})
+})
