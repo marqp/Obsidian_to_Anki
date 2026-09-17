@@ -90,7 +90,15 @@ export interface ScanIssue {
 	/** File whose note failed ('' for batch-level failures). */
 	file: string
 	/** Machine-stable category; the console summary groups by it. */
-	kind: 'add-notes' | 'note-info' | 'add-note' | 'notes-info' | 'note-info-file' | 'tag-list'
+	kind:
+		| 'add-notes'
+		| 'note-info'
+		| 'add-note'
+		| 'notes-info'
+		| 'note-info-file'
+		| 'tag-list'
+		| 'media'
+		| 'media-missing'
 	/** The AnkiConnect error message (never the full payload). */
 	error: string
 }
@@ -189,6 +197,11 @@ export class FileManager {
 	private modelChangeActions: AnkiConnect.AnkiConnectRequest[] = []
 	/** Failures collected by the last parse_requests_1 run (reset per scan). */
 	scanIssues: ScanIssue[] = []
+	/**
+	 * (file, link) pairs in upload order, aligned positionally with the
+	 * media sub-batch results so per-item failures attribute correctly.
+	 */
+	private mediaUploads: Array<{ file: string; link: string }> = []
 	private readonly vault: VaultPort
 	private readonly notifier: NoticePort
 
@@ -395,6 +408,7 @@ export class FileManager {
 	async requests_1() {
 		const requests: AnkiConnect.AnkiConnectRequest[] = []
 		this.scanIssues = []
+		this.mediaUploads = []
 		// One reflection call per scan decides which late actions this daemon
 		// supports. Failures degrade to the legacy paths (see detectSupportedActions).
 		const supported = await AnkiConnect.detectSupportedActions(['updateNote', 'updateNoteModel'])
@@ -455,10 +469,16 @@ export class FileManager {
 				const dataFile = this.vault.getFirstLinkpathDest(mediaLink, file.path)
 				if (!dataFile) {
 					console.warn("Couldn't locate media file ", mediaLink)
+					this.scanIssues.push({
+						file: file.path,
+						kind: 'media-missing',
+						error: `Couldn't locate media file ${mediaLink}`
+					})
 				} else {
 					// Located successfully, so treat as if we've added the media
 					this.added_media_set.add(mediaLink)
 					const realPath = this.vault.getFullPath(dataFile.path)
+					this.mediaUploads.push({ file: file.path, link: mediaLink })
 					temp.push(AnkiConnect.storeMediaFileByPath(basename(mediaLink), realPath))
 				}
 			}
@@ -487,6 +507,20 @@ export class FileManager {
 		if (batch.media.result.length >= 1 && batch.media.result[0].error != null) {
 			this.notifier.notify('Please update AnkiConnect! The way the script has added media files has changed.')
 			console.warn('Please update AnkiConnect! The way the script has added media files has changed.')
+		}
+		// Per-item upload failures were previously silent (only the legacy
+		// result[0] check above existed). Attribute each failed upload to its
+		// file; the scan otherwise completes normally.
+		for (let i = 0; i < batch.media.result.length; i++) {
+			const item = batch.media.result[i]
+			if (item && item.error != null) {
+				const upload = this.mediaUploads[i]
+				this.scanIssues.push({
+					file: upload?.file ?? '',
+					kind: 'media',
+					error: issueMessage(item.error)
+				})
+			}
 		}
 		let note_ids_array_by_file: Requests1Result[0]['result']
 		try {
