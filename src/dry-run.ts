@@ -39,6 +39,36 @@ interface AnkiCardInfo {
 }
 
 /**
+ * Batched read sizes for the live-Anki preflight. One giant notesInfo with
+ * thousands of IDs risks daemon-side limits and huge payloads; chunks keep
+ * the same semantics with bounded requests (Flashcards 256/512 pattern).
+ */
+const NOTES_INFO_BATCH_SIZE = 256
+const CARDS_INFO_BATCH_SIZE = 512
+
+async function fetchNotesInfo(editIds: number[]): Promise<AnkiNoteInfo[]> {
+	const infos: AnkiNoteInfo[] = []
+	for (let i = 0; i < editIds.length; i += NOTES_INFO_BATCH_SIZE) {
+		const batch = await AnkiConnect.invoke<AnkiNoteInfo[]>('notesInfo', {
+			notes: editIds.slice(i, i + NOTES_INFO_BATCH_SIZE)
+		})
+		infos.push(...batch)
+	}
+	return infos
+}
+
+async function fetchCardsInfo(cardIds: number[]): Promise<AnkiCardInfo[]> {
+	const infos: AnkiCardInfo[] = []
+	for (let i = 0; i < cardIds.length; i += CARDS_INFO_BATCH_SIZE) {
+		const batch = await AnkiConnect.invoke<AnkiCardInfo[]>('cardsInfo', {
+			cards: cardIds.slice(i, i + CARDS_INFO_BATCH_SIZE)
+		})
+		infos.push(...batch)
+	}
+	return infos
+}
+
+/**
  * Read-only preview of what a real scan would do. Queries Anki state
  * (notesInfo + cardsInfo) but never dispatches mutations and never touches
  * the vault, so it is safe to run for inspection by humans and CLI agents.
@@ -67,7 +97,7 @@ export async function collectDryRunState(
 			}
 		}
 	}
-	const noteInfos = editIds.length ? await AnkiConnect.invoke<AnkiNoteInfo[]>('notesInfo', { notes: editIds }) : []
+	const noteInfos = editIds.length ? await fetchNotesInfo(editIds) : []
 	const infoById = new Map<number, AnkiNoteInfo>()
 	for (const info of noteInfos) {
 		if (info) {
@@ -77,9 +107,7 @@ export async function collectDryRunState(
 
 	const cardIds = noteInfos.flatMap((info) => info?.cards ?? [])
 	const uniqueCardIds = [...new Set(cardIds)]
-	const cardInfos = uniqueCardIds.length
-		? await AnkiConnect.invoke<AnkiCardInfo[]>('cardsInfo', { cards: uniqueCardIds })
-		: []
+	const cardInfos = uniqueCardIds.length ? await fetchCardsInfo(uniqueCardIds) : []
 	const deckByCardId = new Map<number, string>()
 	for (const card of cardInfos) {
 		if (card) {
@@ -159,13 +187,21 @@ function isModelMismatch(local: AnkiConnectNote, anki: AnkiNoteInfo): boolean {
 	return Boolean(local.modelName && anki.modelName && local.modelName !== anki.modelName)
 }
 
+function normalizeText(value: string): string {
+	// Anki normalizes to NFC server-side; macOS checkouts often yield NFD.
+	// Comparing without normalizing reports phantom updates for identical
+	// text (Yanki areFieldsEqual/areTagsEqual pattern, scoped to equality —
+	// the real scan still writes submitted strings verbatim).
+	return value.normalize('NFC')
+}
+
 function normalizeTags(tags: string[]): string[] {
-	return [...new Set(tags.filter((tag) => tag.length > 0))].sort()
+	return [...new Set(tags.filter((tag) => tag.length > 0).map(normalizeText))].sort()
 }
 
 function isContentMismatch(local: AnkiConnectNote, anki: AnkiNoteInfo): boolean {
 	for (const field of Object.keys(local.fields)) {
-		if ((anki.fields[field]?.value ?? '') !== local.fields[field]) {
+		if (normalizeText(anki.fields[field]?.value ?? '') !== normalizeText(local.fields[field])) {
 			return true
 		}
 	}

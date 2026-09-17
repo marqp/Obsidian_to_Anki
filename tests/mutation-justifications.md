@@ -72,6 +72,8 @@ scratch copy, run only the suspect file, confirm red, restore):
   L177 tag-compare → `false` (old exact-diff test id 13), L185/L188 deck
   comparison (deck-move test), and `src/anki.ts` L97 FetchTransport
   `if (data.error)` both directions (success + error tests exist).
+- `src/dry-run.ts` preflight loop bounds (`<` → `<=`): killed, not missed —
+  the exact-boundary test (256 ids → exactly 1 call) fails by hand.
 - Protocol: before "fixing" any survivor below, hand-verify first — a red
   run means the test already exists and only the attribution is missing.
 

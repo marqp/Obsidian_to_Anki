@@ -116,6 +116,49 @@ describe('collectDryRunState: exact diff', () => {
 		}
 	})
 
+	it('treats NFC/NFD-equivalent text as identical but keeps case significant', async () => {
+		const { setTransport } = await import('../../src/anki')
+		const invokeMock = vi.fn(async (action: string) => {
+			if (action === 'notesInfo') {
+				return [
+					{
+						// NFC form server-side; local note carries NFD below.
+						noteId: 41,
+						modelName: 'Basic',
+						tags: ['café'],
+						fields: { Front: { order: 0, value: 'café' } },
+						cards: []
+					},
+					{
+						// Same letters, different case: still a real diff.
+						noteId: 42,
+						modelName: 'Basic',
+						tags: ['keep'],
+						fields: { Front: { order: 0, value: 'keep' } },
+						cards: []
+					}
+				]
+			}
+			throw new Error(`unexpected action in dry-run: ${action}`)
+		})
+		setTransport({ invoke: invokeMock })
+		const files = createManagerFiles(
+			createParsedSettings(),
+			[
+				// NFD 'e' + combining acute: NFC-equal to the Anki side.
+				{ id: 41, fields: { Front: 'cafe\u0301' }, tags: ['cafe\u0301'] },
+				{ id: 42, fields: { Front: 'Keep' }, tags: ['keep'] }
+			],
+			[]
+		)
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+
+		expect(summary.wouldUpdate).toBe(1)
+		expect(summary.changes.filter((c) => c.kind === 'update').map((c) => c.noteId)).toEqual([42])
+		expect(invokeMock.mock.calls.map((call) => call[0])).toEqual(['notesInfo'])
+	})
+
 	it('detects deck moves via cardsInfo and converts via model mismatch', async () => {
 		const { setTransport } = await import('../../src/anki')
 		const invokeMock = vi.fn(async (action: string) => {
@@ -285,6 +328,115 @@ describe('collectDryRunState: exact diff', () => {
 		const summary = await collectDryRunState([], { hasNoteTypeChanges: false, orphanNoteIds: [402] })
 
 		expect(summary.changes).toEqual([{ kind: 'delete', file: '', noteId: 402 }])
+	})
+
+	it('chunks notesInfo into bounded batches with identical results', async () => {
+		const { setTransport } = await import('../../src/anki')
+		const seen: number[][] = []
+		const invokeMock = vi.fn(async (action: string, params: { notes?: number[] }) => {
+			if (action === 'notesInfo') {
+				seen.push(params.notes ?? [])
+				return (params.notes ?? []).map((id) => ({
+					noteId: id,
+					modelName: 'Basic',
+					tags: [],
+					fields: {},
+					cards: []
+				}))
+			}
+			throw new Error(`unexpected action in dry-run: ${action}`)
+		})
+		setTransport({ invoke: invokeMock })
+		const edits = Array.from({ length: 600 }, (_, i) => ({ id: 1000 + i, fields: {}, tags: [] as string[] }))
+		const files = createManagerFiles(createParsedSettings(), edits, [])
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+
+		expect(seen).toHaveLength(3)
+		expect(seen[0]).toHaveLength(256)
+		expect(seen[1]).toHaveLength(256)
+		expect(seen[2]).toHaveLength(88)
+		expect(seen[0][0]).toBe(1000)
+		expect(seen[2][87]).toBe(1599)
+		expect(summary.wouldUpdate).toBe(0)
+		expect(invokeMock.mock.calls.map((call) => call[0])).toEqual(['notesInfo', 'notesInfo', 'notesInfo'])
+	})
+
+	it('stops exactly at batch boundaries (no trailing empty batch)', async () => {
+		const { setTransport } = await import('../../src/anki')
+		const seenNotes: number[][] = []
+		const seenCards: number[][] = []
+		const invokeMock = vi.fn(async (action: string, params: { notes?: number[]; cards?: number[] }) => {
+			if (action === 'notesInfo') {
+				seenNotes.push(params.notes ?? [])
+				return (params.notes ?? []).map((id) => ({
+					noteId: id,
+					modelName: 'Basic',
+					tags: [],
+					fields: {},
+					cards: [91000 + (id - 2000) * 3, 91001 + (id - 2000) * 3, 91002 + (id - 2000) * 3]
+				}))
+			}
+			if (action === 'cardsInfo') {
+				seenCards.push(params.cards ?? [])
+				return (params.cards ?? []).map((cardId) => ({ cardId, deck: 'Default' }))
+			}
+			throw new Error(`unexpected action in dry-run: ${action}`)
+		})
+		setTransport({ invoke: invokeMock })
+		// Exactly one full notes batch (256); 256 x 3 cards spill cardsInfo
+		// into two batches (512 + 256). File targets stay undefined for the
+		// synthetic card ids, so the deck check skips them.
+		const edits = Array.from({ length: 256 }, (_, i) => ({ id: 2000 + i, fields: {}, tags: [] as string[] }))
+		const files = createManagerFiles(createParsedSettings(), edits, [])
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+
+		expect(seenNotes).toHaveLength(1)
+		expect(seenNotes[0]).toHaveLength(256)
+		expect(seenCards).toHaveLength(2)
+		expect(seenCards[0]).toHaveLength(512)
+		expect(seenCards[1]).toHaveLength(256)
+		expect(summary.wouldUpdate).toBe(0)
+	})
+
+	it('chunks cardsInfo into bounded batches', async () => {
+		const { setTransport } = await import('../../src/anki')
+		const seen: number[][] = []
+		const invokeMock = vi.fn(async (action: string, params: { notes?: number[]; cards?: number[] }) => {
+			if (action === 'notesInfo') {
+				return [
+					{
+						noteId: 51,
+						modelName: 'Basic',
+						tags: [],
+						fields: {},
+						cards: Array.from({ length: 600 }, (_, i) => 7000 + i)
+					}
+				]
+			}
+			if (action === 'cardsInfo') {
+				seen.push(params.cards ?? [])
+				return (params.cards ?? []).map((cardId) => ({ cardId, deck: 'Default' }))
+			}
+			throw new Error(`unexpected action in dry-run: ${action}`)
+		})
+		setTransport({ invoke: invokeMock })
+		const files = createManagerFiles(
+			createParsedSettings(),
+			[{ id: 51, fields: {}, tags: [], cardIds: Array.from({ length: 600 }, (_, i) => 7000 + i) }],
+			[]
+		)
+		// The helper bypasses setup_target_deck (class default ''); align the
+		// file target so only chunking — not deck routing — is under test.
+		files[0].target_deck = 'Default'
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+
+		expect(seen).toHaveLength(2)
+		expect(seen[0]).toHaveLength(512)
+		expect(seen[1]).toHaveLength(88)
+		expect(summary.wouldUpdate).toBe(0)
 	})
 })
 
