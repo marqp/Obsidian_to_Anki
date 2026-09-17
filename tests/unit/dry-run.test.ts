@@ -330,7 +330,8 @@ describe('collectDryRunState: exact diff', () => {
 		expect(summary.changes).toEqual([{ kind: 'delete', file: '', noteId: 402 }])
 	})
 
-	it('chunks notesInfo into bounded batches with identical results', async () => {		const { setTransport } = await import('../../src/anki')
+	it('chunks notesInfo into bounded batches with identical results', async () => {
+		const { setTransport } = await import('../../src/anki')
 		const seen: number[][] = []
 		const invokeMock = vi.fn(async (action: string, params: { notes?: number[] }) => {
 			if (action === 'notesInfo') {
