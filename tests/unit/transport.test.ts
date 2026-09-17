@@ -102,7 +102,9 @@ describe('Transport: AnkiTransport & AnkiConnectError', () => {
 
 describe('Transport hardening: timeout + response shape', () => {
 	it('withRequestTimeout passes fast responses through untouched', async () => {
+		const clearSpy = vi.spyOn(globalThis, 'clearTimeout')
 		await expect(withRequestTimeout(Promise.resolve(5), 'sync', 1000)).resolves.toBe(5)
+		expect(clearSpy).toHaveBeenCalledTimes(1)
 	})
 
 	it('withRequestTimeout rejects a hung request with the action name', async () => {

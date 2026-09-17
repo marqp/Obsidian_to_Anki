@@ -326,6 +326,20 @@ describe('collectDryRunState: exact diff', () => {
 			if (action === 'notesInfo') {
 				return [
 					{
+						noteId: 62,
+						modelName: 'Basic',
+						tags: [],
+						fields: { Front: { order: 0, value: 'w' } },
+						cards: [201]
+					},
+					{
+						noteId: 64,
+						modelName: 'Basic',
+						tags: [],
+						fields: { Front: { order: 0, value: 'v' } },
+						cards: [401]
+					},
+					{
 						noteId: 61,
 						modelName: 'Basic',
 						tags: [],
@@ -333,19 +347,20 @@ describe('collectDryRunState: exact diff', () => {
 						cards: [101, 102]
 					},
 					{
-						noteId: 62,
+						noteId: 63,
 						modelName: 'Basic',
 						tags: [],
-						fields: { Front: { order: 0, value: 'w' } },
-						cards: [201]
+						fields: { Front: { order: 0, value: 'z' } },
+						cards: [301]
 					}
 				]
 			}
 			if (action === 'cardsInfo') {
 				return [
+					{ cardId: 201, deck: 'B', type: 2 },
+					{ cardId: 401, deck: 'C', type: 0 },
 					{ cardId: 101, deck: 'A', type: 0 },
-					{ cardId: 102, deck: 'A', type: 2 },
-					{ cardId: 201, deck: 'B' }
+					{ cardId: 102, deck: 'A', type: 2 }
 				]
 			}
 			throw new Error(`unexpected action in dry-run: ${action}`)
@@ -354,8 +369,11 @@ describe('collectDryRunState: exact diff', () => {
 		const files = createManagerFiles(
 			createParsedSettings(),
 			[
+				{ id: 62, fields: { Front: 'w' }, tags: [], deck: 'B', cardIds: [201] },
+				{ id: 64, fields: { Front: 'v' }, tags: [], deck: 'C', cardIds: [401] },
 				{ id: 61, fields: { Front: 'q' }, tags: [], deck: 'A', cardIds: [101, 102] },
-				{ id: 62, fields: { Front: 'w' }, tags: [], deck: 'B', cardIds: [201] }
+				// Card 301 never comes back from cardsInfo: skipped, never counted.
+				{ id: 63, fields: { Front: 'z' }, tags: [], deck: 'C', cardIds: [301] }
 			],
 			[]
 		)
@@ -366,7 +384,8 @@ describe('collectDryRunState: exact diff', () => {
 		expect(summary.wouldUpdate).toBe(0)
 		expect(summary.decks).toEqual([
 			{ deck: 'A', cards: 2, new: 1 },
-			{ deck: 'B', cards: 1, new: 0 }
+			{ deck: 'B', cards: 1, new: 0 },
+			{ deck: 'C', cards: 1, new: 1 }
 		])
 	})
 
