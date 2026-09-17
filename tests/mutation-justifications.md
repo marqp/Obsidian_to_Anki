@@ -182,13 +182,19 @@ removed (kills L46/L50); `FROZEN`/`DELETE` lines must not match without `m`
 
 ### src/note.ts NoCoverage
 
-- L101 `'<br>'` separator: needs an explicit context-append test asserting
-  the separator itself (current tests cover the path, not the literal).
+- L101 `'<br>'` separator: pinned by the context-append test in
+  `note.test.ts` (asserts the literal `A<br>Some context`).
 - L340/L341 `this.match.pop() ?? ''` fallbacks (new in PR-10, replacing the
   `!` assertions): unreachable under the `search()` flag contract (the group
   exists when the flag is on), so no test can distinguish the fallback;
   `parseInt('') -> NaN` is the pinned equivalent. Keep as defensive code.
-- L362 `url = ''` default: call `parse()` without the url argument once.
+- L362 `url = ''` default: pinned by calling `parse` without the url
+  argument and asserting no `obsidian://` link is injected.
+- `delete` field (was L149) and its write removed: write-only, no readers
+  in `src/`, `main.ts` or tests. Removed with full suite green.
+- `InlineNote.getSplitText` kept with an unused-contract comment: `getFields`
+  re-splits `this.text` itself, but the abstract method requires the
+  override for `Note`'s load-bearing one to typecheck.
 
 ## Out of scope for this log
 

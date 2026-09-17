@@ -151,4 +151,41 @@ describe('settingToData configuration parser', () => {
 		const deleteText = 'DELETE\n<!--ID: 1234567890123-->'
 		expect(deleteText.match(result.EMPTY_REGEXP)).toBeTruthy()
 	})
+
+	it('anchors TARGET DECK and FILE TAGS to line starts', async () => {
+		vi.spyOn(AnkiConnect, 'invoke').mockResolvedValueOnce([])
+
+		const result = await settingToData(mockApp, createMockSettings(), {})
+
+		expect('prefix TARGET DECK: X'.match(result.DECK_REGEXP)).toBeNull()
+		expect('prefix FILE TAGS: a'.match(result.TAG_REGEXP)).toBeNull()
+		// The NOTE pattern is multiline-anchored; a mid-line START is ignored.
+		expect('prefix START\nBasic\nFront: Q\nBack: A\nEND'.match(result.NOTE_REGEXP)).toBeNull()
+	})
+
+	it('pins the multiline flags on the anchored patterns', async () => {
+		vi.spyOn(AnkiConnect, 'invoke').mockResolvedValueOnce([])
+
+		const result = await settingToData(mockApp, createMockSettings(), {})
+
+		expect(result.NOTE_REGEXP.multiline).toBe(true)
+		expect(result.DECK_REGEXP.multiline).toBe(true)
+		expect(result.TAG_REGEXP.multiline).toBe(true)
+		// FROZEN/DELETE have no ^ anchor by construction; their multiline
+		// use is via explicit \n in the pattern, not the flag.
+		expect(result.FROZEN_REGEXP.multiline).toBe(false)
+		expect(result.EMPTY_REGEXP.multiline).toBe(false)
+	})
+
+	it('breaks NOTE matching when the Begin token is empty', async () => {
+		vi.spyOn(AnkiConnect, 'invoke').mockResolvedValueOnce([])
+
+		const settings = createMockSettings()
+		settings.Syntax['Begin Note'] = ''
+		const result = await settingToData(mockApp, settings, {})
+
+		// An empty Begin token anchors on a bare newline + capture, so a
+		// well-formed block no longer matches as a note.
+		expect('START\nBasic\nFront: Q\nBack: A\nEND'.match(result.NOTE_REGEXP)).toBeNull()
+	})
 })

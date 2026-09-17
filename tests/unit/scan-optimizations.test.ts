@@ -2,7 +2,13 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import { Md5 } from 'ts-md5'
 import type { ParsedSettings } from '../../src/interfaces/settings-interface'
-import { createFileData, getFileContentHash, isFileUnchanged } from '../../src/scan-optimizations'
+import {
+	createFileData,
+	getFileContentHash,
+	getStoredHash,
+	isFileUnchanged,
+	isStatUnchanged
+} from '../../src/scan-optimizations'
 
 function createParsedSettings(existingIdCount = 3): ParsedSettings {
 	return {
@@ -52,6 +58,46 @@ test('hash cache skips only identical file contents', () => {
 	assert.equal(isFileUnchanged('note.md', content, { 'note.md': hash }), true)
 	assert.equal(isFileUnchanged('note.md', `${content}\nchanged`, { 'note.md': hash }), false)
 	assert.equal(isFileUnchanged('new.md', content, { 'note.md': hash }), false)
+})
+
+test('getStoredHash reads legacy string entries and object hashes', () => {
+	const content = 'START\nBasic\nFront: q\nBack: a\nEND'
+	const hash = getFileContentHash(content)
+
+	assert.equal(getStoredHash(undefined), undefined)
+	assert.equal(getStoredHash('legacy-string-hash'), 'legacy-string-hash')
+	assert.equal(getStoredHash({ hash }), hash)
+})
+
+test('isFileUnchanged treats legacy string entries as plain hashes', () => {
+	const content = 'START\nBasic\nFront: q\nBack: a\nEND'
+	const hash = getFileContentHash(content)
+
+	assert.equal(isFileUnchanged('note.md', content, { 'note.md': hash }), true)
+	assert.equal(isFileUnchanged('note.md', `${content}\nchanged`, { 'note.md': hash }), false)
+})
+
+test('isStatUnchanged requires matching mtime and size on object entries', () => {
+	const content = 'START\nBasic\nFront: q\nBack: a\nEND'
+	const hash = getFileContentHash(content)
+
+	assert.equal(isStatUnchanged({ mtime: 200, size: 100 }, { hash, mtime: 200, size: 100 }), true)
+	assert.equal(isStatUnchanged({ mtime: 201, size: 100 }, { hash, mtime: 200, size: 100 }), false)
+	assert.equal(isStatUnchanged({ mtime: 200, size: 101 }, { hash, mtime: 200, size: 100 }), false)
+	// Legacy string entries carry no stat shape: never a stat hit.
+	assert.equal(isStatUnchanged({ mtime: 200, size: 100 }, hash), false)
+	assert.equal(isStatUnchanged(undefined, { hash, mtime: 200, size: 100 }), false)
+})
+
+test('createFileData copies template fields instead of sharing them', () => {
+	const parsedSettings = createParsedSettings(3)
+	parsedSettings.template.fields = { Front: 'q' }
+	const fileData = createFileData(parsedSettings, 'Default', ['review'])
+
+	assert.deepEqual(fileData.template.fields, { Front: 'q' })
+	assert.notStrictEqual(fileData.template.fields, parsedSettings.template.fields)
+	fileData.template.fields['Front'] = 'mutated'
+	assert.equal(parsedSettings.template.fields['Front'], 'q')
 })
 
 test('per-file data shares large read-only collections', () => {
