@@ -79,6 +79,23 @@ scratch copy, run only the suspect file, confirm red, restore):
 
 ### Equivalent mutants (unobservable, keep)
 
+- `src/file.ts` `search()` no-ID path `onUnknownId`/`onEdit: () => undefined`
+  + `if (!consumed) pop`: `search_id == false` forces `identifier == null`,
+  so `resolveParsed` always takes the first branch and returns `true`. No
+  test can reach them without breaking the `RegexNote(id=false→null)`
+  contract (comment at `file.ts:557-559` is correct).
+- `src/file.ts` `search()` ID path `onNew: warnUnknownId`: `search_id == true`
+  implies an ID capture is present, so `parseInt` yields `number|NaN`, never
+  `null` (`NaN != null` routes to the unknown path, not `onNew`).
+- `src/file.ts` `match.index ?? 0` (search `matchPos`), `tagPos ?? 0`,
+  `deckPos ?? 0`: `matchAll`/`match` success always sets `index` — same
+  class as the accepted `note.ts:293 result.index ?? 0`.
+- `src/format.ts` `cloze_repl` `== undefined` vs `===`: equivalent, the
+  `String.replace` callback never yields `null`.
+- `src/files-manager.ts` `orphanFileById` first disjunct (`typeof === string`):
+  equivalent — indexing a string yields `undefined`, so the `!Array.isArray`
+  second disjunct continues anyway. Kept for readability.
+
 - `src/dry-run-view.ts` L43 group-sort comparator (`<`→`<=`, `>`→`>=`,
   `>`→`<=`): group keys are map keys, hence always distinct — the variants
   preserve strict weak ordering on distinct strings. Ordering itself is
