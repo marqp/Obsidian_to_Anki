@@ -328,6 +328,77 @@ describe('collectDryRunState: exact diff', () => {
 
 		expect(summary.changes).toEqual([{ kind: 'delete', file: '', noteId: 402 }])
 	})
+
+	it('chunks notesInfo into bounded batches with identical results', async () => {
+		const { setTransport } = await import('../../src/anki')
+		const seen: number[][] = []
+		const invokeMock = vi.fn(async (action: string, params: { notes?: number[] }) => {
+			if (action === 'notesInfo') {
+				seen.push(params.notes ?? [])
+				return (params.notes ?? []).map((id) => ({
+					noteId: id,
+					modelName: 'Basic',
+					tags: [],
+					fields: {},
+					cards: []
+				}))
+			}
+			throw new Error(`unexpected action in dry-run: ${action}`)
+		})
+		setTransport({ invoke: invokeMock })
+		const edits = Array.from({ length: 600 }, (_, i) => ({ id: 1000 + i, fields: {}, tags: [] as string[] }))
+		const files = createManagerFiles(createParsedSettings(), edits, [])
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+
+		expect(seen).toHaveLength(3)
+		expect(seen[0]).toHaveLength(256)
+		expect(seen[1]).toHaveLength(256)
+		expect(seen[2]).toHaveLength(88)
+		expect(seen[0][0]).toBe(1000)
+		expect(seen[2][87]).toBe(1599)
+		expect(summary.wouldUpdate).toBe(0)
+		expect(invokeMock.mock.calls.map((call) => call[0])).toEqual(['notesInfo', 'notesInfo', 'notesInfo'])
+	})
+
+	it('chunks cardsInfo into bounded batches', async () => {
+		const { setTransport } = await import('../../src/anki')
+		const seen: number[][] = []
+		const invokeMock = vi.fn(async (action: string, params: { notes?: number[]; cards?: number[] }) => {
+			if (action === 'notesInfo') {
+				return [
+					{
+						noteId: 51,
+						modelName: 'Basic',
+						tags: [],
+						fields: {},
+						cards: Array.from({ length: 600 }, (_, i) => 7000 + i)
+					}
+				]
+			}
+			if (action === 'cardsInfo') {
+				seen.push(params.cards ?? [])
+				return (params.cards ?? []).map((cardId) => ({ cardId, deck: 'Default' }))
+			}
+			throw new Error(`unexpected action in dry-run: ${action}`)
+		})
+		setTransport({ invoke: invokeMock })
+		const files = createManagerFiles(
+			createParsedSettings(),
+			[{ id: 51, fields: {}, tags: [], cardIds: Array.from({ length: 600 }, (_, i) => 7000 + i) }],
+			[]
+		)
+		// The helper bypasses setup_target_deck (class default ''); align the
+		// file target so only chunking — not deck routing — is under test.
+		files[0].target_deck = 'Default'
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+
+		expect(seen).toHaveLength(2)
+		expect(seen[0]).toHaveLength(512)
+		expect(seen[1]).toHaveLength(88)
+		expect(summary.wouldUpdate).toBe(0)
+	})
 })
 
 describe('formatDryRunSummary', () => {
