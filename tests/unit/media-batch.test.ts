@@ -115,6 +115,18 @@ describe('requests_1 media batch', () => {
 		expect(manager.added_media_set.has('snd.mp3')).toBe(true)
 	})
 
+	it('attributes a stray result with no matching upload to an empty file', async () => {
+		const { manager } = mediaManager([{ path: 'a.md', media: ['img.png'] }], (link) => locatedFile(link), [
+			{ error: null },
+			{ error: 'stray entry' }
+		])
+		vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+		await manager.requests_1()
+
+		expect(manager.scanIssues).toEqual([{ file: '', kind: 'media', error: 'stray entry' }])
+	})
+
 	it('records unlocatable media as an issue instead of only warning', async () => {
 		const { manager } = mediaManager(
 			[{ path: 'c.md', media: ['img.png', 'ghost.png'] }],

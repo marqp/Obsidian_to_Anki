@@ -95,6 +95,12 @@ scratch copy, run only the suspect file, confirm red, restore):
   guard above implies `cardInfoById` presence — both maps are built in the
   same `cardInfos` loop, so direct access cannot throw. Verified by hand
   (mutant passes the suite).
+- `src/files-manager.ts` `mediaUploads` initializer → junk: `requests_1`
+  reassigns it before every parse, so the initializer value is unobservable.
+- `src/files-manager.ts` media results loop bound (`<` → `<=`): the extra
+  iteration reads `undefined` and the `item &&` guard skips it — equivalent
+  under the guard, which exists for daemons returning ragged entries (the
+  stray-entry test pins the `?? ''` fallback instead).
 - `src/dry-run.ts` deck-sort comparator (`<=`/`>=`/branch variants): deck
   names are map keys, hence distinct — same strict-weak-ordering argument
   as the view comparator above; a 3-deck unsorted fixture pins the order.
