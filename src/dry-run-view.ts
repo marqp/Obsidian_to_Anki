@@ -1,4 +1,4 @@
-import type { DryRunChange, DryRunSummary } from './dry-run'
+import type { DryRunChange, DryRunDeckStat, DryRunSummary } from './dry-run'
 
 /**
  * Pure view-model for the dry-run preview modal (no Obsidian imports, so it
@@ -65,4 +65,11 @@ export function formatChangeLine(change: DryRunChange): string {
  */
 export function isZeroingPlan(summary: DryRunSummary): boolean {
 	return summary.wouldDelete > 0 && summary.wouldAdd === 0 && summary.wouldUpdate === 0 && summary.wouldConvert === 0
+}
+
+/** One ambient line per touched deck: `Default — 12 cards (3 new)`. */
+export function formatDeckLine(stat: DryRunDeckStat): string {
+	const cards = stat.cards === 1 ? '1 card' : `${stat.cards} cards`
+	const fresh = stat.new === 1 ? '1 new' : `${stat.new} new`
+	return `${stat.deck} — ${cards} (${fresh})`
 }

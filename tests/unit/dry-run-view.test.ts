@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { formatChangeLine, groupDryRunChanges, isZeroingPlan, type DryRunGroup } from '../../src/dry-run-view'
+import {
+	formatChangeLine,
+	formatDeckLine,
+	groupDryRunChanges,
+	isZeroingPlan,
+	type DryRunGroup
+} from '../../src/dry-run-view'
 import type { DryRunSummary } from '../../src/dry-run'
 
 function summaryWith(
@@ -13,6 +19,7 @@ function summaryWith(
 		wouldUpdate: 0,
 		wouldDelete: 0,
 		wouldConvert: 0,
+		decks: [],
 		...counts,
 		changes
 	}
@@ -91,5 +98,13 @@ describe('isZeroingPlan', () => {
 		expect(isZeroingPlan(summaryWith([], { wouldDelete: 2, wouldUpdate: 1 }))).toBe(false)
 		expect(isZeroingPlan(summaryWith([], { wouldDelete: 2, wouldConvert: 1 }))).toBe(false)
 		expect(isZeroingPlan(summaryWith([]))).toBe(false)
+	})
+})
+
+describe('formatDeckLine', () => {
+	it('renders singular and plural card counts', () => {
+		expect(formatDeckLine({ deck: 'Default', cards: 1, new: 1 })).toBe('Default — 1 card (1 new)')
+		expect(formatDeckLine({ deck: 'Med', cards: 12, new: 3 })).toBe('Med — 12 cards (3 new)')
+		expect(formatDeckLine({ deck: 'Med', cards: 12, new: 0 })).toBe('Med — 12 cards (0 new)')
 	})
 })
