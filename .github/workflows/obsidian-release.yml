@@ -23,7 +23,7 @@ jobs:
         with:
           fetch-depth: 0 # otherwise, you will failed to push refs to dest repo
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 11.21.0
       - name: Use Node.js
