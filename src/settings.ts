@@ -352,16 +352,7 @@ export class SettingsTab extends PluginSettingTab {
 							.onChange(async (value) => {
 								plugin.settings['Defaults'][key] = value
 								plugin.scheduleSave()
-								if (plugin.hasOwnProperty('schedule_id')) {
-									window.clearInterval(plugin.schedule_id)
-								}
-								if (value != 0) {
-									plugin.schedule_id = window.setInterval(
-										async () => await plugin.scanVault(),
-										value * 1000 * 60
-									)
-									plugin.registerInterval(plugin.schedule_id)
-								}
+								plugin.startSchedule()
 							})
 					})
 			}

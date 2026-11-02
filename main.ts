@@ -233,6 +233,23 @@ export default class MyPlugin extends Plugin {
 		new DryRunModal(this.app, summary, callbacks).open()
 	}
 
+	/**
+	 * (Re)start the auto-scan timer from the 'Scheduling Interval' default
+	 * (minutes, 0 = off). Called on load and whenever the slider changes;
+	 * registerInterval ensures Obsidian clears it on unload.
+	 */
+	startSchedule(): void {
+		if (this.schedule_id !== undefined) {
+			window.clearInterval(this.schedule_id)
+			this.schedule_id = undefined
+		}
+		const minutes = this.settings.Defaults['Scheduling Interval']
+		if (minutes > 0) {
+			this.schedule_id = window.setInterval(() => void this.scanVault(), minutes * 60 * 1000)
+			this.registerInterval(this.schedule_id)
+		}
+	}
+
 	async onload() {
 		console.log('loading Obsidian_to_Anki...')
 		addIcon('anki', ANKI_ICON)
@@ -271,6 +288,7 @@ export default class MyPlugin extends Plugin {
 		this.syncTransportKey()
 
 		this.addSettingTab(new SettingsTab(this.app, this))
+		this.startSchedule()
 
 		const orchestrator = this.scanOrchestrator()
 
