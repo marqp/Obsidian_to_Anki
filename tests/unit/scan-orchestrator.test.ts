@@ -4,6 +4,7 @@ import * as AnkiConnect from '../../src/anki'
 import {
 	ScanOrchestrator,
 	createScanEnvironment,
+	formatScanIssues,
 	formatScanNotice,
 	getAllTFilesInFolder,
 	type PreviewCallbacks,
@@ -11,7 +12,7 @@ import {
 	type ScanState
 } from '../../src/scan-orchestrator'
 import type { DryRunSummary } from '../../src/dry-run'
-import { ScanCancelledError, type FileManager, type ScanControl } from '../../src/files-manager'
+import { ScanCancelledError, type FileManager, type ScanControl, type ScanIssue } from '../../src/files-manager'
 import type { ParsedSettings, PluginSettings } from '../../src/interfaces/settings-interface'
 import type { FileHashes } from '../../src/scan-optimizations'
 import type { AllFile } from '../../src/file'
@@ -66,6 +67,7 @@ function tfile(path: string): TFile {
 interface FakeManager {
 	files: TFile[]
 	ownFiles: AllFile[]
+	scanIssues: ScanIssue[]
 	added_media_set: Set<string>
 	initialiseFiles: (control?: ScanControl) => Promise<void>
 	requests_1: () => Promise<void>
@@ -96,6 +98,7 @@ function makeHarness(overrides: Partial<ScanEnvironment> = {}, scanDirs: string[
 	const fake: FakeManager = {
 		files: [],
 		ownFiles: [],
+		scanIssues: [],
 		added_media_set: new Set<string>(),
 		initialiseFiles: () => Promise.resolve(),
 		requests_1: () => Promise.resolve(),
@@ -128,6 +131,24 @@ afterEach(() => {
 describe('formatScanNotice', () => {
 	it('matches the human-readable counts format', () => {
 		expect(formatScanNotice(2, 120, 5, 1, 0)).toBe('Scan complete: +5 ~1 -0 (2/120 files)')
+	})
+})
+
+describe('formatScanIssues', () => {
+	it('is null for a clean scan', () => {
+		expect(formatScanIssues([])).toBeNull()
+	})
+
+	it('lists the first few problems and counts the rest', () => {
+		const issues: ScanIssue[] = [
+			{ file: 'a.md', kind: 'add-note', error: 'duplicate' },
+			{ file: '', kind: 'tag-list', error: 'boom' },
+			{ file: 'c.md', kind: 'add-note', error: 'no deck' },
+			{ file: 'd.md', kind: 'add-note', error: 'x' }
+		]
+		expect(formatScanIssues(issues)).toBe(
+			'4 problem(s) during sync:\na.md: duplicate\nbatch: boom\nc.md: no deck\n...and 1 more (see console)'
+		)
 	})
 })
 
@@ -308,6 +329,65 @@ describe('ScanOrchestrator pipeline', () => {
 		).toBe(true)
 		expect(h.notices).toContain('Scan complete: +1 ~1 -0 (1/3 files)')
 		expect(h.committed).toEqual([{ media: [], hashes: { 'a.md': { hash: 'h', mtime: 1, size: 1, noteIds: [] } } }])
+	})
+})
+
+describe('sync summary with failures', () => {
+	it('subtracts rejected adds, appends failed=N to the log line and notifies the problems', async () => {
+		const h = makeHarness()
+		const data: ParsedSettings = createParsedSettings()
+		h.fake.files = [tfile('a.md')]
+		h.fake.ownFiles = createManagerFiles(
+			data,
+			[],
+			[
+				{ deckName: 'Default', modelName: 'Basic' },
+				{ deckName: 'Default', modelName: 'Basic' }
+			]
+		)
+		h.fake.scanIssues = [{ file: 'a.md', kind: 'add-note', error: 'duplicate' }]
+		await h.orchestrator.scanVault()
+		expect(h.infos.some((line) => line.includes('added=1 updated=0 deleted=0 failed=1'))).toBe(true)
+		expect(h.notices).toContain('1 problem(s) during sync:\na.md: duplicate')
+	})
+})
+
+describe('progress UI', () => {
+	it('feeds the env progress control to initialiseFiles and closes it afterwards', async () => {
+		const close = vi.fn()
+		const control: ScanControl = { isCancelled: () => false }
+		const h = makeHarness({ createProgress: () => ({ control, close }) })
+		const seen: ScanControl[] = []
+		h.fake.initialiseFiles = (c) => {
+			seen.push(c ?? {})
+			return Promise.resolve()
+		}
+		await h.orchestrator.scanVault()
+		expect(seen).toEqual([control])
+		expect(close).toHaveBeenCalledTimes(1)
+	})
+
+	it('closes the progress UI and reports cancellation', async () => {
+		const close = vi.fn()
+		const h = makeHarness({ createProgress: () => ({ control: {}, close }) })
+		h.fake.initialiseFiles = () => Promise.reject(new ScanCancelledError())
+		await h.orchestrator.scanVault()
+		expect(close).toHaveBeenCalledTimes(1)
+		expect(h.notices).toContain('Scan cancelled.')
+	})
+
+	it('leaves an explicit caller control alone', async () => {
+		const createProgress = vi.fn()
+		const h = makeHarness({ createProgress })
+		const mine: ScanControl = { onProgress: vi.fn() }
+		const seen: ScanControl[] = []
+		h.fake.initialiseFiles = (c) => {
+			seen.push(c ?? {})
+			return Promise.resolve()
+		}
+		await h.orchestrator.scanVault(undefined, mine)
+		expect(createProgress).not.toHaveBeenCalled()
+		expect(seen).toEqual([mine])
 	})
 })
 

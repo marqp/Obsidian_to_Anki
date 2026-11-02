@@ -10,6 +10,7 @@ import { buildDefaults } from './src/defaults-meta'
 import { ScanOrchestrator, createScanEnvironment, type PreviewCallbacks } from './src/scan-orchestrator'
 import { openNoteInAnki, registerPluginCommands } from './src/commands'
 import { obsidianNoticePort } from './src/notices'
+import { createProgressNotice } from './src/progress-notice'
 import type { DryRunSummary } from './src/dry-run'
 import { DryRunModal } from './src/ui/dry-run-modal'
 import { type ScanControl } from './src/files-manager'
@@ -217,7 +218,8 @@ export default class MyPlugin extends Plugin {
 					{
 						isAutoLaunchEnabled: () => this.isAutoLaunchEnabled(),
 						shouldConfirmSync: () => this.isConfirmBeforeSync(),
-						openPreviewModal: (summary, callbacks) => this.openPreviewModal(summary, callbacks)
+						openPreviewModal: (summary, callbacks) => this.openPreviewModal(summary, callbacks),
+						createProgress: () => createProgressNotice()
 					}
 				)
 			)

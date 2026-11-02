@@ -1,9 +1,10 @@
 import { App, TFile, TFolder } from 'obsidian'
 import { settingToData } from './setting-to-data'
-import { FileManager, ScanCancelledError, type ScanControl } from './files-manager'
+import { FileManager, ScanCancelledError, type ScanControl, type ScanIssue } from './files-manager'
 import { collectDryRunState, formatDryRunSummary, type DryRunSummary } from './dry-run'
 import { launchAnki, probeAnkiStatus, type AnkiProbe, type LaunchOutcome } from './anki-launch'
 import { obsidianNoticePort, type NoticePort } from './notices'
+import type { ScanProgressHandle } from './progress-notice'
 import type { ParsedSettings, PluginSettings } from './interfaces/settings-interface'
 import type { FileHashes } from './scan-optimizations'
 
@@ -51,6 +52,8 @@ export interface ScanEnvironment {
 	shouldConfirmSync: () => boolean
 	/** Interactive preview opener; unset keeps the legacy notice preview. */
 	openPreviewModal?: (summary: DryRunSummary, callbacks: PreviewCallbacks) => void
+	/** Progress/cancel UI; unset (tests, headless) scans without one. */
+	createProgress?: () => ScanProgressHandle
 }
 
 /** Production environment; loadState/commitScanResults stay plugin-owned. */
@@ -61,6 +64,7 @@ export function createScanEnvironment(
 		isAutoLaunchEnabled(): boolean
 		shouldConfirmSync(): boolean
 		openPreviewModal?: (summary: DryRunSummary, callbacks: PreviewCallbacks) => void
+		createProgress?: () => ScanProgressHandle
 	}
 ): ScanEnvironment {
 	return {
@@ -72,6 +76,7 @@ export function createScanEnvironment(
 		isAutoLaunchEnabled: options.isAutoLaunchEnabled,
 		shouldConfirmSync: options.shouldConfirmSync,
 		openPreviewModal: options.openPreviewModal,
+		createProgress: options.createProgress,
 		launchAnki: (enabled) => launchAnki(enabled),
 		toData: (appArg, settings, fieldsDict) => settingToData(appArg, settings, fieldsDict),
 		createManager: (appArg, data, files, hashes, media) => new FileManager(appArg, data, files, hashes, media)
@@ -90,6 +95,19 @@ export function formatScanNotice(
 	deleted: number
 ): string {
 	return `Scan complete: +${added} ~${updated} -${deleted} (${changed}/${total} files)`
+}
+
+/**
+ * One line per problem for the end-of-scan Notice (first few only; the full
+ * list is in the console). Returns null when the scan was clean.
+ */
+export function formatScanIssues(issues: ScanIssue[], maxShown = 3): string | null {
+	if (issues.length === 0) {
+		return null
+	}
+	const lines = issues.slice(0, maxShown).map((i) => `${i.file || 'batch'}: ${i.error}`)
+	const more = issues.length > maxShown ? `\n...and ${issues.length - maxShown} more (see console)` : ''
+	return `${issues.length} problem(s) during sync:\n${lines.join('\n')}${more}`
 }
 
 /**
@@ -166,8 +184,9 @@ export class ScanOrchestrator {
 			return
 		}
 		const { manager, totalFiles } = await this.prepareManager(file)
+		const progress = this.startProgress(control)
 		try {
-			await manager.initialiseFiles(control)
+			await manager.initialiseFiles(progress.control)
 		} catch (error) {
 			if (error instanceof ScanCancelledError) {
 				console.info('[Obsidian_to_Anki] scan cancelled by user.')
@@ -175,6 +194,8 @@ export class ScanOrchestrator {
 				return
 			}
 			throw error
+		} finally {
+			progress.close()
 		}
 		if (manager.ownFiles.length === 0) {
 			this.env.notices.notify('No changed files found. Nothing to sync.')
@@ -198,7 +219,12 @@ export class ScanOrchestrator {
 			return { status: 'aborted' }
 		}
 		const { manager, totalFiles } = await this.prepareManager(file)
-		await manager.initialiseFiles(control)
+		const progress = this.startProgress(control)
+		try {
+			await manager.initialiseFiles(progress.control)
+		} finally {
+			progress.close()
+		}
 		if (manager.ownFiles.length === 0) {
 			return { status: 'empty' }
 		}
@@ -276,6 +302,14 @@ export class ScanOrchestrator {
 		})
 	}
 
+	/** Caller-supplied control wins; otherwise the env's progress UI (if any). */
+	private startProgress(control: ScanControl): ScanProgressHandle {
+		if (control.onProgress || control.isCancelled || !this.env.createProgress) {
+			return { control, close: () => undefined }
+		}
+		return this.env.createProgress()
+	}
+
 	/** Probe + file discovery shared by the sync and preview paths. */
 	private async checkConnection(dryRun: boolean): Promise<boolean> {
 		const { notices } = this.env
@@ -338,13 +372,21 @@ export class ScanOrchestrator {
 		// [Obsidian_to_Anki] scan complete: files_changed=2/120 added=5 updated=1 deleted=0
 		// NOTE: totalFiles is captured before initialiseFiles narrows
 		// manager.files down to the changed files — do not recompute it here.
-		const added = manager.ownFiles.reduce((n, f) => n + f.all_notes_to_add.length, 0)
+		const issues = manager.scanIssues
+		// Planned adds minus the ones AnkiConnect rejected; updates/deletes are
+		// batched without per-item results, so those stay planned counts.
+		const failedAdds = issues.filter((i) => i.kind === 'add-note').length
+		const added = manager.ownFiles.reduce((n, f) => n + f.all_notes_to_add.length, 0) - failedAdds
 		const updated = manager.ownFiles.reduce((n, f) => n + f.notes_to_edit.length, 0)
 		const deleted = manager.ownFiles.reduce((n, f) => n + f.notes_to_delete.length, 0)
 		console.info(
-			`[Obsidian_to_Anki] scan complete: files_changed=${manager.ownFiles.length}/${totalFiles} added=${added} updated=${updated} deleted=${deleted}`
+			`[Obsidian_to_Anki] scan complete: files_changed=${manager.ownFiles.length}/${totalFiles} added=${added} updated=${updated} deleted=${deleted}${issues.length > 0 ? ` failed=${issues.length}` : ''}`
 		)
 		this.env.notices.notify(formatScanNotice(manager.ownFiles.length, totalFiles, added, updated, deleted))
+		const issuesNotice = formatScanIssues(issues)
+		if (issuesNotice !== null) {
+			this.env.notices.notify(issuesNotice)
+		}
 		this.env.commitScanResults(Array.from(manager.added_media_set), manager.getHashes())
 	}
 

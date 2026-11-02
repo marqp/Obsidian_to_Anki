@@ -5,9 +5,13 @@ export function clearNotices(): void {
 }
 
 export class Notice {
-	constructor(public message: string) {
-		createdNotices.push(message)
+	constructor(
+		public message: string | DocumentFragment,
+		public timeout?: number
+	) {
+		createdNotices.push(typeof message === 'string' ? message : '[fragment]')
 	}
+	hide(): void {}
 }
 
 export class TAbstractFile {
