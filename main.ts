@@ -11,6 +11,7 @@ import { ScanOrchestrator, createScanEnvironment, type PreviewCallbacks } from '
 import { openNoteInAnki, registerPluginCommands } from './src/commands'
 import { obsidianNoticePort } from './src/notices'
 import { createProgressNotice } from './src/progress-notice'
+import { describeConnectionFailure } from './src/anki-launch'
 import type { DryRunSummary } from './src/dry-run'
 import { DryRunModal } from './src/ui/dry-run-modal'
 import { type ScanControl } from './src/files-manager'
@@ -81,7 +82,10 @@ export default class MyPlugin extends Plugin {
 
 	async loadSettings(snapshot?: StoredPluginData | null): Promise<PluginSettings> {
 		const current_data = snapshot === undefined ? ((await this.loadData()) as StoredPluginData | null) : snapshot
-		if (current_data == null || Object.keys(current_data).length != 4) {
+		// First run only when there are no stored settings at all; a missing
+		// auxiliary key must never wipe the user's settings (the other
+		// loaders default their own sections).
+		if (current_data == null || typeof current_data.settings !== 'object' || current_data.settings === null) {
 			new Notice('Need to connect to Anki generate default settings...')
 			const default_sets = await this.getDefaultSettings()
 			this.saveData({
@@ -131,7 +135,7 @@ export default class MyPlugin extends Plugin {
 			// this.fields_dict; re-fetching here tripled first-run traffic.
 			return this.fields_dict
 		}
-		return current_data.fields_dict
+		return current_data.fields_dict ?? {}
 	}
 
 	async saveAllData(): Promise<void> {
@@ -269,8 +273,9 @@ export default class MyPlugin extends Plugin {
 				snapshot = (await this.loadData()) as StoredPluginData | null
 			}
 			this.fields_dict = await this.loadFieldsDict(snapshot)
-		} catch (_e) {
-			new Notice("Couldn't connect to Anki! Check console for error message.")
+		} catch (e) {
+			console.error('[Obsidian_to_Anki] failed to load plugin data:', e)
+			new Notice(await describeConnectionFailure(), 10000)
 			return
 		}
 
@@ -280,9 +285,12 @@ export default class MyPlugin extends Plugin {
 			try {
 				this.fields_dict = await this.generateFieldsDict()
 				new Notice('Fields dictionary successfully generated!')
-			} catch (_e) {
-				new Notice("Couldn't connect to Anki! Check console for error message.")
-				return
+			} catch (e) {
+				// Non-fatal: settings are loaded, the dictionary is rebuilt
+				// on demand (settings tab) once Anki is reachable. Commands
+				// and the settings tab must still register.
+				console.error('[Obsidian_to_Anki] could not generate fields dictionary:', e)
+				new Notice(await describeConnectionFailure(), 10000)
 			}
 		}
 		this.added_media = await this.loadAddedMedia(snapshot)

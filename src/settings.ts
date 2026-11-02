@@ -1,6 +1,6 @@
 import { PluginSettingTab, Setting, Notice, TFolder, AbstractInputSuggest, type App } from 'obsidian'
 import * as AnkiConnect from './anki'
-import { probeAnkiStatus } from './anki-launch'
+import { describeConnectionFailure, probeAnkiStatus } from './anki-launch'
 import { DEFAULTS_META } from './defaults-meta'
 import type MyPlugin from '../main'
 
@@ -159,7 +159,7 @@ export class SettingsTab extends PluginSettingTab {
 				plugin.fields_dict = await plugin.generateFieldsDict()
 				new Notice('Fields dictionary successfully generated!')
 			} catch (_e) {
-				new Notice("Couldn't connect to Anki! Check console for error message.")
+				new Notice(await describeConnectionFailure())
 				return null
 			}
 		}
@@ -521,7 +521,7 @@ export class SettingsTab extends PluginSettingTab {
 									plugin.fields_dict = await plugin.generateFieldsDict()
 									new Notice('Fields dictionary successfully generated!')
 								} catch (_e) {
-									new Notice("Couldn't connect to Anki! Check console for error message.")
+									new Notice(await describeConnectionFailure())
 									return
 								}
 							}
@@ -529,7 +529,7 @@ export class SettingsTab extends PluginSettingTab {
 							this.setup_display()
 							new Notice('Note types updated!')
 						} catch (_e) {
-							new Notice("Couldn't connect to Anki! Check console for details.")
+							new Notice(await describeConnectionFailure())
 						}
 					})
 			})

@@ -58,6 +58,17 @@ function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => T): Pr
 }
 
 /**
+ * Actionable text for a failed AnkiConnect call: the probe's specific reason
+ * (Anki closed, needs API key, denied origin...) instead of a generic notice.
+ */
+export async function describeConnectionFailure(probe: typeof probeAnkiStatus = probeAnkiStatus): Promise<string> {
+	const result = await probe()
+	return result.status === 'ready'
+		? 'Anki is reachable but the request failed. Check the console for details.'
+		: result.message
+}
+
+/**
  * Classify the AnkiConnect endpoint without side effects. Never throws:
  * every failure mode maps to a status with an actionable message.
  */

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
 	LAUNCH_GRACE_MS,
 	PROBE_TIMEOUT_MS,
+	describeConnectionFailure,
 	launchAnki,
 	probeAnkiStatus,
 	resolveAnkiLaunchTarget,
@@ -160,5 +161,17 @@ describe('launchAnki fail-fast behavior', () => {
 			probe: async () => ({ status: 'closed' as const, message: 'down' })
 		})
 		expect(outcome).toBe('launched-pending')
+	})
+})
+
+describe('describeConnectionFailure', () => {
+	it('surfaces the probe reason when Anki is not usable', async () => {
+		const probe = vi.fn().mockResolvedValue({ status: 'closed', message: 'Anki is not running.' })
+		await expect(describeConnectionFailure(probe)).resolves.toBe('Anki is not running.')
+	})
+
+	it('points at the console when Anki answers but the request still failed', async () => {
+		const probe = vi.fn().mockResolvedValue({ status: 'ready', message: 'ok' })
+		await expect(describeConnectionFailure(probe)).resolves.toContain('Check the console')
 	})
 })
