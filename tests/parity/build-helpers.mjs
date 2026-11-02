@@ -52,7 +52,13 @@ async function main() {
 			'  }',
 			'  const app = { vault: { getName: () => "parity-vault" } };',
 			'  if (customRegexps) { SETTINGS.CUSTOM_REGEXPS = customRegexps; }',
-			'  return settingToData(app, SETTINGS, FIELDS_DICT);',
+			'  const data = await settingToData(app, SETTINGS, FIELDS_DICT);',
+			'  // The fork loads existing note IDs lazily (FileManager does it in a scan);',
+			'  // this harness feeds AllFile directly, so resolve them here. Upstream is eager.',
+			'  if (typeof data.loadExistingIds === "function") {',
+			'    return { ...data, EXISTING_IDS: new Set(await data.loadExistingIds()) };',
+			'  }',
+			'  return data;',
 			'}',
 				''
 			].join('\n')

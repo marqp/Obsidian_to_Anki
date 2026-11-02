@@ -99,6 +99,7 @@ export interface ScanIssue {
 		| 'tag-list'
 		| 'media'
 		| 'media-missing'
+		| 'file-changed'
 	/** The AnkiConnect error message (never the full payload). */
 	error: string
 }
@@ -110,7 +111,8 @@ export interface ScanIssue {
  */
 export interface VaultPort {
 	read(file: TFile): Promise<string>
-	modify(file: TFile, data: string): Promise<void>
+	/** Atomic read-modify-write; `fn` receives the file's current content. */
+	process(file: TFile, fn: (data: string) => string): Promise<string>
 	getCache(path: string): CachedMetadata
 	getFirstLinkpathDest(linkpath: string, sourcePath: string): TFile | null
 	/** Absolute filesystem path for a vault file (desktop adapter only). */
@@ -123,7 +125,7 @@ export interface VaultPort {
 function vaultPortFromApp(app: App): VaultPort {
 	return {
 		read: (file) => app.vault.read(file),
-		modify: (file, data) => app.vault.modify(file, data),
+		process: (file, fn) => app.vault.process(file, fn),
 		getCache: (path) => app.metadataCache.getCache(path) ?? {},
 		getFirstLinkpathDest: (linkpath, sourcePath) => app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath),
 		getFullPath: (path) => (app.vault.adapter as FileSystemAdapter).getFullPath(path)
@@ -320,6 +322,7 @@ export class FileManager {
 			const { obFile, content } = readResults[index]
 
 			if (!isFileUnchanged(obFile.path, content, this.file_hashes)) {
+				await this.ensureExistingIds()
 				const cache: CachedMetadata = this.vault.getCache(obFile.path)
 				const file = new AllFile(
 					content,
@@ -348,6 +351,16 @@ export class FileManager {
 		if (this.orphanNoteIds.length > 0) {
 			console.info(`Notes removed from Markdown will be deleted from Anki: ${this.orphanNoteIds.join(', ')}`)
 		}
+	}
+
+	/** Load the Anki note-ID set once, the first time a changed file needs it. */
+	private async ensureExistingIds(): Promise<void> {
+		const load = this.data.loadExistingIds
+		if (!load) {
+			return
+		}
+		const ids = await load()
+		this.data = { ...this.data, EXISTING_IDS: new Set(ids), loadExistingIds: undefined }
 	}
 
 	private throwIfCancelled(control: ScanControl): void {
@@ -613,7 +626,24 @@ export class FileManager {
 			ownFile.writeIDs()
 			ownFile.removeEmpties()
 			if (ownFile.file !== ownFile.original_file) {
-				await this.vault.modify(obFile, ownFile.file)
+				// process() hands us the file's current text. If the user edited it
+				// while the sync ran, the id offsets no longer apply: keep their
+				// edit and report instead of clobbering it.
+				let conflicted = false
+				await this.vault.process(obFile, (current) => {
+					if (current !== ownFile.original_file) {
+						conflicted = true
+						return current
+					}
+					return ownFile.file
+				})
+				if (conflicted) {
+					this.scanIssues.push({
+						file: ownFile.path,
+						kind: 'file-changed',
+						error: 'File was edited during the sync; note IDs were not written. Re-scan may create duplicate cards.'
+					})
+				}
 			}
 		}
 		if (this.scanIssues.length > 0) {

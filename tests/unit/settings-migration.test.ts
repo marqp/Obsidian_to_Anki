@@ -36,7 +36,10 @@ function modernSettings(overrides: Partial<PluginSettings> = {}): PluginSettings
 			'Delete Removed Notes': true,
 			'Allow Note Type Changes': false,
 			'Auto-launch Anki': false,
-			'Confirm Before Sync': false
+			'Confirm Before Sync': false,
+			'Local API': false,
+			'Local API Port': 27180,
+			'Local API Token': ''
 		},
 		IGNORED_FILE_GLOBS: [...DEFAULT_IGNORED_FILE_GLOBS],
 		...overrides
@@ -50,6 +53,19 @@ describe('migrateSettings', () => {
 
 		expect(result.dirty).toBe(false)
 		expect(result.settings).toBe(settings)
+	})
+
+	it('adds the Local API keys to older settings, disabled and without a token', () => {
+		const settings = modernSettings()
+		delete settings.Defaults['Local API']
+		delete settings.Defaults['Local API Port']
+		delete settings.Defaults['Local API Token']
+		const result = migrateSettings(settings)
+
+		expect(result.dirty).toBe(true)
+		expect(result.settings.Defaults['Local API']).toBe(false)
+		expect(result.settings.Defaults['Local API Port']).toBe(27180)
+		expect(result.settings.Defaults['Local API Token']).toBe('')
 	})
 
 	it('migrates a legacy Scan Directory string and drops the old key', () => {

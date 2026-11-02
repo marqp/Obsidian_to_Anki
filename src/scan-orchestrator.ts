@@ -1,9 +1,10 @@
 import { App, TFile, TFolder } from 'obsidian'
 import { settingToData } from './setting-to-data'
-import { FileManager, ScanCancelledError, type ScanControl } from './files-manager'
+import { FileManager, ScanCancelledError, type ScanControl, type ScanIssue } from './files-manager'
 import { collectDryRunState, formatDryRunSummary, type DryRunSummary } from './dry-run'
 import { launchAnki, probeAnkiStatus, type AnkiProbe, type LaunchOutcome } from './anki-launch'
 import { obsidianNoticePort, type NoticePort } from './notices'
+import type { ScanProgressHandle } from './progress-notice'
 import type { ParsedSettings, PluginSettings } from './interfaces/settings-interface'
 import type { FileHashes } from './scan-optimizations'
 
@@ -30,7 +31,54 @@ export interface PreviewCallbacks {
 export type ScanPreview =
 	| { status: 'aborted' }
 	| { status: 'empty' }
-	| { status: 'ready'; summary: DryRunSummary; commit: () => Promise<void> }
+	| { status: 'ready'; summary: DryRunSummary; commit: () => Promise<ScanReport> }
+
+type ScanOutcome =
+	| 'completed'
+	| 'nothing-to-sync'
+	| 'cancelled'
+	/** Anki unreachable or not ready; `message` says why. */
+	| 'aborted'
+	/** Another scan holds the guard. */
+	| 'busy'
+	/** Confirm Before Sync is on: the preview modal now owns the decision. */
+	| 'awaiting-confirmation'
+
+/**
+ * Structured result of one scan: the machine twin of the Notices and the
+ * `scan complete:` console line, consumed by the local API.
+ */
+export interface ScanReport {
+	outcome: ScanOutcome
+	dryRun: boolean
+	message?: string
+	filesChanged: number
+	filesTotal: number
+	/** Real counts for a sync; the would-be counts for a dry-run. */
+	added: number
+	updated: number
+	deleted: number
+	/** Dry-run only: notes whose type would be converted. */
+	converted: number
+	issues: ScanIssue[]
+	/** Dry-run only: per-note changes and per-deck stats. */
+	details?: Pick<DryRunSummary, 'decks' | 'changes'>
+}
+
+function emptyReport(outcome: ScanOutcome, dryRun: boolean, message?: string): ScanReport {
+	return {
+		outcome,
+		dryRun,
+		message,
+		filesChanged: 0,
+		filesTotal: 0,
+		added: 0,
+		updated: 0,
+		deleted: 0,
+		converted: 0,
+		issues: []
+	}
+}
 
 /**
  * Everything the scan pipeline needs from the outside world. Production
@@ -51,6 +99,8 @@ export interface ScanEnvironment {
 	shouldConfirmSync: () => boolean
 	/** Interactive preview opener; unset keeps the legacy notice preview. */
 	openPreviewModal?: (summary: DryRunSummary, callbacks: PreviewCallbacks) => void
+	/** Progress/cancel UI; unset (tests, headless) scans without one. */
+	createProgress?: () => ScanProgressHandle
 }
 
 /** Production environment; loadState/commitScanResults stay plugin-owned. */
@@ -61,6 +111,7 @@ export function createScanEnvironment(
 		isAutoLaunchEnabled(): boolean
 		shouldConfirmSync(): boolean
 		openPreviewModal?: (summary: DryRunSummary, callbacks: PreviewCallbacks) => void
+		createProgress?: () => ScanProgressHandle
 	}
 ): ScanEnvironment {
 	return {
@@ -72,6 +123,7 @@ export function createScanEnvironment(
 		isAutoLaunchEnabled: options.isAutoLaunchEnabled,
 		shouldConfirmSync: options.shouldConfirmSync,
 		openPreviewModal: options.openPreviewModal,
+		createProgress: options.createProgress,
 		launchAnki: (enabled) => launchAnki(enabled),
 		toData: (appArg, settings, fieldsDict) => settingToData(appArg, settings, fieldsDict),
 		createManager: (appArg, data, files, hashes, media) => new FileManager(appArg, data, files, hashes, media)
@@ -90,6 +142,19 @@ export function formatScanNotice(
 	deleted: number
 ): string {
 	return `Scan complete: +${added} ~${updated} -${deleted} (${changed}/${total} files)`
+}
+
+/**
+ * One line per problem for the end-of-scan Notice (first few only; the full
+ * list is in the console). Returns null when the scan was clean.
+ */
+export function formatScanIssues(issues: ScanIssue[], maxShown = 3): string | null {
+	if (issues.length === 0) {
+		return null
+	}
+	const lines = issues.slice(0, maxShown).map((i) => `${i.file || 'batch'}: ${i.error}`)
+	const more = issues.length > maxShown ? `\n...and ${issues.length - maxShown} more (see console)` : ''
+	return `${issues.length} problem(s) during sync:\n${lines.join('\n')}${more}`
 }
 
 /**
@@ -128,64 +193,71 @@ export class ScanOrchestrator {
 
 	constructor(private readonly env: ScanEnvironment) {}
 
-	async scanVault(file?: TFile | null, control: ScanControl = {}, opts: { bypassConfirm?: boolean } = {}) {
+	async scanVault(
+		file?: TFile | null,
+		control: ScanControl = {},
+		opts: { bypassConfirm?: boolean } = {}
+	): Promise<ScanReport> {
 		if (!opts.bypassConfirm && this.env.shouldConfirmSync()) {
 			await this.runPreviewSync(file, control)
-			return
+			return emptyReport('awaiting-confirmation', false)
 		}
 		if (this.scanInProgress) {
 			this.env.notices.notify('A vault scan is already in progress.')
-			return
+			return emptyReport('busy', false, 'A vault scan is already in progress.')
 		}
 
 		this.scanInProgress = true
 		try {
-			await this.scanVaultOnce(file, false, control)
+			return await this.scanVaultOnce(file, false, control)
 		} finally {
 			this.scanInProgress = false
 		}
 	}
 
 	/** Dry-run command path: same guard as scanVault, read-only pipeline. */
-	async runDryRun(control: ScanControl = {}): Promise<void> {
+	async runDryRun(control: ScanControl = {}, file?: TFile | null): Promise<ScanReport> {
 		if (this.scanInProgress) {
 			this.env.notices.notify('A vault scan is already in progress.')
-			return
+			return emptyReport('busy', true, 'A vault scan is already in progress.')
 		}
 
 		this.scanInProgress = true
 		try {
-			await this.scanVaultOnce(undefined, true, control)
+			return await this.scanVaultOnce(file, true, control)
 		} finally {
 			this.scanInProgress = false
 		}
 	}
 
-	async scanVaultOnce(file?: TFile | null, dryRun = false, control: ScanControl = {}): Promise<void> {
-		if (!(await this.checkConnection(dryRun))) {
-			return
+	async scanVaultOnce(file?: TFile | null, dryRun = false, control: ScanControl = {}): Promise<ScanReport> {
+		const notReady = await this.checkConnection(dryRun)
+		if (notReady !== null) {
+			return emptyReport('aborted', dryRun, notReady)
 		}
 		const { manager, totalFiles } = await this.prepareManager(file)
+		const progress = this.startProgress(control)
 		try {
-			await manager.initialiseFiles(control)
+			await manager.initialiseFiles(progress.control)
 		} catch (error) {
 			if (error instanceof ScanCancelledError) {
 				console.info('[Obsidian_to_Anki] scan cancelled by user.')
 				this.env.notices.notify('Scan cancelled.')
-				return
+				return { ...emptyReport('cancelled', dryRun), filesTotal: totalFiles }
 			}
 			throw error
+		} finally {
+			progress.close()
 		}
 		if (manager.ownFiles.length === 0) {
 			this.env.notices.notify('No changed files found. Nothing to sync.')
 			console.info('No changed files found. Nothing to sync.')
-			return
+			return { ...emptyReport('nothing-to-sync', dryRun), filesTotal: totalFiles }
 		}
 		if (dryRun) {
-			await this.reportDryRun(manager, totalFiles)
-			return
+			return await this.reportDryRun(manager, totalFiles)
 		}
-		await this.commitManagerResults(manager, totalFiles)
+		return await this.commitManagerResults(manager, totalFiles)
 	}
 
 	/**
@@ -194,11 +266,16 @@ export class ScanOrchestrator {
 	 * Cancellation propagates as ScanCancelledError for the caller to report.
 	 */
 	async previewScan(file?: TFile | null, control: ScanControl = {}): Promise<ScanPreview> {
-		if (!(await this.checkConnection(true))) {
+		if ((await this.checkConnection(true)) !== null) {
 			return { status: 'aborted' }
 		}
 		const { manager, totalFiles } = await this.prepareManager(file)
-		await manager.initialiseFiles(control)
+		const progress = this.startProgress(control)
+		try {
+			await manager.initialiseFiles(progress.control)
+		} finally {
+			progress.close()
+		}
 		if (manager.ownFiles.length === 0) {
 			return { status: 'empty' }
 		}
@@ -276,27 +353,37 @@ export class ScanOrchestrator {
 		})
 	}
 
+	/** Caller-supplied control wins; otherwise the env's progress UI (if any). */
+	private startProgress(control: ScanControl): ScanProgressHandle {
+		if (control.onProgress || control.isCancelled || !this.env.createProgress) {
+			return { control, close: () => undefined }
+		}
+		return this.env.createProgress()
+	}
+
 	/** Probe + file discovery shared by the sync and preview paths. */
-	private async checkConnection(dryRun: boolean): Promise<boolean> {
+	/** null when Anki is ready (scan may proceed); otherwise why it may not. */
+	private async checkConnection(dryRun: boolean): Promise<string | null> {
 		const { notices } = this.env
 		console.info('Checking connection to Anki...')
 		const probe = await this.env.probeAnki()
 		console.info(`[Obsidian_to_Anki] anki status: ${probe.status}`)
 		if (probe.status === 'ready') {
 			notices.notify(`Scanning vault (${dryRun ? 'dry-run' : 'sync'})...`)
-			return true
+			return null
 		}
 		if (probe.status === 'closed' && this.env.isAutoLaunchEnabled()) {
 			const outcome = await this.env.launchAnki(true)
 			if (outcome === 'launched-and-ready') {
 				notices.notify('Anki is now running. Continuing the scan...')
-				return true
+				return null
 			}
-			notices.notify('Anki is starting in the background. Run the scan again in a few seconds.')
-			return false
+			const starting = 'Anki is starting in the background. Run the scan again in a few seconds.'
+			notices.notify(starting)
+			return starting
 		}
 		notices.notify(probe.message)
-		return false
+		return probe.message
 	}
 
 	private async prepareManager(file?: TFile | null): Promise<{ manager: FileManager; totalFiles: number }> {
@@ -332,20 +419,39 @@ export class ScanOrchestrator {
 	}
 
 	/** Mutating tail shared by direct sync and modal confirm. */
-	private async commitManagerResults(manager: FileManager, totalFiles: number): Promise<void> {
+	private async commitManagerResults(manager: FileManager, totalFiles: number): Promise<ScanReport> {
 		await manager.requests_1()
 		// Structured one-liner for CLI agents and log scraping:
 		// [Obsidian_to_Anki] scan complete: files_changed=2/120 added=5 updated=1 deleted=0
 		// NOTE: totalFiles is captured before initialiseFiles narrows
 		// manager.files down to the changed files — do not recompute it here.
-		const added = manager.ownFiles.reduce((n, f) => n + f.all_notes_to_add.length, 0)
+		const issues = manager.scanIssues
+		// Planned adds minus the ones AnkiConnect rejected; updates/deletes are
+		// batched without per-item results, so those stay planned counts.
+		const failedAdds = issues.filter((i) => i.kind === 'add-note').length
+		const added = manager.ownFiles.reduce((n, f) => n + f.all_notes_to_add.length, 0) - failedAdds
 		const updated = manager.ownFiles.reduce((n, f) => n + f.notes_to_edit.length, 0)
-		const deleted = manager.ownFiles.reduce((n, f) => n + f.notes_to_delete.length, 0)
+		// Explicit DELETE lines plus notes whose block vanished from Markdown.
+		const deleted =
+			manager.ownFiles.reduce((n, f) => n + f.notes_to_delete.length, 0) + manager.orphanNoteIds.length
 		console.info(
-			`[Obsidian_to_Anki] scan complete: files_changed=${manager.ownFiles.length}/${totalFiles} added=${added} updated=${updated} deleted=${deleted}`
+			`[Obsidian_to_Anki] scan complete: files_changed=${manager.ownFiles.length}/${totalFiles} added=${added} updated=${updated} deleted=${deleted}${issues.length > 0 ? ` failed=${issues.length}` : ''}`
 		)
 		this.env.notices.notify(formatScanNotice(manager.ownFiles.length, totalFiles, added, updated, deleted))
+		const issuesNotice = formatScanIssues(issues)
+		if (issuesNotice !== null) {
+			this.env.notices.notify(issuesNotice)
+		}
 		this.env.commitScanResults(Array.from(manager.added_media_set), manager.getHashes())
+		return {
+			...emptyReport('completed', false),
+			filesChanged: manager.ownFiles.length,
+			filesTotal: totalFiles,
+			added,
+			updated,
+			deleted,
+			issues: [...issues]
+		}
 	}
 
 	/**
@@ -353,7 +459,7 @@ export class ScanOrchestrator {
 	 * but collects the diff via collectDryRunState instead of dispatching the
 	 * mutating batch. Never writes files, hashes or media state.
 	 */
-	async reportDryRun(manager: FileManager, totalFiles: number): Promise<void> {
+	async reportDryRun(manager: FileManager, totalFiles: number): Promise<ScanReport> {
 		const summary = await collectDryRunState(manager.ownFiles, {
 			hasNoteTypeChanges: manager.data.allow_note_type_changes,
 			orphanNoteIds: manager.orphanNoteIds,
@@ -361,6 +467,16 @@ export class ScanOrchestrator {
 		})
 		summary.filesTotal = totalFiles
 		this.emitDryRunPreview(summary)
+		return {
+			...emptyReport('completed', true),
+			filesChanged: summary.filesChanged,
+			filesTotal: summary.filesTotal,
+			added: summary.wouldAdd,
+			updated: summary.wouldUpdate,
+			deleted: summary.wouldDelete,
+			converted: summary.wouldConvert,
+			details: { decks: summary.decks, changes: summary.changes }
+		}
 	}
 
 	/**

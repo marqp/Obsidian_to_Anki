@@ -36,6 +36,9 @@ export interface PluginSettings {
 		'Allow Note Type Changes': boolean
 		'Auto-launch Anki': boolean
 		'Confirm Before Sync': boolean
+		'Local API': boolean
+		'Local API Port': number
+		'Local API Token': string
 		/** Legacy key, migrated to 'Scan Directories' on load and then deleted. */
 		'Scan Directory'?: string
 		[key: string]: string[] | string | number | boolean | undefined
@@ -59,6 +62,12 @@ export interface FileData {
 	context_fields: Record<string, string>
 	template: AnkiConnectNote
 	EXISTING_IDS: ReadonlySet<number>
+	/**
+	 * Fetches every note ID currently in Anki. Optional and lazy: the scan
+	 * only calls it once a changed file needs parsing, so a no-op scan never
+	 * pays for a whole-collection findNotes. Without it EXISTING_IDS is final.
+	 */
+	loadExistingIds?: () => Promise<readonly number[]>
 	vault_name: string
 
 	FROZEN_REGEXP: RegExp

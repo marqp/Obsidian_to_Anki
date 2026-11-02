@@ -4,6 +4,7 @@ import * as AnkiConnect from '../../src/anki'
 import {
 	ScanOrchestrator,
 	createScanEnvironment,
+	formatScanIssues,
 	formatScanNotice,
 	getAllTFilesInFolder,
 	type PreviewCallbacks,
@@ -11,7 +12,7 @@ import {
 	type ScanState
 } from '../../src/scan-orchestrator'
 import type { DryRunSummary } from '../../src/dry-run'
-import { ScanCancelledError, type FileManager, type ScanControl } from '../../src/files-manager'
+import { ScanCancelledError, type FileManager, type ScanControl, type ScanIssue } from '../../src/files-manager'
 import type { ParsedSettings, PluginSettings } from '../../src/interfaces/settings-interface'
 import type { FileHashes } from '../../src/scan-optimizations'
 import type { AllFile } from '../../src/file'
@@ -66,6 +67,8 @@ function tfile(path: string): TFile {
 interface FakeManager {
 	files: TFile[]
 	ownFiles: AllFile[]
+	scanIssues: ScanIssue[]
+	orphanNoteIds: number[]
 	added_media_set: Set<string>
 	initialiseFiles: (control?: ScanControl) => Promise<void>
 	requests_1: () => Promise<void>
@@ -96,6 +99,8 @@ function makeHarness(overrides: Partial<ScanEnvironment> = {}, scanDirs: string[
 	const fake: FakeManager = {
 		files: [],
 		ownFiles: [],
+		scanIssues: [],
+		orphanNoteIds: [],
 		added_media_set: new Set<string>(),
 		initialiseFiles: () => Promise.resolve(),
 		requests_1: () => Promise.resolve(),
@@ -128,6 +133,24 @@ afterEach(() => {
 describe('formatScanNotice', () => {
 	it('matches the human-readable counts format', () => {
 		expect(formatScanNotice(2, 120, 5, 1, 0)).toBe('Scan complete: +5 ~1 -0 (2/120 files)')
+	})
+})
+
+describe('formatScanIssues', () => {
+	it('is null for a clean scan', () => {
+		expect(formatScanIssues([])).toBeNull()
+	})
+
+	it('lists the first few problems and counts the rest', () => {
+		const issues: ScanIssue[] = [
+			{ file: 'a.md', kind: 'add-note', error: 'duplicate' },
+			{ file: '', kind: 'tag-list', error: 'boom' },
+			{ file: 'c.md', kind: 'add-note', error: 'no deck' },
+			{ file: 'd.md', kind: 'add-note', error: 'x' }
+		]
+		expect(formatScanIssues(issues)).toBe(
+			'4 problem(s) during sync:\na.md: duplicate\nbatch: boom\nc.md: no deck\n...and 1 more (see console)'
+		)
 	})
 })
 
@@ -308,6 +331,154 @@ describe('ScanOrchestrator pipeline', () => {
 		).toBe(true)
 		expect(h.notices).toContain('Scan complete: +1 ~1 -0 (1/3 files)')
 		expect(h.committed).toEqual([{ media: [], hashes: { 'a.md': { hash: 'h', mtime: 1, size: 1, noteIds: [] } } }])
+	})
+})
+
+describe('sync summary with failures', () => {
+	it('subtracts rejected adds, appends failed=N to the log line and notifies the problems', async () => {
+		const h = makeHarness()
+		const data: ParsedSettings = createParsedSettings()
+		h.fake.files = [tfile('a.md')]
+		h.fake.ownFiles = createManagerFiles(
+			data,
+			[],
+			[
+				{ deckName: 'Default', modelName: 'Basic' },
+				{ deckName: 'Default', modelName: 'Basic' }
+			]
+		)
+		h.fake.scanIssues = [{ file: 'a.md', kind: 'add-note', error: 'duplicate' }]
+		await h.orchestrator.scanVault()
+		expect(h.infos.some((line) => line.includes('added=1 updated=0 deleted=0 failed=1'))).toBe(true)
+		expect(h.notices).toContain('1 problem(s) during sync:\na.md: duplicate')
+	})
+})
+
+describe('progress UI', () => {
+	it('feeds the env progress control to initialiseFiles and closes it afterwards', async () => {
+		const close = vi.fn()
+		const control: ScanControl = { isCancelled: () => false }
+		const h = makeHarness({ createProgress: () => ({ control, close }) })
+		const seen: ScanControl[] = []
+		h.fake.initialiseFiles = (c) => {
+			seen.push(c ?? {})
+			return Promise.resolve()
+		}
+		await h.orchestrator.scanVault()
+		expect(seen).toEqual([control])
+		expect(close).toHaveBeenCalledTimes(1)
+	})
+
+	it('closes the progress UI and reports cancellation', async () => {
+		const close = vi.fn()
+		const h = makeHarness({ createProgress: () => ({ control: {}, close }) })
+		h.fake.initialiseFiles = () => Promise.reject(new ScanCancelledError())
+		await h.orchestrator.scanVault()
+		expect(close).toHaveBeenCalledTimes(1)
+		expect(h.notices).toContain('Scan cancelled.')
+	})
+
+	it('leaves an explicit caller control alone', async () => {
+		const createProgress = vi.fn()
+		const h = makeHarness({ createProgress })
+		const mine: ScanControl = { onProgress: vi.fn() }
+		const seen: ScanControl[] = []
+		h.fake.initialiseFiles = (c) => {
+			seen.push(c ?? {})
+			return Promise.resolve()
+		}
+		await h.orchestrator.scanVault(undefined, mine)
+		expect(createProgress).not.toHaveBeenCalled()
+		expect(seen).toEqual([mine])
+	})
+})
+
+describe('ScanReport', () => {
+	it('reports a completed sync with real counts and issues', async () => {
+		const h = makeHarness()
+		const data: ParsedSettings = createParsedSettings()
+		h.fake.files = [tfile('a.md'), tfile('b.md')]
+		h.fake.ownFiles = createManagerFiles(
+			data,
+			[{ id: 5, fields: { Front: 'Q' }, tags: [] }],
+			[{ deckName: 'Default', modelName: 'Basic' }]
+		)
+		h.fake.scanIssues = [{ file: 'a.md', kind: 'media', error: 'missing' }]
+		const report = await h.orchestrator.scanVault()
+		expect(report).toMatchObject({
+			outcome: 'completed',
+			dryRun: false,
+			filesChanged: 1,
+			filesTotal: 2,
+			added: 1,
+			updated: 1,
+			deleted: 0,
+			issues: [{ file: 'a.md', kind: 'media', error: 'missing' }]
+		})
+	})
+
+	it('counts notes deleted because their block was removed, not only DELETE lines', async () => {
+		const h = makeHarness()
+		const data: ParsedSettings = createParsedSettings()
+		h.fake.files = [tfile('a.md')]
+		h.fake.ownFiles = createManagerFiles(data, [], [{ deckName: 'Default', modelName: 'Basic' }])
+		h.fake.orphanNoteIds = [11, 12]
+		const report = await h.orchestrator.scanVault()
+		expect(report.deleted).toBe(2)
+		expect(h.infos.some((line) => line.includes('deleted=2'))).toBe(true)
+	})
+
+	it('reports nothing-to-sync with the total file count', async () => {
+		const h = makeHarness()
+		h.fake.files = [tfile('a.md')]
+		const report = await h.orchestrator.scanVault()
+		expect(report).toMatchObject({ outcome: 'nothing-to-sync', filesChanged: 0, filesTotal: 1 })
+	})
+
+	it('reports aborted with the probe message when Anki is not ready', async () => {
+		const h = makeHarness({ probeAnki: () => Promise.resolve({ status: 'closed', message: 'Anki is closed.' }) })
+		const report = await h.orchestrator.scanVault()
+		expect(report).toMatchObject({ outcome: 'aborted', message: 'Anki is closed.' })
+	})
+
+	it('reports cancelled when the scan is cancelled', async () => {
+		const h = makeHarness()
+		h.fake.initialiseFiles = () => Promise.reject(new ScanCancelledError())
+		const report = await h.orchestrator.scanVault()
+		expect(report.outcome).toBe('cancelled')
+	})
+
+	it('reports busy for a concurrent scan or dry-run', async () => {
+		const h = makeHarness()
+		let release!: () => void
+		h.fake.initialiseFiles = () => new Promise<void>((resolve) => (release = resolve))
+		const first = h.orchestrator.scanVault()
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect((await h.orchestrator.scanVault()).outcome).toBe('busy')
+		const dry = await h.orchestrator.runDryRun()
+		expect(dry).toMatchObject({ outcome: 'busy', dryRun: true })
+		release()
+		await first
+	})
+
+	it('reports awaiting-confirmation when Confirm Before Sync owns the decision', async () => {
+		const h = makeHarness({ shouldConfirmSync: () => true })
+		const report = await h.orchestrator.scanVault()
+		expect(report.outcome).toBe('awaiting-confirmation')
+	})
+
+	it('reports the would-be counts and details for a dry-run', async () => {
+		const h = makeHarness()
+		const data: ParsedSettings = createParsedSettings()
+		h.fake.files = [tfile('a.md')]
+		h.fake.ownFiles = createManagerFiles(data, [], [{ deckName: 'Default', modelName: 'Basic' }])
+		const manager = h.fake as unknown as Record<string, unknown>
+		manager['data'] = { allow_note_type_changes: false }
+		manager['orphanNoteIds'] = []
+		manager['orphanFileById'] = () => new Map<number, string>()
+		const report = await h.orchestrator.runDryRun()
+		expect(report).toMatchObject({ outcome: 'completed', dryRun: true, added: 1, updated: 0, deleted: 0 })
+		expect(report.details?.changes.length).toBeGreaterThan(0)
 	})
 })
 

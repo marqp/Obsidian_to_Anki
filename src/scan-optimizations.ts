@@ -13,6 +13,22 @@ export interface FileHashEntry {
 
 export type FileHashes = Record<string, string | FileHashEntry>
 
+/**
+ * Drop hash records for paths that no longer exist in the vault (deleted or
+ * renamed files). The map otherwise grows forever and is rewritten whole to
+ * data.json on every scan. Returns the number of records removed.
+ */
+export function pruneFileHashes(hashes: FileHashes, pathExists: (path: string) => boolean): number {
+	let removed = 0
+	for (const path of Object.keys(hashes)) {
+		if (!pathExists(path)) {
+			delete hashes[path]
+			removed++
+		}
+	}
+	return removed
+}
+
 export function getFileContentHash(content: string): string {
 	return Md5.hashStr(content) as string
 }

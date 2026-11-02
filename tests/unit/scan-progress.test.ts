@@ -8,7 +8,7 @@ function fakeApp(contents: Record<string, string>) {
 	const app = {
 		vault: {
 			read: async (file: TFile) => contents[file.path] ?? '',
-			modify: vi.fn(),
+			process: vi.fn(),
 			getName: () => 'vault',
 			adapter: { getFullPath: (p: string) => p }
 		},

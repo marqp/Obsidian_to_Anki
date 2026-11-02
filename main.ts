@@ -1,15 +1,22 @@
-import { Notice, Plugin, addIcon } from 'obsidian'
-import type { TFile } from 'obsidian'
+import { Notice, Plugin, TFile, addIcon } from 'obsidian'
 import * as AnkiConnect from './src/anki'
 import { PluginSettings, StoredPluginData } from './src/interfaces/settings-interface'
 import { DEFAULT_IGNORED_FILE_GLOBS, SettingsTab } from './src/settings'
 import { ANKI_ICON } from './src/constants'
-import { FileHashes } from './src/scan-optimizations'
+import { FileHashes, pruneFileHashes } from './src/scan-optimizations'
 import { migrateSettings } from './src/ui/settings-migration'
 import { buildDefaults } from './src/defaults-meta'
-import { ScanOrchestrator, createScanEnvironment, type PreviewCallbacks } from './src/scan-orchestrator'
+import {
+	ScanOrchestrator,
+	createScanEnvironment,
+	type PreviewCallbacks,
+	type ScanReport
+} from './src/scan-orchestrator'
 import { openNoteInAnki, registerPluginCommands } from './src/commands'
 import { obsidianNoticePort } from './src/notices'
+import { createProgressNotice } from './src/progress-notice'
+import { describeConnectionFailure, probeAnkiStatus } from './src/anki-launch'
+import { LocalApiServer, MIN_TOKEN_LENGTH, generateToken, type ApiHandlers } from './src/api-server'
 import type { DryRunSummary } from './src/dry-run'
 import { DryRunModal } from './src/ui/dry-run-modal'
 import { type ScanControl } from './src/files-manager'
@@ -21,6 +28,10 @@ export default class MyPlugin extends Plugin {
 	added_media: string[] = []
 	file_hashes: FileHashes = {}
 	schedule_id?: number
+	private apiServer?: LocalApiServer
+	private apiTimer?: number
+	/** Serialises start/stop so rapid setting changes never race on the port. */
+	private apiQueue: Promise<void> = Promise.resolve()
 	private saveTimer?: number
 	private orchestrator?: ScanOrchestrator
 
@@ -80,7 +91,10 @@ export default class MyPlugin extends Plugin {
 
 	async loadSettings(snapshot?: StoredPluginData | null): Promise<PluginSettings> {
 		const current_data = snapshot === undefined ? ((await this.loadData()) as StoredPluginData | null) : snapshot
-		if (current_data == null || Object.keys(current_data).length != 4) {
+		// First run only when there are no stored settings at all; a missing
+		// auxiliary key must never wipe the user's settings (the other
+		// loaders default their own sections).
+		if (current_data == null || typeof current_data.settings !== 'object' || current_data.settings === null) {
 			new Notice('Need to connect to Anki generate default settings...')
 			const default_sets = await this.getDefaultSettings()
 			this.saveData({
@@ -130,7 +144,7 @@ export default class MyPlugin extends Plugin {
 			// this.fields_dict; re-fetching here tripled first-run traffic.
 			return this.fields_dict
 		}
-		return current_data.fields_dict
+		return current_data.fields_dict ?? {}
 	}
 
 	async saveAllData(): Promise<void> {
@@ -190,8 +204,13 @@ export default class MyPlugin extends Plugin {
 	 * this); UI commands go straight to the orchestrator. Always direct —
 	 * unattended scans must never open a modal. Thin delegation.
 	 */
-	async scanVault(file?: TFile | null, control: ScanControl = {}): Promise<void> {
-		await this.scanOrchestrator().scanVault(file, control, { bypassConfirm: true })
+	async scanVault(file?: TFile | null, control: ScanControl = {}): Promise<ScanReport> {
+		return await this.scanOrchestrator().scanVault(file, control, { bypassConfirm: true })
+	}
+
+	/** Read-only preview of what a sync would do; same guard as a real scan. */
+	async dryRun(file?: TFile | null): Promise<ScanReport> {
+		return await this.scanOrchestrator().runDryRun({}, file)
 	}
 
 	private scanOrchestrator(): ScanOrchestrator {
@@ -211,13 +230,18 @@ export default class MyPlugin extends Plugin {
 							for (const [key, entry] of Object.entries(hashes)) {
 								this.file_hashes[key] = entry
 							}
+							pruneFileHashes(
+								this.file_hashes,
+								(path) => this.app.vault.getAbstractFileByPath(path) !== null
+							)
 							this.saveAllData()
 						}
 					},
 					{
 						isAutoLaunchEnabled: () => this.isAutoLaunchEnabled(),
 						shouldConfirmSync: () => this.isConfirmBeforeSync(),
-						openPreviewModal: (summary, callbacks) => this.openPreviewModal(summary, callbacks)
+						openPreviewModal: (summary, callbacks) => this.openPreviewModal(summary, callbacks),
+						createProgress: () => createProgressNotice()
 					}
 				)
 			)
@@ -231,6 +255,99 @@ export default class MyPlugin extends Plugin {
 
 	private openPreviewModal(summary: DryRunSummary, callbacks: PreviewCallbacks): void {
 		new DryRunModal(this.app, summary, callbacks).open()
+	}
+
+	/**
+	 * (Re)start the auto-scan timer from the 'Scheduling Interval' default
+	 * (minutes, 0 = off). Called on load and whenever the slider changes;
+	 * registerInterval ensures Obsidian clears it on unload.
+	 */
+	startSchedule(): void {
+		if (this.schedule_id !== undefined) {
+			window.clearInterval(this.schedule_id)
+			this.schedule_id = undefined
+		}
+		const minutes = this.settings.Defaults['Scheduling Interval']
+		if (minutes > 0) {
+			this.schedule_id = window.setInterval(() => void this.scanVault(), minutes * 60 * 1000)
+			this.registerInterval(this.schedule_id)
+		}
+	}
+
+	/** Vault file for an API-supplied path, or null when it is not a file. */
+	private apiFile(path: string): TFile | null {
+		const file = this.app.vault.getAbstractFileByPath(path)
+		return file instanceof TFile ? file : null
+	}
+
+	private apiHandlers(): ApiHandlers {
+		return {
+			status: () => probeAnkiStatus(),
+			scan: () => this.scanVault(),
+			scanFile: async (path) => {
+				const file = this.apiFile(path)
+				return file === null ? null : await this.scanVault(file)
+			},
+			dryRun: async (path) => {
+				if (path === undefined) {
+					return await this.dryRun()
+				}
+				const file = this.apiFile(path)
+				return file === null ? null : await this.dryRun(file)
+			}
+		}
+	}
+
+	/**
+	 * (Re)apply the Local API settings: stop any running server, then start
+	 * one if enabled. Serialised through apiQueue; failures become a Notice.
+	 */
+	restartApiServer(): Promise<void> {
+		this.apiQueue = this.apiQueue.then(() => this.applyApiSettings())
+		return this.apiQueue
+	}
+
+	/** Debounced restart for text inputs (port/token fire per keystroke). */
+	scheduleApiRestart(): void {
+		if (this.apiTimer !== undefined) {
+			window.clearTimeout(this.apiTimer)
+		}
+		this.apiTimer = window.setTimeout(() => {
+			this.apiTimer = undefined
+			void this.restartApiServer()
+		}, 600)
+	}
+
+	private async applyApiSettings(): Promise<void> {
+		await this.apiServer?.stop()
+		this.apiServer = undefined
+		const defaults = this.settings.Defaults
+		if (defaults['Local API'] !== true) {
+			return
+		}
+		const port = defaults['Local API Port']
+		if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+			new Notice(`Local API not started: port must be 1024-65535 (got ${port}).`)
+			return
+		}
+		let token = defaults['Local API Token']
+		if (typeof token !== 'string' || token.length < MIN_TOKEN_LENGTH) {
+			token = generateToken()
+			defaults['Local API Token'] = token
+			await this.saveAllData()
+		}
+		const server = new LocalApiServer({ port, token, handlers: this.apiHandlers() })
+		try {
+			await server.start()
+			this.apiServer = server
+			console.info(`[Obsidian_to_Anki] local API listening on 127.0.0.1:${server.port}`)
+		} catch (error) {
+			console.error('[Obsidian_to_Anki] local API failed to start:', error)
+			new Notice(
+				`Local API could not start on port ${port}: ${error instanceof Error ? error.message : String(error)}`,
+				10000
+			)
+		}
 	}
 
 	async onload() {
@@ -250,8 +367,9 @@ export default class MyPlugin extends Plugin {
 				snapshot = (await this.loadData()) as StoredPluginData | null
 			}
 			this.fields_dict = await this.loadFieldsDict(snapshot)
-		} catch (_e) {
-			new Notice("Couldn't connect to Anki! Check console for error message.")
+		} catch (e) {
+			console.error('[Obsidian_to_Anki] failed to load plugin data:', e)
+			new Notice(await describeConnectionFailure(), 10000)
 			return
 		}
 
@@ -261,9 +379,12 @@ export default class MyPlugin extends Plugin {
 			try {
 				this.fields_dict = await this.generateFieldsDict()
 				new Notice('Fields dictionary successfully generated!')
-			} catch (_e) {
-				new Notice("Couldn't connect to Anki! Check console for error message.")
-				return
+			} catch (e) {
+				// Non-fatal: settings are loaded, the dictionary is rebuilt
+				// on demand (settings tab) once Anki is reachable. Commands
+				// and the settings tab must still register.
+				console.error('[Obsidian_to_Anki] could not generate fields dictionary:', e)
+				new Notice(await describeConnectionFailure(), 10000)
 			}
 		}
 		this.added_media = await this.loadAddedMedia(snapshot)
@@ -271,13 +392,21 @@ export default class MyPlugin extends Plugin {
 		this.syncTransportKey()
 
 		this.addSettingTab(new SettingsTab(this.app, this))
+		this.startSchedule()
+		void this.restartApiServer()
 
 		const orchestrator = this.scanOrchestrator()
 
 		registerPluginCommands(this, {
-			onScanVault: () => orchestrator.scanVault(undefined),
-			onScanFile: () => orchestrator.scanVault(this.app.workspace.getActiveFile()),
-			onDryRun: () => orchestrator.runDryRun(),
+			onScanVault: async () => {
+				await orchestrator.scanVault(undefined)
+			},
+			onScanFile: async () => {
+				await orchestrator.scanVault(this.app.workspace.getActiveFile())
+			},
+			onDryRun: async () => {
+				await orchestrator.runDryRun()
+			},
 			onPreviewSync: () => orchestrator.runPreviewSync(undefined),
 			onOpenNote: (editor, mode) =>
 				openNoteInAnki(
@@ -297,6 +426,13 @@ export default class MyPlugin extends Plugin {
 			window.clearTimeout(this.saveTimer)
 			this.saveTimer = undefined
 		}
+		if (this.apiTimer !== undefined) {
+			window.clearTimeout(this.apiTimer)
+			this.apiTimer = undefined
+		}
+		await this.apiQueue
+		await this.apiServer?.stop()
+		this.apiServer = undefined
 		this.saveAllData()
 	}
 }

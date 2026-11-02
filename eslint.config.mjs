@@ -46,6 +46,19 @@ export default tsPlugin.config(
 		}
 	},
 	{
+		// Standalone Node 18+ script (MCP bridge), not bundled with the plugin.
+		files: ['mcp/**/*.mjs'],
+		languageOptions: {
+			globals: {
+				process: 'readonly',
+				console: 'readonly',
+				fetch: 'readonly',
+				URL: 'readonly',
+				AbortSignal: 'readonly'
+			}
+		}
+	},
+	{
 		files: ['tests/**/*.ts', '*.mjs'],
 		languageOptions: {
 			globals: {

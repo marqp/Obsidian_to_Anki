@@ -5,9 +5,13 @@ export function clearNotices(): void {
 }
 
 export class Notice {
-	constructor(public message: string) {
-		createdNotices.push(message)
+	constructor(
+		public message: string | DocumentFragment,
+		public timeout?: number
+	) {
+		createdNotices.push(typeof message === 'string' ? message : '[fragment]')
 	}
+	hide(): void {}
 }
 
 export class TAbstractFile {
@@ -30,7 +34,9 @@ export class Vault {
 	async read(file: TFile): Promise<string> {
 		return ''
 	}
-	async modify(file: TFile, data: string): Promise<void> {}
+	async process(file: TFile, fn: (data: string) => string): Promise<string> {
+		return fn('')
+	}
 	getName(): string {
 		return 'test-vault'
 	}

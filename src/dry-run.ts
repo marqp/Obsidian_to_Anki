@@ -161,7 +161,10 @@ export async function collectDryRunState(
 				}
 				continue
 			}
-			if (isContentMismatch(parsed.note, anki) || isDeckMismatch(file, anki, deckByCardId)) {
+			if (
+				isContentMismatch(parsed.note, file.noteTagsFor(parsed), anki) ||
+				isDeckMismatch(file, anki, deckByCardId)
+			) {
 				if (!updatedNoteIds.has(parsed.identifier)) {
 					updatedNoteIds.add(parsed.identifier)
 					wouldUpdate += 1
@@ -213,7 +216,12 @@ function normalizeTags(tags: string[]): string[] {
 	return [...new Set(tags.filter((tag) => tag.length > 0).map(normalizeText))].sort()
 }
 
-function isContentMismatch(local: AnkiConnectNote, anki: AnkiNoteInfo): boolean {
+/**
+ * `localTags` are the tags the real scan would leave on the note (note tags
+ * plus the file's FILE TAGS), not the bare `local.tags`: comparing those
+ * flagged every note of a file with FILE TAGS as an update.
+ */
+function isContentMismatch(local: AnkiConnectNote, localTags: string[], anki: AnkiNoteInfo): boolean {
 	for (const field of Object.keys(local.fields)) {
 		if (normalizeText(anki.fields[field]?.value ?? '') !== normalizeText(local.fields[field])) {
 			return true
@@ -222,9 +230,9 @@ function isContentMismatch(local: AnkiConnectNote, anki: AnkiNoteInfo): boolean 
 	// The real scan converges to the same end state on both paths (legacy
 	// updateNoteTags vs consolidated updateNote), so one normalized
 	// order-insensitive tag comparison covers both.
-	const localTags = normalizeTags(local.tags)
+	const wantedTags = normalizeTags(localTags)
 	const ankiTags = normalizeTags(anki.tags ?? [])
-	return localTags.length !== ankiTags.length || localTags.some((tag, index) => tag !== ankiTags[index])
+	return wantedTags.length !== ankiTags.length || wantedTags.some((tag, index) => tag !== ankiTags[index])
 }
 
 /**

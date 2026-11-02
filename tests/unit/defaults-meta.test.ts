@@ -43,6 +43,7 @@ describe('DEFAULTS_META single source', () => {
 		expect(defaults['Auto-launch Anki']).toBe(false)
 		expect(defaults['Allow Note Type Changes']).toBe(false)
 		expect(defaults['ID Comments']).toBe(true)
+		expect(defaults['Local API']).toBe(false)
 		expect(defaults['Scan Directories']).toEqual([])
 	})
 
@@ -63,7 +64,10 @@ describe('DEFAULTS_META single source', () => {
 			'Allow Note Type Changes': false,
 			'Delete Removed Notes': true,
 			'Auto-launch Anki': false,
-			'Confirm Before Sync': false
+			'Confirm Before Sync': false,
+			'Local API': false,
+			'Local API Port': 27180,
+			'Local API Token': ''
 		})
 	})
 

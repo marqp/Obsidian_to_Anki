@@ -32,6 +32,9 @@ starts on General, and settings are never written on read.
 | `Allow Note Type Changes` | off | `updateNoteModel` conversion; target-model-missing fields discarded by Anki |
 | `Auto-launch Anki` | off | One detached spawn if Anki closed, 2 s wait, re-probe once (desktop only) |
 | `Confirm Before Sync` | off | Preview modal before Scan Vault / Scan Current File write to Anki |
+| `Local API` | off | Loopback HTTP API (bearer token) so tools like the MCP bridge can trigger scans without the Obsidian CLI |
+| `Local API Port` | 27180 | Port for the local API (1024-65535) |
+| `Local API Token` | _(generated)_ | Bearer token clients must send; created when the API is first enabled |
 
 ## Syntax
 

@@ -116,6 +116,44 @@ describe('collectDryRunState: exact diff', () => {
 		}
 	})
 
+	it('includes the file-level FILE TAGS when comparing tags (no false updates)', async () => {
+		const { setTransport } = await import('../../src/anki')
+		setTransport({
+			invoke: async (action: string) => {
+				if (action === 'notesInfo') {
+					return [
+						{
+							noteId: 31,
+							modelName: 'Basic',
+							// plugin tag + FILE TAGS tag, exactly what the real scan leaves behind
+							tags: ['Obsidian_to_Anki', 'ZZteste'],
+							fields: { Front: { order: 0, value: 'q' }, Back: { order: 1, value: 'a' } },
+							cards: [301]
+						}
+					]
+				}
+				if (action === 'cardsInfo') {
+					return [{ cardId: 301, deck: 'Default' }]
+				}
+				throw new Error(`unexpected action in dry-run: ${action}`)
+			}
+		})
+		const files = createManagerFiles(
+			createParsedSettings(),
+			[{ id: 31, fields: { Front: 'q', Back: 'a' }, tags: ['Obsidian_to_Anki'] }],
+			[]
+		)
+		files[0].global_tags = 'ZZteste'
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+
+		expect(summary.wouldUpdate).toBe(0)
+
+		files[0].global_tags = 'OtherTag'
+		const changed = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+		expect(changed.wouldUpdate).toBe(1)
+	})
+
 	it('separates positional tag divergence across multi-tag sets', async () => {
 		// Kills the .some() vs .every() mutant at dry-run.ts L163: with
 		// single-element tag lists both quantifiers converge, so only a

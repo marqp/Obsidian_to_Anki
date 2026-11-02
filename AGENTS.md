@@ -27,6 +27,14 @@ behavior intentionally diverged (orphan deletion, updateNote, dry-run — see RE
   `obsidian_to_anki_config.ini` (sample) and `obsidian_to_anki_data.json`
   (empty seed) remain tracked as inert legacy files — see contribution rules.
 
+## Local API + MCP (agent access without the Obsidian CLI)
+
+`src/api-server.ts` is an opt-in (`Local API`, off by default) loopback HTTP API; `mcp/obsidian-anki-mcp.mjs`
+is a dependency-free stdio MCP bridge over it (see `mcp/README.md`). Rules: bind `127.0.0.1` only, bearer token
+on every request, keep `api-server.ts` free of `obsidian` imports, and never send the token to a non-loopback URL.
+Scans return a structured `ScanReport` (`src/scan-orchestrator.ts`); change its shape only together with
+`API_VERSION` and the bridge.
+
 ## Obsidian CLI workflow (manual, agent-friendly)
 
 The plugin needs no protocol handler: the official `obsidian` CLI can execute any
@@ -67,7 +75,7 @@ obsidian "vault=My Vault" command id="obsidian-to-anki-plugin:anki-scan-vault"
 ```bash
 pnpm install --frozen-lockfile
 pnpm run dev        # esbuild watch
-pnpm run build      # tsc --noEmit && esbuild production bundle (gitignored artifact)
+pnpm run build      # tsc6 --noEmit && esbuild production bundle (gitignored artifact)
 pnpm test           # vitest + coverage gate (default gate)
 pnpm run test:unit  # vitest without coverage (fast loop)
 pnpm run lint       # 0 errors; the 2 no-non-null-assertion warnings in note.ts are known
@@ -75,10 +83,11 @@ pnpm run format:check
 pnpm run test:mutation  # ~30s, needs the pnpm patch applied
 pnpm run test:parity  # fork-vs-upstream parse parity (own vitest config + CI job)
 pnpm run test:bench   # engine performance benchmarks
-pnpm exec tsc --noEmit
+pnpm run lint:knip   # dead exports/files/deps (also a CI step)
+pnpm exec tsc6 --noEmit
 ```
 
-CI (`ci.yml`, pnpm): tsc → lint → format:check → test → build.
+CI (`ci.yml`, pnpm): version sync → tsc6 + tsc7 → lint → knip → format:check → test → build.
 
 ## Architecture boundaries (do not break)
 

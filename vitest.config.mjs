@@ -33,6 +33,8 @@ export default defineConfig({
 				'src/requests.ts',
 				'src/scan-optimizations.ts',
 				'src/scan-orchestrator.ts',
+				'src/progress-notice.ts',
+				'src/api-server.ts',
 				'src/setting-to-data.ts',
 				'src/ui/settings-migration.ts'
 			],

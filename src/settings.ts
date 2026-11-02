@@ -1,6 +1,6 @@
 import { PluginSettingTab, Setting, Notice, TFolder, AbstractInputSuggest, type App } from 'obsidian'
 import * as AnkiConnect from './anki'
-import { probeAnkiStatus } from './anki-launch'
+import { describeConnectionFailure, probeAnkiStatus } from './anki-launch'
 import { DEFAULTS_META } from './defaults-meta'
 import type MyPlugin from '../main'
 
@@ -159,7 +159,7 @@ export class SettingsTab extends PluginSettingTab {
 				plugin.fields_dict = await plugin.generateFieldsDict()
 				new Notice('Fields dictionary successfully generated!')
 			} catch (_e) {
-				new Notice("Couldn't connect to Anki! Check console for error message.")
+				new Notice(await describeConnectionFailure())
 				return null
 			}
 		}
@@ -320,7 +320,27 @@ export class SettingsTab extends PluginSettingTab {
 				continue
 			}
 			const defaultValue = plugin.settings['Defaults'][key]
-			if (typeof defaultValue === 'string') {
+			if (key === 'Local API Port' && typeof defaultValue === 'number') {
+				// A port is not a 0-360 slider: free text with range validation.
+				new Setting(defaults_settings)
+					.setName(key)
+					.setDesc(defaultDescs[key])
+					.addText((text) =>
+						text.setValue(String(defaultValue)).onChange((value) => {
+							const port = Number(value)
+							const valid = Number.isInteger(port) && port >= 1024 && port <= 65535
+							applyValidationStyle(
+								text.inputEl,
+								valid ? null : 'Enter a whole number from 1024 to 65535.'
+							)
+							if (valid) {
+								plugin.settings['Defaults'][key] = port
+								plugin.scheduleSave()
+								plugin.scheduleApiRestart()
+							}
+						})
+					)
+			} else if (typeof defaultValue === 'string') {
 				new Setting(defaults_settings)
 					.setName(key)
 					.setDesc(defaultDescs[key])
@@ -328,6 +348,9 @@ export class SettingsTab extends PluginSettingTab {
 						text.setValue(defaultValue).onChange((value) => {
 							plugin.settings['Defaults'][key] = value
 							plugin.scheduleSave()
+							if (key === 'Local API Token') {
+								plugin.scheduleApiRestart()
+							}
 						})
 					)
 			} else if (typeof defaultValue === 'boolean') {
@@ -338,6 +361,10 @@ export class SettingsTab extends PluginSettingTab {
 						toggle.setValue(defaultValue).onChange((value) => {
 							plugin.settings['Defaults'][key] = value
 							plugin.scheduleSave()
+							if (key === 'Local API') {
+								// Re-render afterwards: enabling generates the token.
+								void plugin.restartApiServer().then(() => this.setup_display())
+							}
 						})
 					)
 			} else if (typeof defaultValue === 'number') {
@@ -352,16 +379,7 @@ export class SettingsTab extends PluginSettingTab {
 							.onChange(async (value) => {
 								plugin.settings['Defaults'][key] = value
 								plugin.scheduleSave()
-								if (plugin.hasOwnProperty('schedule_id')) {
-									window.clearInterval(plugin.schedule_id)
-								}
-								if (value != 0) {
-									plugin.schedule_id = window.setInterval(
-										async () => await plugin.scanVault(),
-										value * 1000 * 60
-									)
-									plugin.registerInterval(plugin.schedule_id)
-								}
+								plugin.startSchedule()
 							})
 					})
 			}
@@ -530,7 +548,7 @@ export class SettingsTab extends PluginSettingTab {
 									plugin.fields_dict = await plugin.generateFieldsDict()
 									new Notice('Fields dictionary successfully generated!')
 								} catch (_e) {
-									new Notice("Couldn't connect to Anki! Check console for error message.")
+									new Notice(await describeConnectionFailure())
 									return
 								}
 							}
@@ -538,7 +556,7 @@ export class SettingsTab extends PluginSettingTab {
 							this.setup_display()
 							new Notice('Note types updated!')
 						} catch (_e) {
-							new Notice("Couldn't connect to Anki! Check console for details.")
+							new Notice(await describeConnectionFailure())
 						}
 					})
 			})

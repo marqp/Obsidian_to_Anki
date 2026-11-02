@@ -57,7 +57,9 @@ describe('settingToData configuration parser', () => {
 
 		const result = await settingToData(mockApp, settings, fieldsDict)
 
-		expect(invokeSpy).toHaveBeenCalledWith('findNotes', { query: '' })
+		// Lazy: building the settings must not enumerate the Anki collection.
+		expect(invokeSpy).not.toHaveBeenCalled()
+		expect(result.EXISTING_IDS.size).toBe(0)
 
 		expect(result.vault_name).toBe('TestVault')
 		expect(result.fields_dict).toBe(fieldsDict)
@@ -73,7 +75,8 @@ describe('settingToData configuration parser', () => {
 		expect(result.template.options.allowDuplicate).toBe(true)
 		expect(result.template.tags).toEqual(['Obsidian_to_Anki'])
 
-		expect(result.EXISTING_IDS).toEqual(new Set([101, 202, 303]))
+		await expect(result.loadExistingIds?.()).resolves.toEqual([101, 202, 303])
+		expect(invokeSpy).toHaveBeenCalledWith('findNotes', { query: '' })
 	})
 
 	it('maps all boolean defaults and handles fallback for IGNORED_FILE_GLOBS', async () => {

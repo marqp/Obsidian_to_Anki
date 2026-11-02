@@ -12,7 +12,7 @@ function fakeApp(content: string) {
 	const app = {
 		vault: {
 			read: async () => content,
-			modify,
+			process: modify,
 			getName: () => 'vault',
 			adapter: { getFullPath: (p: string) => p }
 		},

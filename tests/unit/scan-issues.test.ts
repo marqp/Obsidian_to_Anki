@@ -13,7 +13,7 @@ afterEach(() => {
 
 function testApp(): App {
 	return {
-		vault: { getName: () => 'vault', modify: vi.fn(), adapter: { getFullPath: (p: string) => p } },
+		vault: { getName: () => 'vault', process: vi.fn(), adapter: { getFullPath: (p: string) => p } },
 		metadataCache: { getFirstLinkpathDest: () => null }
 	} as unknown as App
 }
