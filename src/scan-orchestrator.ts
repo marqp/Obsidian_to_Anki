@@ -431,7 +431,9 @@ export class ScanOrchestrator {
 		const failedAdds = issues.filter((i) => i.kind === 'add-note').length
 		const added = manager.ownFiles.reduce((n, f) => n + f.all_notes_to_add.length, 0) - failedAdds
 		const updated = manager.ownFiles.reduce((n, f) => n + f.notes_to_edit.length, 0)
-		const deleted = manager.ownFiles.reduce((n, f) => n + f.notes_to_delete.length, 0)
+		// Explicit DELETE lines plus notes whose block vanished from Markdown.
+		const deleted =
+			manager.ownFiles.reduce((n, f) => n + f.notes_to_delete.length, 0) + manager.orphanNoteIds.length
 		console.info(
 			`[Obsidian_to_Anki] scan complete: files_changed=${manager.ownFiles.length}/${totalFiles} added=${added} updated=${updated} deleted=${deleted}${issues.length > 0 ? ` failed=${issues.length}` : ''}`
 		)

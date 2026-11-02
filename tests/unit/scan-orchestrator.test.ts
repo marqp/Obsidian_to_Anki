@@ -68,6 +68,7 @@ interface FakeManager {
 	files: TFile[]
 	ownFiles: AllFile[]
 	scanIssues: ScanIssue[]
+	orphanNoteIds: number[]
 	added_media_set: Set<string>
 	initialiseFiles: (control?: ScanControl) => Promise<void>
 	requests_1: () => Promise<void>
@@ -99,6 +100,7 @@ function makeHarness(overrides: Partial<ScanEnvironment> = {}, scanDirs: string[
 		files: [],
 		ownFiles: [],
 		scanIssues: [],
+		orphanNoteIds: [],
 		added_media_set: new Set<string>(),
 		initialiseFiles: () => Promise.resolve(),
 		requests_1: () => Promise.resolve(),
@@ -413,6 +415,17 @@ describe('ScanReport', () => {
 			deleted: 0,
 			issues: [{ file: 'a.md', kind: 'media', error: 'missing' }]
 		})
+	})
+
+	it('counts notes deleted because their block was removed, not only DELETE lines', async () => {
+		const h = makeHarness()
+		const data: ParsedSettings = createParsedSettings()
+		h.fake.files = [tfile('a.md')]
+		h.fake.ownFiles = createManagerFiles(data, [], [{ deckName: 'Default', modelName: 'Basic' }])
+		h.fake.orphanNoteIds = [11, 12]
+		const report = await h.orchestrator.scanVault()
+		expect(report.deleted).toBe(2)
+		expect(h.infos.some((line) => line.includes('deleted=2'))).toBe(true)
 	})
 
 	it('reports nothing-to-sync with the total file count', async () => {
