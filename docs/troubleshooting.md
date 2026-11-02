@@ -17,6 +17,21 @@
 
 Dry-run needs Anki up too (live `notesInfo`/`cardsInfo` for the diff).
 
+Since the plugin now names the exact status in its Notices (instead of a generic
+"Couldn't connect"), the table above is also what you will see on screen. Notices that
+mention a *problem* after a sync (`N problem(s) during sync`) list the first few failing
+files; the full list is in the console as `scan issues: [...]`.
+
+## Local API / MCP
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Cannot reach the plugin API` in the agent | Obsidian closed, or `Local API` off | Open Obsidian, enable `Local API` in the plugin settings |
+| `The plugin rejected the token` | Token in the MCP env differs from the settings | Copy `Local API Token` again into `OBSIDIAN_ANKI_TOKEN` |
+| `Local API could not start on port …` (Notice) | Port already in use | Change `Local API Port` |
+| `Another scan is already running` (HTTP 409) | A scan/dry-run holds the guard | Wait for it, then retry |
+| `File was edited during the sync; note IDs were not written` | You edited the note while the sync ran | Re-scan; if the card was duplicated, delete the duplicate in Anki |
+
 ## Cards
 
 | Symptom | Cause | Fix |
