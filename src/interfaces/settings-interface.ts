@@ -36,6 +36,9 @@ export interface PluginSettings {
 		'Allow Note Type Changes': boolean
 		'Auto-launch Anki': boolean
 		'Confirm Before Sync': boolean
+		'Local API': boolean
+		'Local API Port': number
+		'Local API Token': string
 		/** Legacy key, migrated to 'Scan Directories' on load and then deleted. */
 		'Scan Directory'?: string
 		[key: string]: string[] | string | number | boolean | undefined

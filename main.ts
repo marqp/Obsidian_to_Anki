@@ -1,5 +1,4 @@
-import { Notice, Plugin, addIcon } from 'obsidian'
-import type { TFile } from 'obsidian'
+import { Notice, Plugin, TFile, addIcon } from 'obsidian'
 import * as AnkiConnect from './src/anki'
 import { PluginSettings, StoredPluginData } from './src/interfaces/settings-interface'
 import { DEFAULT_IGNORED_FILE_GLOBS, SettingsTab } from './src/settings'
@@ -16,7 +15,8 @@ import {
 import { openNoteInAnki, registerPluginCommands } from './src/commands'
 import { obsidianNoticePort } from './src/notices'
 import { createProgressNotice } from './src/progress-notice'
-import { describeConnectionFailure } from './src/anki-launch'
+import { describeConnectionFailure, probeAnkiStatus } from './src/anki-launch'
+import { LocalApiServer, MIN_TOKEN_LENGTH, generateToken, type ApiHandlers } from './src/api-server'
 import type { DryRunSummary } from './src/dry-run'
 import { DryRunModal } from './src/ui/dry-run-modal'
 import { type ScanControl } from './src/files-manager'
@@ -28,6 +28,10 @@ export default class MyPlugin extends Plugin {
 	added_media: string[] = []
 	file_hashes: FileHashes = {}
 	schedule_id?: number
+	private apiServer?: LocalApiServer
+	private apiTimer?: number
+	/** Serialises start/stop so rapid setting changes never race on the port. */
+	private apiQueue: Promise<void> = Promise.resolve()
 	private saveTimer?: number
 	private orchestrator?: ScanOrchestrator
 
@@ -270,6 +274,82 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
+	/** Vault file for an API-supplied path, or null when it is not a file. */
+	private apiFile(path: string): TFile | null {
+		const file = this.app.vault.getAbstractFileByPath(path)
+		return file instanceof TFile ? file : null
+	}
+
+	private apiHandlers(): ApiHandlers {
+		return {
+			status: () => probeAnkiStatus(),
+			scan: () => this.scanVault(),
+			scanFile: async (path) => {
+				const file = this.apiFile(path)
+				return file === null ? null : await this.scanVault(file)
+			},
+			dryRun: async (path) => {
+				if (path === undefined) {
+					return await this.dryRun()
+				}
+				const file = this.apiFile(path)
+				return file === null ? null : await this.dryRun(file)
+			}
+		}
+	}
+
+	/**
+	 * (Re)apply the Local API settings: stop any running server, then start
+	 * one if enabled. Serialised through apiQueue; failures become a Notice.
+	 */
+	restartApiServer(): Promise<void> {
+		this.apiQueue = this.apiQueue.then(() => this.applyApiSettings())
+		return this.apiQueue
+	}
+
+	/** Debounced restart for text inputs (port/token fire per keystroke). */
+	scheduleApiRestart(): void {
+		if (this.apiTimer !== undefined) {
+			window.clearTimeout(this.apiTimer)
+		}
+		this.apiTimer = window.setTimeout(() => {
+			this.apiTimer = undefined
+			void this.restartApiServer()
+		}, 600)
+	}
+
+	private async applyApiSettings(): Promise<void> {
+		await this.apiServer?.stop()
+		this.apiServer = undefined
+		const defaults = this.settings.Defaults
+		if (defaults['Local API'] !== true) {
+			return
+		}
+		const port = defaults['Local API Port']
+		if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+			new Notice(`Local API not started: port must be 1024-65535 (got ${port}).`)
+			return
+		}
+		let token = defaults['Local API Token']
+		if (typeof token !== 'string' || token.length < MIN_TOKEN_LENGTH) {
+			token = generateToken()
+			defaults['Local API Token'] = token
+			await this.saveAllData()
+		}
+		const server = new LocalApiServer({ port, token, handlers: this.apiHandlers() })
+		try {
+			await server.start()
+			this.apiServer = server
+			console.info(`[Obsidian_to_Anki] local API listening on 127.0.0.1:${server.port}`)
+		} catch (error) {
+			console.error('[Obsidian_to_Anki] local API failed to start:', error)
+			new Notice(
+				`Local API could not start on port ${port}: ${error instanceof Error ? error.message : String(error)}`,
+				10000
+			)
+		}
+	}
+
 	async onload() {
 		console.log('loading Obsidian_to_Anki...')
 		addIcon('anki', ANKI_ICON)
@@ -313,6 +393,7 @@ export default class MyPlugin extends Plugin {
 
 		this.addSettingTab(new SettingsTab(this.app, this))
 		this.startSchedule()
+		void this.restartApiServer()
 
 		const orchestrator = this.scanOrchestrator()
 
@@ -345,6 +426,13 @@ export default class MyPlugin extends Plugin {
 			window.clearTimeout(this.saveTimer)
 			this.saveTimer = undefined
 		}
+		if (this.apiTimer !== undefined) {
+			window.clearTimeout(this.apiTimer)
+			this.apiTimer = undefined
+		}
+		await this.apiQueue
+		await this.apiServer?.stop()
+		this.apiServer = undefined
 		this.saveAllData()
 	}
 }

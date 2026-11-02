@@ -100,6 +100,23 @@ export const DEFAULTS_META: DefaultMeta[] = [
 		value: false,
 		description:
 			'Show a preview modal with the pending adds, updates and deletes before writing to Anki. Applies to Scan Vault and Scan Current File; the scheduler and headless dry-run stay non-interactive. Off by default.'
+	},
+	{
+		key: 'Local API',
+		value: false,
+		description:
+			'Run a local HTTP API (127.0.0.1 only, bearer token required) so external tools such as the bundled MCP server can trigger scans without the Obsidian CLI. Off by default; scans started through it skip Confirm Before Sync.'
+	},
+	{
+		key: 'Local API Port',
+		value: 27180,
+		description: 'Port for the local API (1024-65535). Change it only if another program already uses it.'
+	},
+	{
+		key: 'Local API Token',
+		value: '',
+		description:
+			'Bearer token clients must send. Generated automatically the first time the API is enabled; clear it to generate a new one. Stored in plaintext in data.json.'
 	}
 ]
 
