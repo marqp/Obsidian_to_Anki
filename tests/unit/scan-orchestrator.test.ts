@@ -391,6 +391,84 @@ describe('progress UI', () => {
 	})
 })
 
+describe('ScanReport', () => {
+	it('reports a completed sync with real counts and issues', async () => {
+		const h = makeHarness()
+		const data: ParsedSettings = createParsedSettings()
+		h.fake.files = [tfile('a.md'), tfile('b.md')]
+		h.fake.ownFiles = createManagerFiles(
+			data,
+			[{ id: 5, fields: { Front: 'Q' }, tags: [] }],
+			[{ deckName: 'Default', modelName: 'Basic' }]
+		)
+		h.fake.scanIssues = [{ file: 'a.md', kind: 'media', error: 'missing' }]
+		const report = await h.orchestrator.scanVault()
+		expect(report).toMatchObject({
+			outcome: 'completed',
+			dryRun: false,
+			filesChanged: 1,
+			filesTotal: 2,
+			added: 1,
+			updated: 1,
+			deleted: 0,
+			issues: [{ file: 'a.md', kind: 'media', error: 'missing' }]
+		})
+	})
+
+	it('reports nothing-to-sync with the total file count', async () => {
+		const h = makeHarness()
+		h.fake.files = [tfile('a.md')]
+		const report = await h.orchestrator.scanVault()
+		expect(report).toMatchObject({ outcome: 'nothing-to-sync', filesChanged: 0, filesTotal: 1 })
+	})
+
+	it('reports aborted with the probe message when Anki is not ready', async () => {
+		const h = makeHarness({ probeAnki: () => Promise.resolve({ status: 'closed', message: 'Anki is closed.' }) })
+		const report = await h.orchestrator.scanVault()
+		expect(report).toMatchObject({ outcome: 'aborted', message: 'Anki is closed.' })
+	})
+
+	it('reports cancelled when the scan is cancelled', async () => {
+		const h = makeHarness()
+		h.fake.initialiseFiles = () => Promise.reject(new ScanCancelledError())
+		const report = await h.orchestrator.scanVault()
+		expect(report.outcome).toBe('cancelled')
+	})
+
+	it('reports busy for a concurrent scan or dry-run', async () => {
+		const h = makeHarness()
+		let release!: () => void
+		h.fake.initialiseFiles = () => new Promise<void>((resolve) => (release = resolve))
+		const first = h.orchestrator.scanVault()
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect((await h.orchestrator.scanVault()).outcome).toBe('busy')
+		const dry = await h.orchestrator.runDryRun()
+		expect(dry).toMatchObject({ outcome: 'busy', dryRun: true })
+		release()
+		await first
+	})
+
+	it('reports awaiting-confirmation when Confirm Before Sync owns the decision', async () => {
+		const h = makeHarness({ shouldConfirmSync: () => true })
+		const report = await h.orchestrator.scanVault()
+		expect(report.outcome).toBe('awaiting-confirmation')
+	})
+
+	it('reports the would-be counts and details for a dry-run', async () => {
+		const h = makeHarness()
+		const data: ParsedSettings = createParsedSettings()
+		h.fake.files = [tfile('a.md')]
+		h.fake.ownFiles = createManagerFiles(data, [], [{ deckName: 'Default', modelName: 'Basic' }])
+		const manager = h.fake as unknown as Record<string, unknown>
+		manager['data'] = { allow_note_type_changes: false }
+		manager['orphanNoteIds'] = []
+		manager['orphanFileById'] = () => new Map<number, string>()
+		const report = await h.orchestrator.runDryRun()
+		expect(report).toMatchObject({ outcome: 'completed', dryRun: true, added: 1, updated: 0, deleted: 0 })
+		expect(report.details?.changes.length).toBeGreaterThan(0)
+	})
+})
+
 describe('createScanEnvironment', () => {
 	it('wires production defaults around plugin-owned state', async () => {
 		const state: ScanState = {

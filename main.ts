@@ -7,7 +7,12 @@ import { ANKI_ICON } from './src/constants'
 import { FileHashes, pruneFileHashes } from './src/scan-optimizations'
 import { migrateSettings } from './src/ui/settings-migration'
 import { buildDefaults } from './src/defaults-meta'
-import { ScanOrchestrator, createScanEnvironment, type PreviewCallbacks } from './src/scan-orchestrator'
+import {
+	ScanOrchestrator,
+	createScanEnvironment,
+	type PreviewCallbacks,
+	type ScanReport
+} from './src/scan-orchestrator'
 import { openNoteInAnki, registerPluginCommands } from './src/commands'
 import { obsidianNoticePort } from './src/notices'
 import { createProgressNotice } from './src/progress-notice'
@@ -195,8 +200,13 @@ export default class MyPlugin extends Plugin {
 	 * this); UI commands go straight to the orchestrator. Always direct —
 	 * unattended scans must never open a modal. Thin delegation.
 	 */
-	async scanVault(file?: TFile | null, control: ScanControl = {}): Promise<void> {
-		await this.scanOrchestrator().scanVault(file, control, { bypassConfirm: true })
+	async scanVault(file?: TFile | null, control: ScanControl = {}): Promise<ScanReport> {
+		return await this.scanOrchestrator().scanVault(file, control, { bypassConfirm: true })
+	}
+
+	/** Read-only preview of what a sync would do; same guard as a real scan. */
+	async dryRun(file?: TFile | null): Promise<ScanReport> {
+		return await this.scanOrchestrator().runDryRun({}, file)
 	}
 
 	private scanOrchestrator(): ScanOrchestrator {
@@ -307,9 +317,15 @@ export default class MyPlugin extends Plugin {
 		const orchestrator = this.scanOrchestrator()
 
 		registerPluginCommands(this, {
-			onScanVault: () => orchestrator.scanVault(undefined),
-			onScanFile: () => orchestrator.scanVault(this.app.workspace.getActiveFile()),
-			onDryRun: () => orchestrator.runDryRun(),
+			onScanVault: async () => {
+				await orchestrator.scanVault(undefined)
+			},
+			onScanFile: async () => {
+				await orchestrator.scanVault(this.app.workspace.getActiveFile())
+			},
+			onDryRun: async () => {
+				await orchestrator.runDryRun()
+			},
 			onPreviewSync: () => orchestrator.runPreviewSync(undefined),
 			onOpenNote: (editor, mode) =>
 				openNoteInAnki(
