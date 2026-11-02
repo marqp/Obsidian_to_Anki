@@ -80,7 +80,7 @@ export interface ManagerOptions {
 export function createManager(options: ManagerOptions) {
 	const parsed = createParsedSettings({ allow_note_type_changes: options.allowNoteTypeChanges ?? false })
 	const app = {
-		vault: { getName: () => 'vault', modify: vi.fn(), adapter: { getFullPath: (p: string) => p } },
+		vault: { getName: () => 'vault', process: vi.fn(), adapter: { getFullPath: (p: string) => p } },
 		metadataCache: { getFirstLinkpathDest: () => null }
 	} as unknown as App
 	const manager = new FileManager(app, parsed, [], {}, [])

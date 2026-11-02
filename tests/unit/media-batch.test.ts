@@ -40,7 +40,7 @@ describe('requests_1 media batch', () => {
 	) {
 		const vault = {
 			read: async () => '',
-			modify: vi.fn(),
+			process: vi.fn(),
 			getCache: () => ({}),
 			getFirstLinkpathDest: (link: string) => dest(link),
 			getFullPath: (path: string) => `/abs/${path}`

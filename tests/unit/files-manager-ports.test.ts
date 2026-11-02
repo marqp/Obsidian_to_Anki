@@ -28,8 +28,10 @@ function fakeVault(contents: Record<string, string>, caches: Record<string, obje
 			reads.push(file.path)
 			return this.contents.get(file.path) ?? ''
 		},
-		async modify(file: TFile, data: string) {
-			modifies.push({ path: file.path, data })
+		async process(file: TFile, fn: (data: string) => string) {
+			const next = fn(this.contents.get(file.path) ?? '')
+			modifies.push({ path: file.path, data: next })
+			return next
 		},
 		getCache(path: string) {
 			return (this.caches.get(path) ?? {}) as never
@@ -158,6 +160,53 @@ describe('FileManager with injected VaultPort (no Obsidian)', () => {
 		await manager.requests_2()
 
 		expect(notify).toHaveBeenCalledWith(expect.stringContaining('AnkiWeb sync failed'))
+	})
+})
+
+describe('ID write-back via vault.process', () => {
+	async function runAdd(mutateDuringSync?: (vault: FakeVault) => void) {
+		const vault = fakeVault({ 'a.md': NOTE })
+		const data = createParsedSettings()
+		const manager = new FileManager({} as never, data, [tfile('a.md', { mtime: 1, size: NOTE.length })], {}, [], {
+			vault
+		})
+		await manager.initialiseFiles()
+		const response = [
+			{ error: null, result: [] },
+			{ error: null, result: [{ error: null, result: [{ result: 123, error: null }] }] },
+			{ error: null, result: [] },
+			{ error: null, result: [] },
+			{ error: null, result: [] },
+			{ error: null, result: [] },
+			{ error: null, result: [] }
+		]
+		AnkiConnect.setTransport({
+			invoke: async (action: string) => {
+				if (action === 'apiReflect') {
+					return { scopes: ['actions'], actions: [] }
+				}
+				mutateDuringSync?.(vault)
+				return response
+			}
+		})
+		await manager.requests_1()
+		return { vault, manager }
+	}
+
+	it('writes the new note ID when the file is unchanged since it was read', async () => {
+		const { vault, manager } = await runAdd()
+
+		expect(vault.modifies).toHaveLength(1)
+		expect(vault.modifies[0].data).toContain('<!--ID: 123-->')
+		expect(manager.scanIssues.filter((i) => i.kind === 'file-changed')).toEqual([])
+	})
+
+	it('keeps the user edit and reports file-changed when the file changed mid-sync', async () => {
+		const edited = NOTE + 'user typed this during the sync\n'
+		const { vault, manager } = await runAdd((v) => v.contents.set('a.md', edited))
+
+		expect(vault.modifies).toEqual([{ path: 'a.md', data: edited }])
+		expect(manager.scanIssues).toContainEqual(expect.objectContaining({ file: 'a.md', kind: 'file-changed' }))
 	})
 })
 
