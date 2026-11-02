@@ -4,7 +4,7 @@ import * as AnkiConnect from './src/anki'
 import { PluginSettings, StoredPluginData } from './src/interfaces/settings-interface'
 import { DEFAULT_IGNORED_FILE_GLOBS, SettingsTab } from './src/settings'
 import { ANKI_ICON } from './src/constants'
-import { FileHashes } from './src/scan-optimizations'
+import { FileHashes, pruneFileHashes } from './src/scan-optimizations'
 import { migrateSettings } from './src/ui/settings-migration'
 import { buildDefaults } from './src/defaults-meta'
 import { ScanOrchestrator, createScanEnvironment, type PreviewCallbacks } from './src/scan-orchestrator'
@@ -216,6 +216,10 @@ export default class MyPlugin extends Plugin {
 							for (const [key, entry] of Object.entries(hashes)) {
 								this.file_hashes[key] = entry
 							}
+							pruneFileHashes(
+								this.file_hashes,
+								(path) => this.app.vault.getAbstractFileByPath(path) !== null
+							)
 							this.saveAllData()
 						}
 					},

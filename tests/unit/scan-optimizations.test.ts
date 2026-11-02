@@ -8,7 +8,8 @@ import {
 	getStoredHash,
 	isFileUnchanged,
 	isStatUnchanged,
-	mapConcurrent
+	mapConcurrent,
+	pruneFileHashes
 } from '../../src/scan-optimizations'
 
 function createParsedSettings(existingIdCount = 3): ParsedSettings {
@@ -144,4 +145,25 @@ test('large vault windows reuse one Anki ID set instead of cloning it', () => {
 		const fileData = createFileData(parsedSettings, 'Default', ['review'])
 		assert.strictEqual(fileData.EXISTING_IDS, parsedSettings.EXISTING_IDS)
 	}
+})
+
+test('pruneFileHashes drops only records whose path no longer exists', () => {
+	const hashes = {
+		'kept.md': { hash: 'a', mtime: 1, size: 1, noteIds: [1] },
+		'deleted.md': { hash: 'b', mtime: 1, size: 1, noteIds: [2] },
+		'legacy-gone.md': 'old-string-hash'
+	}
+	const removed = pruneFileHashes(hashes, (path) => path === 'kept.md')
+
+	assert.equal(removed, 2)
+	assert.deepEqual(Object.keys(hashes), ['kept.md'])
+})
+
+test('pruneFileHashes leaves a fully valid map untouched', () => {
+	const hashes = { 'a.md': 'x', 'b.md': 'y' }
+	assert.equal(
+		pruneFileHashes(hashes, () => true),
+		0
+	)
+	assert.deepEqual(Object.keys(hashes), ['a.md', 'b.md'])
 })
