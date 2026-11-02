@@ -322,6 +322,7 @@ export class FileManager {
 			const { obFile, content } = readResults[index]
 
 			if (!isFileUnchanged(obFile.path, content, this.file_hashes)) {
+				await this.ensureExistingIds()
 				const cache: CachedMetadata = this.vault.getCache(obFile.path)
 				const file = new AllFile(
 					content,
@@ -350,6 +351,16 @@ export class FileManager {
 		if (this.orphanNoteIds.length > 0) {
 			console.info(`Notes removed from Markdown will be deleted from Anki: ${this.orphanNoteIds.join(', ')}`)
 		}
+	}
+
+	/** Load the Anki note-ID set once, the first time a changed file needs it. */
+	private async ensureExistingIds(): Promise<void> {
+		const load = this.data.loadExistingIds
+		if (!load) {
+			return
+		}
+		const ids = await load()
+		this.data = { ...this.data, EXISTING_IDS: new Set(ids), loadExistingIds: undefined }
 	}
 
 	private throwIfCancelled(control: ScanControl): void {

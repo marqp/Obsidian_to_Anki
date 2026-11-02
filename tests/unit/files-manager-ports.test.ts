@@ -102,6 +102,68 @@ describe('FileManager with injected VaultPort (no Obsidian)', () => {
 		expect(manager.ownFiles).toEqual([])
 	})
 
+	it('does not fetch existing note IDs when nothing changed', async () => {
+		const load = vi.fn(async () => [1])
+		const data = createParsedSettings({ loadExistingIds: load })
+		const manager = new FileManager(
+			{} as never,
+			data,
+			[tfile('a.md', { mtime: 1, size: NOTE.length })],
+			{ 'a.md': { hash: 'whatever', mtime: 1, size: NOTE.length, noteIds: [] } },
+			[],
+			{ vault: fakeVault({ 'a.md': NOTE }) }
+		)
+
+		await manager.initialiseFiles()
+
+		expect(load).not.toHaveBeenCalled()
+	})
+
+	it('does not fetch existing note IDs when a touched file has identical content', async () => {
+		const vault = fakeVault({ 'a.md': NOTE })
+		const load = vi.fn(async () => [1])
+		const probeManager = new FileManager(
+			{} as never,
+			createParsedSettings(),
+			[tfile('a.md', { mtime: 1, size: 1 })],
+			{},
+			[],
+			{
+				vault
+			}
+		)
+		await probeManager.initialiseFiles()
+		const stored = probeManager.getHashes()
+		const data = createParsedSettings({ loadExistingIds: load })
+		const manager = new FileManager({} as never, data, [tfile('a.md', { mtime: 99, size: 1 })], stored, [], {
+			vault
+		})
+
+		await manager.initialiseFiles()
+
+		expect(manager.ownFiles).toEqual([])
+		expect(load).not.toHaveBeenCalled()
+	})
+
+	it('fetches existing note IDs once, then uses them for orphan detection', async () => {
+		const vault = fakeVault({ 'a.md': 'no notes here anymore\n', 'b.md': 'also none\n' })
+		const load = vi.fn(async () => [7])
+		const data = createParsedSettings({ delete_removed_notes: true, loadExistingIds: load })
+		const manager = new FileManager(
+			{} as never,
+			data,
+			[tfile('a.md', { mtime: 5, size: 1 }), tfile('b.md', { mtime: 5, size: 1 })],
+			{ 'a.md': { hash: 'old', mtime: 1, size: 1, noteIds: [7] } },
+			[],
+			{ vault }
+		)
+
+		await manager.initialiseFiles()
+
+		expect(load).toHaveBeenCalledTimes(1)
+		expect(manager.orphanNoteIds).toEqual([7])
+	})
+
 	it('computes orphans from stored records without any Obsidian dependency', async () => {
 		const vault = fakeVault({ 'a.md': 'no notes here anymore\n' })
 		const data = createParsedSettings({ delete_removed_notes: true, EXISTING_IDS: new Set([7, 8]) })

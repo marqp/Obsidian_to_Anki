@@ -15,8 +15,6 @@ export async function settingToData(
 	settings: PluginSettings,
 	fields_dict: Record<string, string[]>
 ): Promise<ParsedSettings> {
-	const existingIds = await AnkiConnect.invoke<number[]>('findNotes', { query: '' })
-
 	return {
 		// Some processing required
 		vault_name: app.vault.getName(),
@@ -35,7 +33,10 @@ export async function settingToData(
 			},
 			tags: [settings.Defaults.Tag]
 		},
-		EXISTING_IDS: new Set(existingIds),
+		// Filled on demand by FileManager (see loadExistingIds): a scan with
+		// no changed files must not enumerate the whole Anki collection.
+		EXISTING_IDS: new Set<number>(),
+		loadExistingIds: () => AnkiConnect.invoke<number[]>('findNotes', { query: '' }),
 
 		// RegExp section
 		FROZEN_REGEXP: new RegExp(
