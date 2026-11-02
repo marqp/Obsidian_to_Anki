@@ -1,9 +1,30 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { request } from 'http'
-import { API_VERSION, LocalApiServer, MIN_TOKEN_LENGTH, generateToken, type ApiHandlers } from '../../src/api-server'
+import {
+	API_VERSION,
+	LocalApiServer,
+	MIN_TOKEN_LENGTH,
+	generateToken,
+	pathForms,
+	type ApiHandlers
+} from '../../src/api-server'
 import type { ScanReport } from '../../src/scan-orchestrator'
 
 const TOKEN = 'test-token-test-token-test-token'
+
+describe('pathForms', () => {
+	const nfc = 'Flashcards - Esclerose M\u00faltipla.md'
+	const nfd = 'Flashcards - Esclerose Mu\u0301ltipla.md'
+
+	it('tries the given spelling first, then the other Unicode form', () => {
+		expect(pathForms(nfd)).toEqual([nfd, nfc])
+		expect(pathForms(nfc)).toEqual([nfc, nfd])
+	})
+
+	it('does not repeat a path without accents', () => {
+		expect(pathForms('notes/a.md')).toEqual(['notes/a.md'])
+	})
+})
 
 function report(overrides: Partial<ScanReport> = {}): ScanReport {
 	return {

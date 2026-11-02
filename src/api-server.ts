@@ -36,6 +36,15 @@ export function generateToken(): string {
 	return randomBytes(24).toString('base64url')
 }
 
+/**
+ * Forms a vault path may be spelled in, the given one first. macOS filenames
+ * are often NFD while Obsidian indexes NFC, so a path copied from a directory
+ * listing would otherwise miss a file that exists.
+ */
+export function pathForms(path: string): string[] {
+	return [...new Set([path, path.normalize('NFC'), path.normalize('NFD')])]
+}
+
 function sha256(value: string): Buffer {
 	return createHash('sha256').update(value).digest()
 }
