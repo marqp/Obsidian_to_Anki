@@ -165,3 +165,91 @@ describe('AllFile.scanFile end-to-end', () => {
 		expect(file.regex_notes_to_add[0].tags).not.toContain('s:')
 	})
 })
+
+describe('AllFile.parseIssues: notes the scan cannot sync are reported', () => {
+	const clozeData = (): FileData =>
+		buildFileData({ fields_dict: { Basic: ['Front', 'Back'], Cloze: ['Text', 'Extra'] } })
+
+	it('reports a Cloze block without deletions, with its line and text', () => {
+		const file = scan('# Heading\n\nSTART\nCloze\nPlain text\nBack:\n- a list\nEND\n', clozeData())
+
+		expect(file.notes_to_add).toEqual([])
+		expect(file.parseIssues).toEqual([
+			expect.objectContaining({
+				file: 'note.md',
+				kind: 'cloze-without-deletions',
+				line: 3,
+				snippet: 'Cloze Plain text Back: - a list'
+			})
+		])
+	})
+
+	it('names the existing note when a Cloze block with an ID lost its deletions', () => {
+		const file = scan('START\nCloze\nPlain text\n<!--ID: 1234-->\nEND\n', clozeData())
+
+		expect(file.parseIssues[0]).toMatchObject({ kind: 'cloze-without-deletions', noteId: 1234 })
+	})
+
+	it('reports an unknown note type', () => {
+		const file = scan('START\nNoSuchType\nFront: q\nEND\n')
+
+		expect(file.parseIssues).toEqual([
+			expect.objectContaining({
+				kind: 'unknown-note-type',
+				line: 1,
+				error: expect.stringContaining('NoSuchType')
+			})
+		])
+	})
+
+	it('reports an ID Anki does not know', () => {
+		const file = scan('START\nBasic\nFront: q\nBack: a\n<!--ID: 99-->\nEND\n')
+
+		expect(file.parseIssues).toEqual([expect.objectContaining({ kind: 'stale-note-id', noteId: 99 })])
+	})
+
+	it('reports the second block that reuses an ID, and still parses both as before', () => {
+		const data = buildFileData({ EXISTING_IDS: new Set([7]) })
+		const block = (front: string): string => `START\nBasic\nFront: ${front}\nBack: a\n<!--ID: 7-->\nEND\n`
+		const file = scan(`${block('first')}\n${block('second')}`, data)
+
+		expect(file.notes_to_edit).toHaveLength(2)
+		expect(file.parseIssues).toEqual([
+			expect.objectContaining({
+				kind: 'duplicate-note-id',
+				noteId: 7,
+				line: 8,
+				snippet: expect.stringContaining('second')
+			})
+		])
+	})
+
+	it('stays silent for notes that sync normally', () => {
+		const data = buildFileData({ EXISTING_IDS: new Set([7]) })
+		const file = scan(
+			'START\nBasic\nFront: new\nBack: a\nEND\n\nSTART\nBasic\nFront: q\nBack: a\n<!--ID: 7-->\nEND\n',
+			data
+		)
+
+		expect(file.parseIssues).toEqual([])
+	})
+
+	it('starts clean when the same file is scanned again', () => {
+		const file = scan('START\nNoSuchType\nFront: q\nEND\n')
+		file.scanFile()
+
+		expect(file.parseIssues).toHaveLength(1)
+	})
+})
+
+describe('AllFile note lines, for reports', () => {
+	it('locates new and existing notes', () => {
+		const data = buildFileData({ EXISTING_IDS: new Set([7]) })
+		const file = scan('# H\n\nSTART\nBasic\nFront: new\nEND\n\nSTART\nBasic\nFront: old\n<!--ID: 7-->\nEND\n', data)
+
+		expect(file.addedNoteLine(0)).toBe(3)
+		expect(file.addedNoteLine(1)).toBeUndefined()
+		expect(file.editedNoteLine(7)).toBe(8)
+		expect(file.editedNoteLine(8)).toBeUndefined()
+	})
+})

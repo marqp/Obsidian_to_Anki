@@ -8,6 +8,8 @@ import {
 	pathForms,
 	type ApiHandlers
 } from '../../src/api-server'
+import type { ValidationReport } from '../../src/validate'
+import type { VaultRules } from '../../src/anki-read'
 import type { ScanReport } from '../../src/scan-orchestrator'
 
 const TOKEN = 'test-token-test-token-test-token'
@@ -41,12 +43,36 @@ function report(overrides: Partial<ScanReport> = {}): ScanReport {
 	}
 }
 
+const validation: ValidationReport = {
+	filesChecked: 1,
+	blocks: 0,
+	errors: 0,
+	warnings: 0,
+	ankiChecked: true,
+	byKind: {},
+	issues: []
+}
+
 function makeHandlers(overrides: Partial<ApiHandlers> = {}): ApiHandlers {
 	return {
 		status: vi.fn(async () => ({ status: 'ready' as const, message: 'ok', version: 6 })),
 		scan: vi.fn(async () => report()),
 		scanFile: vi.fn(async () => report()),
 		dryRun: vi.fn(async () => report({ dryRun: true })),
+		validate: vi.fn(async () => validation),
+		scanState: vi.fn(() => ({ inProgress: false })),
+		metadata: vi.fn(async () => ({ decks: ['D'], noteTypes: [], tags: [], rules: {} as VaultRules })),
+		searchNotes: vi.fn(async ({ limit, offset }) => ({ total: 0, limit, offset, notes: [] })),
+		getNotes: vi.fn(async () => ({ notes: [], missing: [] })),
+		studyOverview: vi.fn(async () => ({
+			due: 0,
+			suspended: 0,
+			leeches: 0,
+			reviewedToday: 0,
+			reviewsByDay: [],
+			decks: []
+		})),
+		difficultCards: vi.fn(async () => ({ total: 0, cards: [] })),
 		...overrides
 	}
 }
@@ -150,6 +176,7 @@ describe('LocalApiServer routes', () => {
 		expect(reply.status).toBe(200)
 		expect(reply.body).toEqual({
 			apiVersion: API_VERSION,
+			scan: { inProgress: false },
 			anki: { status: 'ready', message: 'ok', version: 6 }
 		})
 	})
@@ -199,6 +226,93 @@ describe('LocalApiServer routes', () => {
 		expect(handlers.dryRun).toHaveBeenLastCalledWith(undefined)
 		await call(s.port, 'POST', '/dry-run', { body: JSON.stringify({ path: 'a.md' }) })
 		expect(handlers.dryRun).toHaveBeenLastCalledWith('a.md')
+	})
+
+	it('POST /validate takes a path, unsaved content or nothing, and accepts a whole file', async () => {
+		const handlers = makeHandlers()
+		const s = await start(handlers)
+		expect((await call(s.port, 'POST', '/validate')).body).toEqual(validation)
+		expect(handlers.validate).toHaveBeenLastCalledWith({ path: undefined, content: undefined })
+		const content = 'x'.repeat(100_000)
+		const reply = await call(s.port, 'POST', '/validate', { body: JSON.stringify({ path: 'a.md', content }) })
+		expect(reply.status).toBe(200)
+		expect(handlers.validate).toHaveBeenLastCalledWith({ path: 'a.md', content })
+	})
+
+	it('POST /validate rejects bad content and reports a missing file', async () => {
+		const s = await start(makeHandlers({ validate: vi.fn(async () => null) }))
+		expect((await call(s.port, 'POST', '/validate', { body: JSON.stringify({ content: 3 }) })).status).toBe(400)
+		const missing = await call(s.port, 'POST', '/validate', { body: JSON.stringify({ path: 'no.md' }) })
+		expect(missing.status).toBe(404)
+		expect((await call(s.port, 'GET', '/validate')).status).toBe(405)
+	})
+
+	it('GET /status also says what scans are doing', async () => {
+		const lastReport = { ...report(), details: undefined }
+		const s = await start(makeHandlers({ scanState: vi.fn(() => ({ inProgress: true, lastReport })) }))
+		const { body } = await call(s.port, 'GET', '/status')
+		expect(body['scan']).toMatchObject({ inProgress: true, lastReport: { outcome: 'completed' } })
+	})
+
+	it('GET /metadata answers and refuses POST', async () => {
+		const s = await start()
+		expect((await call(s.port, 'GET', '/metadata')).body['decks']).toEqual(['D'])
+		expect((await call(s.port, 'POST', '/metadata')).status).toBe(405)
+	})
+
+	it('POST /notes/search applies defaults and passes what it was given', async () => {
+		const handlers = makeHandlers()
+		const s = await start(handlers)
+		await call(s.port, 'POST', '/notes/search', { body: JSON.stringify({ query: 'tag:x' }) })
+		expect(handlers.searchNotes).toHaveBeenLastCalledWith({ query: 'tag:x', limit: 20, offset: 0, raw: false })
+		await call(s.port, 'POST', '/notes/search', {
+			body: JSON.stringify({ query: 'y', limit: 5, offset: 10, raw: true })
+		})
+		expect(handlers.searchNotes).toHaveBeenLastCalledWith({ query: 'y', limit: 5, offset: 10, raw: true })
+	})
+
+	it.each([
+		['/notes/search', {}],
+		['/notes/search', { query: 3 }],
+		['/notes/search', { query: 'x', limit: 0 }],
+		['/notes/search', { query: 'x', limit: 101 }],
+		['/notes/search', { query: 'x', limit: 1.5 }],
+		['/notes/search', { query: 'x', offset: -1 }],
+		['/notes/search', { query: 'x', raw: 'yes' }],
+		['/notes/get', {}],
+		['/notes/get', { ids: [] }],
+		['/notes/get', { ids: ['1'] }],
+		['/notes/get', { ids: Array.from({ length: 101 }, (_, i) => i) }],
+		['/study/overview', { days: 0 }],
+		['/study/overview', { deck: '' }],
+		['/study/difficult', { minLapses: 0 }],
+		['/study/difficult', { deck: 7 }],
+		['/study/difficult', { includeSuspended: 1 }]
+	])('POST %s rejects %j with 400', async (route, body) => {
+		const s = await start()
+		expect((await call(s.port, 'POST', route, { body: JSON.stringify(body) })).status).toBe(400)
+	})
+
+	it('POST /notes/get passes the IDs', async () => {
+		const handlers = makeHandlers()
+		const s = await start(handlers)
+		await call(s.port, 'POST', '/notes/get', { body: JSON.stringify({ ids: [1, 2], raw: true }) })
+		expect(handlers.getNotes).toHaveBeenLastCalledWith([1, 2], true)
+	})
+
+	it('POST /study routes apply their defaults', async () => {
+		const handlers = makeHandlers()
+		const s = await start(handlers)
+		await call(s.port, 'POST', '/study/overview')
+		expect(handlers.studyOverview).toHaveBeenLastCalledWith(undefined, 30)
+		await call(s.port, 'POST', '/study/difficult', { body: JSON.stringify({ deck: 'Medicina' }) })
+		expect(handlers.difficultCards).toHaveBeenLastCalledWith({
+			deck: 'Medicina',
+			minLapses: 4,
+			limit: 20,
+			includeSuspended: false,
+			raw: false
+		})
 	})
 
 	it('answers 404 for unknown routes and 405 for the wrong method', async () => {

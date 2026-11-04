@@ -71,9 +71,9 @@ The app must be running (first command auto-launches it).
 
 If the `obsidian` CLI is not on your `PATH` (Obsidian installed via Nix, Flatpak, …) or an agent
 needs structured results, enable **Local API** in the plugin settings. It serves
-`GET /status`, `POST /scan`, `POST /scan-file` and `POST /dry-run` on `127.0.0.1` only,
-behind a bearer token, and returns the same counts as the Notices plus the list of problems.
-The bundled [MCP bridge](../mcp/README.md) wraps it for Gemini CLI / Claude Code.
+scans, dry-runs, offline card validation and read-only access to your collection and study
+data on `127.0.0.1` only, behind a bearer token. Reports have the same counts as the Notices
+plus the list of problems. The bundled [MCP bridge](../mcp/README.md) wraps it for Gemini CLI / Claude Code.
 
 Scans started this way skip `Confirm Before Sync` (like the scheduler), so run the dry-run first.
-Obsidian and Anki still have to be running.
+Obsidian still has to be running, and so does Anki, except to validate cards.

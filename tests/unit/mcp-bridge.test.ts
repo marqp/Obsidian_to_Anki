@@ -1,6 +1,14 @@
 import { describe, it, expect, vi } from 'vitest'
 import { PassThrough } from 'node:stream'
-import { SERVER_INFO, TOOLS, createHandler, resolveBaseUrl, runStdio } from '../../mcp/obsidian-anki-mcp.mjs'
+import {
+	EXPECTED_API_VERSION,
+	INSTRUCTIONS,
+	SERVER_INFO,
+	TOOLS,
+	createHandler,
+	resolveBaseUrl,
+	runStdio
+} from '../../mcp/obsidian-anki-mcp.mjs'
 
 const TOKEN = 'secret-token-secret-token-1'
 
@@ -43,7 +51,8 @@ describe('protocol', () => {
 		expect(reply.result).toEqual({
 			protocolVersion: '2024-11-05',
 			capabilities: { tools: {} },
-			serverInfo: SERVER_INFO
+			serverInfo: SERVER_INFO,
+			instructions: INSTRUCTIONS
 		})
 	})
 
@@ -70,6 +79,28 @@ describe('protocol', () => {
 		expect(reply.result.tools.every((t) => !('request' in t) && 'inputSchema' in t)).toBe(true)
 	})
 
+	it('marks each tool read-only or not, in a way that matches what it does', async () => {
+		const reply = (await handle({ jsonrpc: '2.0', id: 3, method: 'tools/list' })) as {
+			result: { tools: Array<{ name: string; annotations: { readOnlyHint: boolean }; title: string }> }
+		}
+		const writers = reply.result.tools.filter((t) => !t.annotations.readOnlyHint).map((t) => t.name)
+		expect(writers.sort()).toEqual(['anki_scan_file', 'anki_scan_vault'])
+		expect(reply.result.tools.every((t) => t.title.length > 0)).toBe(true)
+	})
+
+	it('offers output schemas only to clients that negotiated them', async () => {
+		const list = async (protocolVersion: string) => {
+			const fresh = handlerWith(fakeFetch(200, {}))
+			await fresh({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion } })
+			const reply = (await fresh({ jsonrpc: '2.0', id: 2, method: 'tools/list' })) as {
+				result: { tools: Array<Record<string, unknown>> }
+			}
+			return reply.result.tools
+		}
+		expect((await list('2025-06-18')).every((t) => 'outputSchema' in t)).toBe(true)
+		expect((await list('2025-03-26')).some((t) => 'outputSchema' in t)).toBe(false)
+	})
+
 	it('rejects unknown methods and malformed messages', async () => {
 		expect(await handle({ jsonrpc: '2.0', id: 4, method: 'nope' })).toMatchObject({ error: { code: -32601 } })
 		expect(await handle({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: {} })).toMatchObject({
@@ -82,12 +113,53 @@ describe('protocol', () => {
 describe('tool calls', () => {
 	it('anki_status sends an authorised GET', async () => {
 		const calls: Call[] = []
-		const result = await callTool(handlerWith(fakeFetch(200, { apiVersion: 1 }, calls)), 'anki_status')
+		const result = await callTool(
+			handlerWith(fakeFetch(200, { apiVersion: EXPECTED_API_VERSION }, calls)),
+			'anki_status'
+		)
 		expect(calls[0].url).toBe('http://127.0.0.1:27180/status')
 		expect(calls[0].init.method).toBe('GET')
 		expect(calls[0].init.headers['Authorization']).toBe(`Bearer ${TOKEN}`)
 		expect(result.isError).toBe(false)
-		expect(JSON.parse(result.content[0].text)).toEqual({ apiVersion: 1 })
+		expect(JSON.parse(result.content[0].text)).toEqual({ apiVersion: EXPECTED_API_VERSION })
+	})
+
+	it('warns when the loaded plugin is not the version this bridge expects', async () => {
+		const result = await callTool(handlerWith(fakeFetch(200, { apiVersion: 1 })), 'anki_status')
+
+		expect(JSON.parse(result.content[0].text).warning).toContain('reload')
+	})
+
+	it.each([
+		['anki_validate', {}, '/validate', {}],
+		['anki_validate', { path: 'a.md', content: 'x' }, '/validate', { path: 'a.md', content: 'x' }],
+		['anki_search_notes', { query: 'tag:x', limit: 5 }, '/notes/search', { query: 'tag:x', limit: 5 }],
+		['anki_get_notes', { ids: [1, 2] }, '/notes/get', { ids: [1, 2] }],
+		['anki_study_overview', { deck: 'D' }, '/study/overview', { deck: 'D' }],
+		['anki_difficult_cards', { minLapses: 8 }, '/study/difficult', { minLapses: 8 }]
+	])('%s %j posts to its route', async (name, args, route, body) => {
+		const calls: Call[] = []
+		await callTool(handlerWith(fakeFetch(200, { issues: [] }, calls)), name, args)
+		expect(calls[0].url).toBe(`http://127.0.0.1:27180${route}`)
+		expect(calls[0].init.method).toBe('POST')
+		expect(JSON.parse(calls[0].init.body as string)).toEqual(body)
+	})
+
+	it('anki_get_metadata sends a GET', async () => {
+		const calls: Call[] = []
+		await callTool(handlerWith(fakeFetch(200, { decks: [] }, calls)), 'anki_get_metadata')
+		expect(calls[0].url).toBe('http://127.0.0.1:27180/metadata')
+		expect(calls[0].init.method).toBe('GET')
+	})
+
+	it('returns the same data as compact text and as structured content', async () => {
+		const payload = { outcome: 'completed', issues: [] }
+		const result = (await callTool(handlerWith(fakeFetch(200, payload)), 'anki_scan_vault')) as unknown as {
+			content: Array<{ text: string }>
+			structuredContent: unknown
+		}
+		expect(result.content[0].text).toBe(JSON.stringify(payload))
+		expect(result.structuredContent).toEqual(payload)
 	})
 
 	it('anki_scan_file forwards the path as JSON', async () => {
@@ -117,11 +189,48 @@ describe('tool calls', () => {
 	})
 
 	it('trims a huge dry-run change list and says how much was omitted', async () => {
-		const changes = Array.from({ length: 250 }, (_, i) => ({ id: i }))
+		const adds = Array.from({ length: 250 }, () => ({ kind: 'add' }))
+		const changes = [...adds, { kind: 'update' }, { kind: 'delete' }, { kind: 'convert' }]
 		const result = await callTool(handlerWith(fakeFetch(200, { details: { decks: [], changes } })), 'anki_dry_run')
+		const { details } = JSON.parse(result.content[0].text)
+		expect(details.changes).toHaveLength(200)
+		expect(details.changesOmitted).toBe(53)
+		expect(details.changesByKind).toEqual({ add: 250, update: 1, delete: 1, convert: 1 })
+		// A cut must never hide the changes that destroy something.
+		expect(details.changes.slice(0, 3).map((c: { kind: string }) => c.kind)).toEqual([
+			'delete',
+			'convert',
+			'update'
+		])
+	})
+
+	it('keeps errors when warnings alone would fill the cut', async () => {
+		const warnings = Array.from({ length: 250 }, () => ({ kind: 'literal-field-label', severity: 'warning' }))
+		const issues = [...warnings, { kind: 'unterminated-block', severity: 'error' }]
+		const result = await callTool(handlerWith(fakeFetch(200, { issues })), 'anki_validate')
 		const body = JSON.parse(result.content[0].text)
-		expect(body.details.changes).toHaveLength(200)
-		expect(body.details.changesOmitted).toBe(50)
+		expect(body.issues[0].severity).toBe('error')
+		expect(body.issues).toHaveLength(200)
+	})
+
+	it('adds a count by kind to a short change list and leaves out the omitted count', async () => {
+		const changes = [{ kind: 'add' }, { kind: 'add' }]
+		const result = await callTool(handlerWith(fakeFetch(200, { details: { changes } })), 'anki_dry_run')
+		const { details } = JSON.parse(result.content[0].text)
+		expect(details.changesByKind).toEqual({ add: 2 })
+		expect(details).not.toHaveProperty('changesOmitted')
+	})
+
+	it('trims a huge issue list and keeps the counts', async () => {
+		const issues = [
+			...Array.from({ length: 250 }, () => ({ kind: 'literal-field-label' })),
+			{ kind: 'stale-note-id' }
+		]
+		const result = await callTool(handlerWith(fakeFetch(200, { issues })), 'anki_validate')
+		const body = JSON.parse(result.content[0].text)
+		expect(body.issues).toHaveLength(200)
+		expect(body.issuesOmitted).toBe(51)
+		expect(body.issuesByKind).toEqual({ 'literal-field-label': 250, 'stale-note-id': 1 })
 	})
 
 	it('reports an unknown tool as a tool error', async () => {
@@ -168,6 +277,16 @@ describe('failure handling', () => {
 		expect(result.isError).toBe(true)
 		expect(result.content[0].text).toContain('Local API')
 		expect(result.content[0].text).toContain('ECONNREFUSED')
+	})
+
+	it('says the plugin is out of date when it does not know the route', async () => {
+		const result = await callTool(
+			handlerWith(fakeFetch(404, { error: 'Unknown route /notes/search.' })),
+			'anki_search_notes',
+			{ query: 'x' }
+		)
+		expect(result.isError).toBe(true)
+		expect(result.content[0].text).toContain('reload')
 	})
 
 	it('explains a timeout', async () => {

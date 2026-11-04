@@ -73,6 +73,9 @@ interface FakeManager {
 	initialiseFiles: (control?: ScanControl) => Promise<void>
 	requests_1: () => Promise<void>
 	getHashes: () => FileHashes
+	updatedNoteCount: () => number
+	failedDeleteCount: number
+	convertedCount: number
 }
 
 interface Harness {
@@ -104,7 +107,10 @@ function makeHarness(overrides: Partial<ScanEnvironment> = {}, scanDirs: string[
 		added_media_set: new Set<string>(),
 		initialiseFiles: () => Promise.resolve(),
 		requests_1: () => Promise.resolve(),
-		getHashes: () => ({})
+		getHashes: () => ({}),
+		updatedNoteCount: () => 0,
+		failedDeleteCount: 0,
+		convertedCount: 0
 	}
 	const data = createParsedSettings()
 	const env: ScanEnvironment = {
@@ -320,6 +326,7 @@ describe('ScanOrchestrator pipeline', () => {
 			'a.md': { hash: 'h', mtime: 1, size: 1, noteIds: [] }
 		})
 		h.fake.getHashes = getHashes
+		h.fake.updatedNoteCount = () => 1
 		const requests = vi.fn()
 		h.fake.requests_1 = requests
 		await h.orchestrator.scanVault()
@@ -404,6 +411,10 @@ describe('ScanReport', () => {
 			[{ deckName: 'Default', modelName: 'Basic' }]
 		)
 		h.fake.scanIssues = [{ file: 'a.md', kind: 'media', error: 'missing' }]
+		h.fake.updatedNoteCount = () => 1
+		h.fake.convertedCount = 2
+		h.fake.orphanNoteIds = [8, 9]
+		h.fake.failedDeleteCount = 1
 		const report = await h.orchestrator.scanVault()
 		expect(report).toMatchObject({
 			outcome: 'completed',
@@ -412,7 +423,8 @@ describe('ScanReport', () => {
 			filesTotal: 2,
 			added: 1,
 			updated: 1,
-			deleted: 0,
+			deleted: 1,
+			converted: 2,
 			issues: [{ file: 'a.md', kind: 'media', error: 'missing' }]
 		})
 	})
@@ -479,6 +491,22 @@ describe('ScanReport', () => {
 		const report = await h.orchestrator.runDryRun()
 		expect(report).toMatchObject({ outcome: 'completed', dryRun: true, added: 1, updated: 0, deleted: 0 })
 		expect(report.details?.changes.length).toBeGreaterThan(0)
+	})
+
+	it('includes the notes a dry-run found it cannot sync', async () => {
+		const h = makeHarness()
+		const data: ParsedSettings = createParsedSettings()
+		h.fake.files = [tfile('a.md')]
+		h.fake.ownFiles = createManagerFiles(data, [], [])
+		const issue: ScanIssue = { file: 'a.md', kind: 'cloze-without-deletions', error: 'no deletions', line: 4 }
+		h.fake.ownFiles[0].parseIssues = [issue]
+		const manager = h.fake as unknown as Record<string, unknown>
+		manager['data'] = { allow_note_type_changes: false }
+		manager['orphanFileById'] = () => new Map<number, string>()
+
+		const report = await h.orchestrator.runDryRun()
+
+		expect(report.issues).toEqual([issue])
 	})
 })
 
@@ -762,5 +790,81 @@ describe('scanVault confirm routing', () => {
 		await h.orchestrator.scanVault()
 		expect(modal.calls).toEqual([])
 		expect(requests).toHaveBeenCalledTimes(1)
+	})
+})
+
+describe('ScanOrchestrator.validate', () => {
+	const clean = 'START\nBasic\nFront: q\nBack: a\nEND\n'
+
+	it('checks unsaved text and reports Anki as unchecked when it is closed', async () => {
+		const h = makeHarness({ probeAnki: async () => ({ status: 'closed', message: 'closed' }) })
+		;(h.fake as unknown as Record<string, unknown>)['data'] = {
+			...createParsedSettings(),
+			loadExistingIds: async () => []
+		}
+		const report = await h.orchestrator.validate({ inline: { path: 'draft.md', text: clean } })
+
+		expect(report).toMatchObject({ filesChecked: 1, blocks: 1, errors: 0, ankiChecked: false })
+	})
+
+	it('reads every file a scan would see, changed or not', async () => {
+		const h = makeHarness()
+		const manager = h.fake as unknown as Record<string, unknown>
+		manager['data'] = { ...createParsedSettings(), loadExistingIds: async () => [] }
+		manager['validationInputs'] = async () => [
+			{ path: 'a.md', text: clean, data: createParsedSettings() },
+			{ path: 'b.md', text: clean, data: createParsedSettings() }
+		]
+
+		const report = await h.orchestrator.validate()
+
+		expect(report.filesChecked).toBe(2)
+		expect(report.ankiChecked).toBe(true)
+	})
+
+	it('stays useful when reading the note IDs fails', async () => {
+		const h = makeHarness()
+		vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+		const manager = h.fake as unknown as Record<string, unknown>
+		manager['data'] = {
+			...createParsedSettings(),
+			loadExistingIds: () => Promise.reject(new Error('offline'))
+		}
+		manager['validationInputs'] = async () => []
+
+		expect((await h.orchestrator.validate()).ankiChecked).toBe(false)
+	})
+})
+
+describe('ScanOrchestrator scan state', () => {
+	it('says when a scan is running and remembers how the last one ended', async () => {
+		const h = makeHarness()
+		expect(h.orchestrator.lastReport).toBeUndefined()
+		let release!: () => void
+		h.fake.initialiseFiles = () => new Promise<void>((resolve) => (release = resolve))
+
+		const scan = h.orchestrator.scanVault()
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect(h.orchestrator.isScanning).toBe(true)
+		release()
+		const report = await scan
+
+		expect(h.orchestrator.isScanning).toBe(false)
+		expect(h.orchestrator.lastReport).toBe(report)
+	})
+
+	it('remembers a dry-run too, but not a refused concurrent call', async () => {
+		const h = makeHarness()
+		const report = await h.orchestrator.runDryRun()
+		expect(h.orchestrator.lastReport).toBe(report)
+
+		let release!: () => void
+		h.fake.initialiseFiles = () => new Promise<void>((resolve) => (release = resolve))
+		const first = h.orchestrator.scanVault()
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect((await h.orchestrator.scanVault()).outcome).toBe('busy')
+		expect(h.orchestrator.lastReport).toBe(report)
+		release()
+		await first
 	})
 })

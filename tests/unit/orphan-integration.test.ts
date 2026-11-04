@@ -12,6 +12,7 @@ function fakeApp(content: string) {
 	const app = {
 		vault: {
 			read: async () => content,
+			getMarkdownFiles: () => [],
 			process: modify,
 			getName: () => 'vault',
 			adapter: { getFullPath: (p: string) => p }
@@ -77,6 +78,51 @@ describe('orphan deletion: initialiseFiles wiring', () => {
 			.filter((action) => action.action === 'deleteNotes')
 		const deletedIds = deleteBatches.flatMap((action) => action.params['notes'] as number[])
 		expect(deletedIds).toContain(2)
+	})
+
+	describe('when the scan reads only the file a block was cut from', () => {
+		function vaultWith(others: Record<string, string>) {
+			const { app } = fakeApp(NOTE_WITH_ID_1)
+			const read = vi.fn(async (file: TFile) => others[file.path] ?? NOTE_WITH_ID_1)
+			Object.assign(app.vault, {
+				read,
+				getMarkdownFiles: () => [fakeTFile(), ...Object.keys(others).map((path) => ({ path }) as TFile)]
+			})
+			return { app, read }
+		}
+
+		async function orphansOf(app: App, stored: number[]) {
+			const parsed = createParsedSettings({ delete_removed_notes: true, EXISTING_IDS: new Set([1, 2]) })
+			const manager = new FileManager(app, parsed, [fakeTFile()], storedEntry(stored), [])
+			await manager.initialiseFiles()
+			return manager.orphanNoteIds
+		}
+
+		it('keeps a note pasted into a file with no record of it yet', async () => {
+			const { app } = vaultWith({ 'other.md': 'START\nBasic\nFront: q2\nBack: a2\n<!--ID: 2-->\nEND' })
+			expect(await orphansOf(app, [1, 2])).toEqual([])
+		})
+
+		it('still deletes when no other file has the block', async () => {
+			const { app } = vaultWith({ 'other.md': 'no cards here' })
+			expect(await orphansOf(app, [1, 2])).toEqual([2])
+		})
+
+		it('does not let an example in a code fence keep the note', async () => {
+			const { app } = vaultWith({ 'other.md': '```\n<!--ID: 2-->\n```' })
+			expect(await orphansOf(app, [1, 2])).toEqual([2])
+		})
+
+		it('does not let another file delete line keep the note', async () => {
+			const { app } = vaultWith({ 'other.md': 'DELETE\nID: 2' })
+			expect(await orphansOf(app, [1, 2])).toEqual([2])
+		})
+
+		it('reads no other file when nothing would be deleted', async () => {
+			const { app, read } = vaultWith({ 'other.md': 'no cards here' })
+			expect(await orphansOf(app, [1])).toEqual([])
+			expect(read.mock.calls.map(([file]) => file.path)).toEqual(['note.md'])
+		})
 	})
 
 	it('does nothing when the setting is off', async () => {

@@ -1,5 +1,6 @@
 import * as AnkiConnect from './anki'
 import type { AllFile } from './file'
+import type { ScanIssue } from './files-manager'
 import type { AnkiConnectNote } from './interfaces/note-interface'
 
 /** One pending change discovered by a dry run, machine-readable. */
@@ -11,7 +12,18 @@ export interface DryRunChange {
 	modelName?: string
 	fromModel?: string
 	toModel?: string
+	/** Update entries: the fields whose text differs from Anki. */
 	fields?: string[]
+	/** Update entries: the tags differ from Anki. */
+	tagsChanged?: boolean
+	/** Update entries: a card is in another deck in Anki. */
+	deckChanged?: boolean
+	/** 1-based line of the block; absent when the block is gone (orphan delete). */
+	line?: number
+	/** Add entries: the start of the new card, to recognise it. */
+	snippet?: string
+	/** Delete entries only: an explicit DELETE line, or a block gone from the Markdown. */
+	deleteReason?: 'delete-line' | 'orphan'
 }
 
 /** Aggregated dry-run result: one console one-liner + one JSON blob. */
@@ -25,6 +37,8 @@ export interface DryRunSummary {
 	/** Live cards touched per deck (read-only review confidence). */
 	decks: DryRunDeckStat[]
 	changes: DryRunChange[]
+	/** Notes the sync would leave alone and report, because their type differs. */
+	issues: ScanIssue[]
 }
 
 /** Cards the preview would touch in one deck (Anki `type === 0` counts as new). */
@@ -34,7 +48,7 @@ export interface DryRunDeckStat {
 	new: number
 }
 
-interface AnkiNoteInfo {
+export interface AnkiNoteInfo {
 	noteId: number
 	modelName: string
 	tags: string[]
@@ -44,7 +58,8 @@ interface AnkiNoteInfo {
 
 interface AnkiCardInfo {
 	cardId: number
-	deck: string
+	/** AnkiConnect names this `deckName`; there is no `deck` key on the wire. */
+	deckName: string
 	/** Anki card type: 0 = new (learning/review/relearning are non-zero). */
 	type?: number
 }
@@ -56,6 +71,7 @@ interface AnkiCardInfo {
  */
 const NOTES_INFO_BATCH_SIZE = 256
 const CARDS_INFO_BATCH_SIZE = 512
+const DRY_RUN_SNIPPET_LENGTH = 100
 
 async function fetchNotesInfo(editIds: number[]): Promise<AnkiNoteInfo[]> {
 	const infos: AnkiNoteInfo[] = []
@@ -95,6 +111,7 @@ export async function collectDryRunState(
 	options: { hasNoteTypeChanges: boolean; orphanNoteIds: number[]; orphanFileById?: Map<number, string> }
 ): Promise<DryRunSummary> {
 	const changes: DryRunChange[] = []
+	const issues: ScanIssue[] = []
 	let wouldAdd = 0
 	let wouldUpdate = 0
 	let wouldConvert = 0
@@ -123,23 +140,32 @@ export async function collectDryRunState(
 	const cardInfoById = new Map<number, AnkiCardInfo>()
 	for (const card of cardInfos) {
 		if (card) {
-			deckByCardId.set(card.cardId, card.deck)
+			deckByCardId.set(card.cardId, card.deckName)
 			cardInfoById.set(card.cardId, card)
 		}
 	}
 
 	const updatedNoteIds = new Set<number>()
+	const explicitDeletes: DryRunChange[] = []
 
 	for (const file of files) {
-		for (const note of file.all_notes_to_add) {
+		const targets = targetDecksFor(file, infoById)
+		for (const noteId of file.notes_to_delete) {
+			explicitDeletes.push({ kind: 'delete', file: file.path, noteId, deleteReason: 'delete-line' })
+		}
+		file.all_notes_to_add.forEach((note, index) => {
 			wouldAdd += 1
+			const line = file.addedNoteLine(index)
+			const snippet = noteSnippet(note)
 			changes.push({
 				kind: 'add',
 				file: file.path,
 				deck: note.deckName,
-				modelName: note.modelName
+				modelName: note.modelName,
+				...(line === undefined ? {} : { line }),
+				...(snippet === '' ? {} : { snippet })
 			})
-		}
+		})
 		for (const parsed of file.notes_to_edit) {
 			if (parsed.identifier == null) {
 				continue
@@ -158,24 +184,29 @@ export async function collectDryRunState(
 						fromModel: anki.modelName,
 						toModel: parsed.note.modelName
 					})
+				} else {
+					issues.push(noteTypeMismatch(file, parsed.identifier, parsed.note.modelName, anki.modelName))
 				}
 				continue
 			}
-			if (
-				isContentMismatch(parsed.note, file.noteTagsFor(parsed), anki) ||
-				isDeckMismatch(file, anki, deckByCardId)
-			) {
+			const difference = diffNote(parsed.note, file.noteTagsFor(parsed), anki)
+			const deckChanged = isDeckMismatch(targets, anki, deckByCardId)
+			if (difference.fields.length > 0 || difference.tagsChanged || deckChanged) {
 				if (!updatedNoteIds.has(parsed.identifier)) {
 					updatedNoteIds.add(parsed.identifier)
 					wouldUpdate += 1
 				}
+				const line = file.editedNoteLine(parsed.identifier)
 				changes.push({
 					kind: 'update',
 					file: file.path,
 					noteId: parsed.identifier,
 					deck: parsed.note.deckName,
 					modelName: parsed.note.modelName,
-					fields: Object.keys(parsed.note.fields)
+					fields: difference.fields,
+					...(difference.tagsChanged ? { tagsChanged: true } : {}),
+					...(deckChanged ? { deckChanged: true } : {}),
+					...(line === undefined ? {} : { line })
 				})
 			}
 		}
@@ -186,17 +217,32 @@ export async function collectDryRunState(
 		filesTotal: files.length,
 		wouldAdd,
 		wouldUpdate,
-		wouldDelete: orphanNoteIds.length,
+		wouldDelete: explicitDeletes.length + orphanNoteIds.length,
 		wouldConvert,
 		decks: collectDeckStats(uniqueCardIds, deckByCardId, cardInfoById),
 		changes: [
 			...changes,
+			...explicitDeletes,
 			...orphanNoteIds.map((noteId) => ({
 				kind: 'delete' as const,
 				file: orphanFileById?.get(noteId) ?? '',
-				noteId
+				noteId,
+				deleteReason: 'orphan' as const
 			}))
-		]
+		],
+		issues
+	}
+}
+
+/** The issue for a note whose type differs while "Allow Note Type Changes" is off. */
+export function noteTypeMismatch(file: AllFile, noteId: number, localModel: string, ankiModel: string): ScanIssue {
+	const line = file.editedNoteLine(noteId)
+	return {
+		file: file.path,
+		kind: 'note-type-mismatch',
+		noteId,
+		...(line === undefined ? {} : { line }),
+		error: `Note is "${localModel}" in Markdown but "${ankiModel}" in Anki. Enable "Allow Note Type Changes" to convert it.`
 	}
 }
 
@@ -217,22 +263,41 @@ function normalizeTags(tags: string[]): string[] {
 }
 
 /**
- * `localTags` are the tags the real scan would leave on the note (note tags
- * plus the file's FILE TAGS), not the bare `local.tags`: comparing those
- * flagged every note of a file with FILE TAGS as an update.
+ * What a real scan would change in this note. `localTags` are the tags the
+ * scan would leave on it (note tags plus the file's FILE TAGS), not the bare
+ * `local.tags`: comparing those flagged every note of a file with FILE TAGS.
  */
-function isContentMismatch(local: AnkiConnectNote, localTags: string[], anki: AnkiNoteInfo): boolean {
-	for (const field of Object.keys(local.fields)) {
-		if (normalizeText(anki.fields[field]?.value ?? '') !== normalizeText(local.fields[field])) {
-			return true
-		}
-	}
+function diffNote(
+	local: AnkiConnectNote,
+	localTags: string[],
+	anki: AnkiNoteInfo
+): { fields: string[]; tagsChanged: boolean } {
+	const fields = Object.keys(local.fields).filter(
+		(field) => normalizeText(anki.fields[field]?.value ?? '') !== normalizeText(local.fields[field])
+	)
 	// The real scan converges to the same end state on both paths (legacy
 	// updateNoteTags vs consolidated updateNote), so one normalized
 	// order-insensitive tag comparison covers both.
 	const wantedTags = normalizeTags(localTags)
 	const ankiTags = normalizeTags(anki.tags ?? [])
-	return wantedTags.length !== ankiTags.length || wantedTags.some((tag, index) => tag !== ankiTags[index])
+	const tagsChanged =
+		wantedTags.length !== ankiTags.length || wantedTags.some((tag, index) => tag !== ankiTags[index])
+	return { fields, tagsChanged }
+}
+
+export function isContentMismatch(local: AnkiConnectNote, localTags: string[], anki: AnkiNoteInfo): boolean {
+	const { fields, tagsChanged } = diffNote(local, localTags, anki)
+	return fields.length > 0 || tagsChanged
+}
+
+/** The first text in a new card, without markup. */
+function noteSnippet(note: AnkiConnectNote): string {
+	const first = Object.values(note.fields).find((value) => value !== '') ?? ''
+	return first
+		.replace(/<[^>]+>/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim()
+		.slice(0, DRY_RUN_SNIPPET_LENGTH)
 }
 
 /**
@@ -261,8 +326,25 @@ function collectDeckStats(
 	return [...byDeck.values()].sort((a, b) => (a.deck < b.deck ? -1 : a.deck > b.deck ? 1 : 0))
 }
 
-function isDeckMismatch(file: AllFile, anki: AnkiNoteInfo, deckByCardId: Map<number, string>): boolean {
-	const targets = file.getTargetDeckByCard()
+/**
+ * Where the real scan would move each card. The file's own deck map is only
+ * filled while a real scan parses its batch, so the preview supplies the same
+ * inputs from its notesInfo read, leaving the file untouched for a later commit.
+ */
+function targetDecksFor(file: AllFile, infoById: Map<number, AnkiNoteInfo>): Map<number, string> {
+	const cardIds: number[] = []
+	const noteDecks: Array<{ card_ids: number[]; deck: string }> = []
+	for (const parsed of file.notes_to_edit) {
+		const cards = parsed.identifier == null ? undefined : infoById.get(parsed.identifier)?.cards
+		if (cards) {
+			cardIds.push(...cards)
+			noteDecks.push({ card_ids: cards, deck: parsed.note.deckName })
+		}
+	}
+	return file.getTargetDeckByCard(cardIds, noteDecks)
+}
+
+function isDeckMismatch(targets: Map<number, string>, anki: AnkiNoteInfo, deckByCardId: Map<number, string>): boolean {
 	for (const cardId of anki.cards ?? []) {
 		const currentDeck = deckByCardId.get(cardId)
 		const targetDeck = targets.get(cardId)

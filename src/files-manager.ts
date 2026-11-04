@@ -4,6 +4,8 @@ import { AnkiConnectNoteAndID } from './interfaces/note-interface'
 import { App, TFile, TFolder, TAbstractFile, CachedMetadata, FileSystemAdapter } from 'obsidian'
 import { obsidianNoticePort, type NoticePort } from './notices'
 import { AllFile } from './file'
+import { isContentMismatch, noteTypeMismatch } from './dry-run'
+import type { ValidationInput } from './validate'
 import * as AnkiConnect from './anki'
 import { basename } from 'path'
 import multimatch from 'multimatch'
@@ -73,8 +75,8 @@ interface Requests1Result {
  * The requests_1 batch with names instead of positional indexes, so
  * reordering the batch in requests_1() can no longer silently desync
  * parse_requests_1(). Built once from the raw wire shape (the single cast
- * stays the documented trust boundary); entries 3/4 (updates, deletes) are
- * fire-and-forget and intentionally unread.
+ * stays the documented trust boundary). Entries 3/4 (updates, deletes) stay
+ * `unknown` and are read defensively by actionErrors().
  */
 interface Requests1Batch {
 	addedIds: Requests1Result[0]
@@ -92,7 +94,7 @@ export interface ScanIssue {
 	/** Machine-stable category; the console summary groups by it. */
 	kind:
 		| 'add-notes'
-		| 'note-info'
+		| 'add-notes-file'
 		| 'add-note'
 		| 'notes-info'
 		| 'note-info-file'
@@ -100,8 +102,25 @@ export interface ScanIssue {
 		| 'media'
 		| 'media-missing'
 		| 'file-changed'
+		| 'update-note'
+		| 'delete-note'
+		| 'change-deck'
+		| 'update-tags'
+		| 'convert-note'
+		| 'note-type-mismatch'
+		| 'ankiweb-sync'
+		| 'cloze-without-deletions'
+		| 'unknown-note-type'
+		| 'stale-note-id'
+		| 'duplicate-note-id'
 	/** The AnkiConnect error message (never the full payload). */
 	error: string
+	/** 1-based line of the note, when the problem belongs to one block. */
+	line?: number
+	/** Start of the note's text, to identify it without opening the file. */
+	snippet?: string
+	/** The Anki note involved, when it has one. */
+	noteId?: number
 }
 
 /**
@@ -111,6 +130,8 @@ export interface ScanIssue {
  */
 export interface VaultPort {
 	read(file: TFile): Promise<string>
+	/** Every Markdown file in the vault, including those outside the scan. */
+	markdownFiles(): TFile[]
 	/** Atomic read-modify-write; `fn` receives the file's current content. */
 	process(file: TFile, fn: (data: string) => string): Promise<string>
 	getCache(path: string): CachedMetadata
@@ -125,6 +146,7 @@ export interface VaultPort {
 function vaultPortFromApp(app: App): VaultPort {
 	return {
 		read: (file) => app.vault.read(file),
+		markdownFiles: () => app.vault.getMarkdownFiles(),
 		process: (file, fn) => app.vault.process(file, fn),
 		getCache: (path) => app.metadataCache.getCache(path) ?? {},
 		getFirstLinkpathDest: (linkpath, sourcePath) => app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath),
@@ -143,6 +165,50 @@ function difference<T>(setA: Set<T>, setB: Set<T>): Set<T> {
 /** Message text for a ScanIssue (mirrors the transport's error rendering). */
 function issueMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Failures a later scan can repair by trying again, so the file must stay
+ * "changed". The rest (a note Anki can never accept as written, a missing
+ * media file, a failed cloud sync) would only repeat until the user acts.
+ */
+const RETRYABLE_ISSUES: ReadonlySet<ScanIssue['kind']> = new Set<ScanIssue['kind']>([
+	'add-notes',
+	'add-notes-file',
+	'add-note',
+	'notes-info',
+	'note-info-file',
+	'media',
+	'update-note',
+	'delete-note',
+	'change-deck',
+	'update-tags',
+	'convert-note'
+])
+
+/** Every error inside one `multi` result, however deeply its batches nest. */
+function actionErrors(entry: unknown): string[] {
+	if (typeof entry !== 'object' || entry === null) {
+		return []
+	}
+	const { error, result } = entry as { error?: unknown; result?: unknown }
+	const errors = error == null ? [] : [issueMessage(error)]
+	if (Array.isArray(result)) {
+		errors.push(...result.flatMap(actionErrors))
+	}
+	return errors
+}
+
+/** The per-action results of a `multi` result ([] when it failed as a whole). */
+function actionResults(entry: unknown): unknown[] {
+	const result = typeof entry === 'object' && entry !== null ? (entry as { result?: unknown }).result : undefined
+	return Array.isArray(result) ? result : []
+}
+
+/** Who a follow-up action in requests_2 was for. */
+interface ActionTarget {
+	file: string
+	noteId?: number
 }
 
 /** True when a changeDeck payload (or a multi wrapping them) actually moves cards. */
@@ -197,6 +263,14 @@ export class FileManager {
 	private useUpdateNote = false
 	private useUpdateNoteModel = false
 	private modelChangeActions: AnkiConnect.AnkiConnectRequest[] = []
+	private modelChangeTargets: ActionTarget[] = []
+	/** Notes that differed from Anki when this scan read them. */
+	private changedNoteIds = new Set<number>()
+	private failedUpdateIds = new Set<number>()
+	/** Notes this scan meant to delete but Anki refused. */
+	failedDeleteCount = 0
+	/** Notes whose type this scan really converted. */
+	convertedCount = 0
 	/** Failures collected by the last parse_requests_1 run (reset per scan). */
 	scanIssues: ScanIssue[] = []
 	/**
@@ -233,6 +307,18 @@ export class FileManager {
 			String.raw`&file=` +
 			encodeURIComponent(file.path)
 		)
+	}
+
+	/** Every file a scan would look at, whether or not it changed. */
+	async validationInputs(): Promise<ValidationInput[]> {
+		const inputs: ValidationInput[] = []
+		for (const file of this.findFilesThatAreNotIgnored(this.files, this.data)) {
+			inputs.push({ path: file.path, text: await this.vault.read(file), data: this.dataToFileData(file) })
+			if (inputs.length % VAULT_SCAN_YIELD_INTERVAL === 0) {
+				await yieldToEventLoop()
+			}
+		}
+		return inputs
 	}
 
 	findFilesThatAreNotIgnored(files: TFile[], data: ParsedSettings): TFile[] {
@@ -347,10 +433,41 @@ export class FileManager {
 
 		this.ownFiles = files_changed
 		this.files = obfiles_changed
-		this.orphanNoteIds = this.computeOrphanNoteIds(files_changed)
+		this.orphanNoteIds = await this.withoutIdsElsewhere(this.computeOrphanNoteIds(files_changed), files_changed)
+		this.throwIfCancelled(control)
 		if (this.orphanNoteIds.length > 0) {
 			console.info(`Notes removed from Markdown will be deleted from Anki: ${this.orphanNoteIds.join(', ')}`)
 		}
+	}
+
+	/**
+	 * A block cut from a scanned file and pasted into one this scan did not read
+	 * is not an orphan, yet the stored records cannot show it: they learn the new
+	 * place only when that file is scanned. Deleting would lose the card's review
+	 * history, so anything about to be deleted is first looked for in the rest of
+	 * the vault. Scans that delete nothing read no extra file.
+	 */
+	private async withoutIdsElsewhere(orphanIds: number[], scanned: AllFile[]): Promise<number[]> {
+		if (orphanIds.length === 0) {
+			return orphanIds
+		}
+		const scannedPaths = new Set(scanned.map((file) => file.path))
+		const others = this.vault.markdownFiles().filter((file) => !scannedPaths.has(file.path))
+		const found = new Set<number>()
+		await mapConcurrent(others, 8, async (obFile) => {
+			const content = await this.vault.read(obFile)
+			const file = new AllFile(
+				content,
+				obFile.path,
+				'',
+				createFileData(this.data, '', []),
+				this.vault.getCache(obFile.path)
+			)
+			for (const id of file.getNoteIdsInFile()) {
+				found.add(id)
+			}
+		})
+		return orphanIds.filter((id) => !found.has(id))
 	}
 
 	/** Load the Anki note-ID set once, the first time a changed file needs it. */
@@ -393,7 +510,8 @@ export class FileManager {
 	 * Note IDs whose blocks disappeared from the scanned files since the last
 	 * scan. Safe by construction: files with no stored record (first scan,
 	 * rename, new file) never produce orphans, IDs still referenced by another
-	 * tracked file are kept, and only IDs Anki still reports are returned.
+	 * tracked file are kept, and only IDs Anki still reports are returned. The
+	 * caller then checks the files this scan did not read.
 	 */
 	computeOrphanNoteIds(currentFiles: AllFile[]): number[] {
 		if (!this.data.delete_removed_notes) {
@@ -420,8 +538,12 @@ export class FileManager {
 
 	async requests_1() {
 		const requests: AnkiConnect.AnkiConnectRequest[] = []
-		this.scanIssues = []
+		this.scanIssues = this.ownFiles.flatMap((file) => file.parseIssues)
 		this.mediaUploads = []
+		this.changedNoteIds = new Set()
+		this.failedUpdateIds = new Set()
+		this.failedDeleteCount = 0
+		this.convertedCount = 0
 		// One reflection call per scan decides which late actions this daemon
 		// supports. Failures degrade to the legacy paths (see detectSupportedActions).
 		const supported = await AnkiConnect.detectSupportedActions(['updateNote', 'updateNoteModel'])
@@ -528,6 +650,10 @@ export class FileManager {
 			const item = batch.media.result[i]
 			if (item && item.error != null) {
 				const upload = this.mediaUploads[i]
+				// Marked as added when queued; a failed upload must be queued again.
+				if (upload) {
+					this.added_media_set.delete(upload.link)
+				}
 				this.scanIssues.push({
 					file: upload?.file ?? '',
 					kind: 'media',
@@ -535,6 +661,8 @@ export class FileManager {
 				})
 			}
 		}
+		this.readUpdateResults(batch.updates)
+		const undeletedFiles = this.readDeleteResults(batch.deletes)
 		let note_ids_array_by_file: Requests1Result[0]['result']
 		try {
 			note_ids_array_by_file = AnkiConnect.parse(batch.addedIds)
@@ -554,6 +682,7 @@ export class FileManager {
 			console.error('Error: ', error)
 			note_info_array_by_file = []
 			this.scanIssues.push({ file: '', kind: 'notes-info', error: issueMessage(error) })
+			this.assumeNotesChanged(this.ownFiles)
 		}
 		let tag_list: string[]
 		try {
@@ -571,7 +700,7 @@ export class FileManager {
 			} catch (error) {
 				console.error('Error: ', error)
 				file_response = note_ids_array_by_file[i].result
-				this.scanIssues.push({ file: file.path, kind: 'note-info', error: issueMessage(error) })
+				this.scanIssues.push({ file: file.path, kind: 'add-notes-file', error: issueMessage(error) })
 			}
 			file.note_ids = []
 			for (let j = 0; j < file_response.length; j++) {
@@ -600,6 +729,7 @@ export class FileManager {
 			} catch (error) {
 				console.error('Error: ', error)
 				this.scanIssues.push({ file: file.path, kind: 'note-info-file', error: issueMessage(error) })
+				this.assumeNotesChanged([file])
 				continue
 			}
 			const temp: number[] = []
@@ -615,6 +745,15 @@ export class FileManager {
 					card_ids: note_response.cards,
 					deck: noteToEdit.note.deckName
 				})
+				// The batch runs in order, so this read shows the note before its
+				// update: it tells which notes the scan really changed.
+				if (
+					noteToEdit.identifier != null &&
+					noteToEdit.note.modelName === note_response.modelName &&
+					isContentMismatch(noteToEdit.note, file.noteTagsFor(noteToEdit), note_response)
+				) {
+					this.changedNoteIds.add(noteToEdit.identifier)
+				}
 				this.detectModelChange(file, noteToEdit, note_response.modelName)
 			}
 			file.card_ids = temp
@@ -624,7 +763,10 @@ export class FileManager {
 			const obFile = this.files[i]
 			ownFile.tags = tag_list
 			ownFile.writeIDs()
-			ownFile.removeEmpties()
+			// A DELETE line stays until the delete worked, so the retry can see it.
+			if (!undeletedFiles.has(ownFile.path)) {
+				ownFile.removeEmpties()
+			}
 			if (ownFile.file !== ownFile.original_file) {
 				// process() hands us the file's current text. If the user edited it
 				// while the sync ran, the id offsets no longer apply: keep their
@@ -646,19 +788,142 @@ export class FileManager {
 				}
 			}
 		}
+		await this.requests_2()
 		if (this.scanIssues.length > 0) {
 			// Separate line from the machine-readable `scan complete:` summary
 			// (owned by main.ts) so agent scraping never breaks.
 			console.info('[Obsidian_to_Anki] scan issues: ' + JSON.stringify(this.scanIssues))
 		}
-		await this.requests_2()
 	}
 
+	/** Attribute failed note updates to their file and note. */
+	private readUpdateResults(updates: unknown): void {
+		const perFile = actionResults(updates)
+		if (perFile.length === 0) {
+			for (const error of actionErrors(updates)) {
+				this.scanIssues.push({ file: '', kind: 'update-note', error })
+			}
+			return
+		}
+		perFile.forEach((fileEntry, fileIndex) => {
+			const file = this.ownFiles[fileIndex]
+			const edits = file?.notes_to_edit.filter((parsed) => parsed.identifier != null) ?? []
+			const results = actionResults(fileEntry)
+			if (results.length === 0) {
+				for (const error of actionErrors(fileEntry)) {
+					this.scanIssues.push({ file: file?.path ?? '', kind: 'update-note', error })
+					for (const parsed of edits) {
+						this.failedUpdateIds.add(parsed.identifier as number)
+					}
+				}
+				return
+			}
+			results.forEach((noteEntry, noteIndex) => {
+				const noteId = edits[noteIndex]?.identifier ?? undefined
+				for (const error of actionErrors(noteEntry)) {
+					this.scanIssues.push({ file: file?.path ?? '', kind: 'update-note', error, noteId })
+					if (noteId !== undefined) {
+						this.failedUpdateIds.add(noteId)
+					}
+				}
+			})
+		})
+	}
+
+	/**
+	 * Attribute failed deletes: one entry per file, then the orphan batch.
+	 * Returns the files whose DELETE lines must stay.
+	 */
+	private readDeleteResults(deletes: unknown): Set<string> {
+		const undeleted = new Set<string>()
+		const fail = (file: AllFile | undefined, error: string): void => {
+			this.scanIssues.push({ file: file?.path ?? '', kind: 'delete-note', error })
+			this.failedDeleteCount += file ? file.notes_to_delete.length : this.orphanNoteIds.length
+			if (file) {
+				undeleted.add(file.path)
+			}
+		}
+		const perBatch = actionResults(deletes)
+		if (perBatch.length === 0) {
+			for (const error of actionErrors(deletes)) {
+				this.ownFiles.forEach((file) => fail(file, error))
+				fail(undefined, error)
+			}
+			return undeleted
+		}
+		perBatch.forEach((entry, index) => {
+			for (const error of actionErrors(entry)) {
+				fail(this.ownFiles[index], error)
+			}
+		})
+		return undeleted
+	}
+
+	/** Report failures of one requests_2 batch; returns how many targets failed. */
+	private readFollowUpResults(batch: unknown, kind: ScanIssue['kind'], targets: ActionTarget[]): number {
+		const results = actionResults(batch)
+		if (results.length === 0) {
+			const errors = actionErrors(batch)
+			for (const error of errors) {
+				this.scanIssues.push({ file: '', kind, error })
+			}
+			return errors.length > 0 ? targets.length : 0
+		}
+		let failed = 0
+		results.forEach((entry, index) => {
+			const errors = actionErrors(entry)
+			if (errors.length > 0) {
+				failed += 1
+			}
+			const target = targets[index]
+			for (const error of errors) {
+				this.scanIssues.push({
+					file: target?.file ?? '',
+					kind,
+					error,
+					...(target?.noteId === undefined ? {} : { noteId: target.noteId })
+				})
+			}
+		})
+		return failed
+	}
+
+	/** Without the read there is nothing to compare: count what was sent. */
+	private assumeNotesChanged(files: AllFile[]): void {
+		for (const file of files) {
+			for (const parsed of file.notes_to_edit) {
+				if (parsed.identifier != null) {
+					this.changedNoteIds.add(parsed.identifier)
+				}
+			}
+		}
+	}
+
+	/** Notes whose content this scan really changed in Anki. */
+	updatedNoteCount(): number {
+		let count = 0
+		for (const noteId of this.changedNoteIds) {
+			if (!this.failedUpdateIds.has(noteId)) {
+				count += 1
+			}
+		}
+		return count
+	}
+
+	/**
+	 * Hash records to commit. A file with a repairable failure gets none: its
+	 * previous record stays, so the next scan sees it as changed and tries again.
+	 */
 	getHashes(): FileHashes {
 		const result: FileHashes = {}
+		const retry = new Set(this.scanIssues.filter((i) => RETRYABLE_ISSUES.has(i.kind)).map((i) => i.file))
 		for (let i = 0; i < this.ownFiles.length; i++) {
 			const file = this.ownFiles[i]
 			const obFile = this.files[i]
+			// '' marks a whole batch that failed, so every file is affected.
+			if (retry.has('') || retry.has(file.path)) {
+				continue
+			}
 			result[file.path] = {
 				hash: file.getHash(),
 				mtime: obFile?.stat?.mtime ?? 0,
@@ -685,50 +950,80 @@ export class FileManager {
 			console.warn(
 				`Note ${parsed.identifier} in file ${file.path} is "${localModelName}" but "${ankiModelName}" in Anki. Enable "Allow Note Type Changes" in the plugin settings to convert it.`
 			)
+			this.scanIssues.push(noteTypeMismatch(file, parsed.identifier, localModelName, ankiModelName))
 			return
 		}
 		if (!this.useUpdateNoteModel) {
 			console.warn(`AnkiConnect does not support updateNoteModel; cannot convert note ${parsed.identifier}.`)
+			this.scanIssues.push({
+				file: file.path,
+				kind: 'note-type-mismatch',
+				noteId: parsed.identifier,
+				error: `Note is "${localModelName}" in Markdown but "${ankiModelName}" in Anki, and this AnkiConnect cannot convert it.`
+			})
 			return
 		}
 		this.modelChangeActions.push(
 			AnkiConnect.updateNoteModel(parsed.identifier, localModelName, parsed.note.fields, file.noteTagsFor(parsed))
 		)
+		this.modelChangeTargets.push({ file: file.path, noteId: parsed.identifier })
 		console.info(`Queued note type change for ${parsed.identifier}: ${ankiModelName} -> ${localModelName}`)
 	}
 
 	async requests_2(): Promise<void> {
 		const requests: AnkiConnect.AnkiConnectRequest[] = []
 		let temp: AnkiConnect.AnkiConnectRequest[] = []
+		const batches: Array<{ kind: ScanIssue['kind']; targets: ActionTarget[] }> = []
 		console.info('Requesting cards to be moved to target deck...')
+		let targets: ActionTarget[] = []
 		for (const file of this.ownFiles) {
 			const deck = file.getChangeDecks()
 			if (deckHasCards(deck)) {
 				temp.push(deck)
+				targets.push({ file: file.path })
 			}
 		}
 		requests.push(AnkiConnect.multi(temp))
+		batches.push({ kind: 'change-deck', targets })
 		temp = []
 		if (!this.useUpdateNote) {
 			console.info('Requesting tags to be replaced...')
+			targets = []
 			for (const file of this.ownFiles) {
 				const update = file.getUpdateTags()
 				const actions = update.params['actions']
 				if (Array.isArray(actions) && actions.length > 0) {
 					temp.push(update)
+					targets.push({ file: file.path })
 				}
 			}
 			requests.push(AnkiConnect.multi(temp))
+			batches.push({ kind: 'update-tags', targets })
 			temp = []
 		} else {
 			console.info('Skipping tag replacement: tags were consolidated into updateNote.')
 		}
+		const conversionIndex = this.modelChangeActions.length > 0 ? requests.length : -1
 		if (this.modelChangeActions.length > 0) {
 			console.info('Requesting note type changes...')
 			requests.push(AnkiConnect.multi(this.modelChangeActions))
+			batches.push({ kind: 'convert-note', targets: this.modelChangeTargets })
 			this.modelChangeActions = []
+			this.modelChangeTargets = []
 		}
-		await AnkiConnect.invoke('multi', { actions: requests })
+		const results = await AnkiConnect.invoke<unknown>('multi', { actions: requests })
+		if (Array.isArray(results)) {
+			batches.forEach((batch, index) => {
+				// A batch nothing was sent for has no result worth reading.
+				if (batch.targets.length === 0) {
+					return
+				}
+				const failed = this.readFollowUpResults(results[index], batch.kind, batch.targets)
+				if (index === conversionIndex) {
+					this.convertedCount = batch.targets.length - failed
+				}
+			})
+		}
 		if (this.data.sync_to_ankiweb) {
 			console.info('Triggering AnkiWeb sync...')
 			try {
@@ -737,6 +1032,7 @@ export class FileManager {
 				// A local scan succeeded; a failed cloud sync must not fail it.
 				console.warn('AnkiWeb sync failed:', e)
 				this.notifier.notify('Sync to Anki completed, but AnkiWeb sync failed. Check console for details.')
+				this.scanIssues.push({ file: '', kind: 'ankiweb-sync', error: issueMessage(e) })
 			}
 		}
 		console.info('All done!')

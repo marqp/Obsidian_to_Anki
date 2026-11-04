@@ -6,7 +6,8 @@ import { launchAnki, probeAnkiStatus, type AnkiProbe, type LaunchOutcome } from 
 import { obsidianNoticePort, type NoticePort } from './notices'
 import type { ScanProgressHandle } from './progress-notice'
 import type { ParsedSettings, PluginSettings } from './interfaces/settings-interface'
-import type { FileHashes } from './scan-optimizations'
+import { createFileData, type FileHashes } from './scan-optimizations'
+import { validateFiles, type ValidationReport } from './validate'
 
 /** Live plugin state the scan reads; results are written back via commitScanResults. */
 export interface ScanState {
@@ -58,7 +59,7 @@ export interface ScanReport {
 	added: number
 	updated: number
 	deleted: number
-	/** Dry-run only: notes whose type would be converted. */
+	/** Notes whose type was (or, in a dry-run, would be) converted. */
 	converted: number
 	issues: ScanIssue[]
 	/** Dry-run only: per-note changes and per-deck stats. */
@@ -190,8 +191,18 @@ export function getAllTFilesInFolder(tfolder: TFolder): TFile[] {
  */
 export class ScanOrchestrator {
 	private scanInProgress = false
+	private latestReport: ScanReport | undefined
 
 	constructor(private readonly env: ScanEnvironment) {}
+
+	get isScanning(): boolean {
+		return this.scanInProgress
+	}
+
+	/** How the last scan or dry-run ended, for a caller that stopped waiting. */
+	get lastReport(): ScanReport | undefined {
+		return this.latestReport
+	}
 
 	async scanVault(
 		file?: TFile | null,
@@ -209,7 +220,8 @@ export class ScanOrchestrator {
 
 		this.scanInProgress = true
 		try {
-			return await this.scanVaultOnce(file, false, control)
+			this.latestReport = await this.scanVaultOnce(file, false, control)
+			return this.latestReport
 		} finally {
 			this.scanInProgress = false
 		}
@@ -224,7 +236,8 @@ export class ScanOrchestrator {
 
 		this.scanInProgress = true
 		try {
-			return await this.scanVaultOnce(file, true, control)
+			this.latestReport = await this.scanVaultOnce(file, true, control)
+			return this.latestReport
 		} finally {
 			this.scanInProgress = false
 		}
@@ -353,6 +366,35 @@ export class ScanOrchestrator {
 		})
 	}
 
+	/**
+	 * Check card syntax for the vault, one file, or text that is not saved yet.
+	 * Reads only, so it does not take the scan guard. Anki is optional.
+	 */
+	async validate(target?: { file?: TFile; inline?: { path: string; text: string } }): Promise<ValidationReport> {
+		const { manager } = await this.prepareManager(target?.file)
+		const inputs = target?.inline
+			? [{ ...target.inline, data: createFileData(manager.data, manager.data.template.deckName, []) }]
+			: await manager.validationInputs()
+		return validateFiles(inputs, {
+			beginNote: this.env.loadState().settings.Syntax['Begin Note'],
+			existingIds: await this.readExistingIds(manager)
+		})
+	}
+
+	/** Anki's note IDs, or undefined when it cannot answer right now. */
+	private async readExistingIds(manager: FileManager): Promise<ReadonlySet<number> | undefined> {
+		const load = manager.data.loadExistingIds
+		if (!load || (await this.env.probeAnki()).status !== 'ready') {
+			return undefined
+		}
+		try {
+			return new Set(await load())
+		} catch (error) {
+			console.warn('[Obsidian_to_Anki] validate could not read note IDs:', error)
+			return undefined
+		}
+	}
+
 	/** Caller-supplied control wins; otherwise the env's progress UI (if any). */
 	private startProgress(control: ScanControl): ScanProgressHandle {
 		if (control.onProgress || control.isCancelled || !this.env.createProgress) {
@@ -426,14 +468,16 @@ export class ScanOrchestrator {
 		// NOTE: totalFiles is captured before initialiseFiles narrows
 		// manager.files down to the changed files — do not recompute it here.
 		const issues = manager.scanIssues
-		// Planned adds minus the ones AnkiConnect rejected; updates/deletes are
-		// batched without per-item results, so those stay planned counts.
+		// What really happened: planned adds and deletes minus the rejected ones,
+		// and only the notes whose content actually differed from Anki.
 		const failedAdds = issues.filter((i) => i.kind === 'add-note').length
 		const added = manager.ownFiles.reduce((n, f) => n + f.all_notes_to_add.length, 0) - failedAdds
-		const updated = manager.ownFiles.reduce((n, f) => n + f.notes_to_edit.length, 0)
+		const updated = manager.updatedNoteCount()
 		// Explicit DELETE lines plus notes whose block vanished from Markdown.
 		const deleted =
-			manager.ownFiles.reduce((n, f) => n + f.notes_to_delete.length, 0) + manager.orphanNoteIds.length
+			manager.ownFiles.reduce((n, f) => n + f.notes_to_delete.length, 0) +
+			manager.orphanNoteIds.length -
+			manager.failedDeleteCount
 		console.info(
 			`[Obsidian_to_Anki] scan complete: files_changed=${manager.ownFiles.length}/${totalFiles} added=${added} updated=${updated} deleted=${deleted}${issues.length > 0 ? ` failed=${issues.length}` : ''}`
 		)
@@ -450,6 +494,7 @@ export class ScanOrchestrator {
 			added,
 			updated,
 			deleted,
+			converted: manager.convertedCount,
 			issues: [...issues]
 		}
 	}
@@ -475,6 +520,7 @@ export class ScanOrchestrator {
 			updated: summary.wouldUpdate,
 			deleted: summary.wouldDelete,
 			converted: summary.wouldConvert,
+			issues: [...manager.ownFiles.flatMap((file) => file.parseIssues), ...summary.issues],
 			details: { decks: summary.decks, changes: summary.changes }
 		}
 	}

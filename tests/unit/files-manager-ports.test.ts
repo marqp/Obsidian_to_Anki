@@ -28,6 +28,9 @@ function fakeVault(contents: Record<string, string>, caches: Record<string, obje
 			reads.push(file.path)
 			return this.contents.get(file.path) ?? ''
 		},
+		markdownFiles() {
+			return [...this.contents.keys()].map((path) => ({ path }) as TFile)
+		},
 		async process(file: TFile, fn: (data: string) => string) {
 			const next = fn(this.contents.get(file.path) ?? '')
 			modifies.push({ path: file.path, data: next })

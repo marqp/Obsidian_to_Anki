@@ -1,16 +1,34 @@
 import { createHash, randomBytes, timingSafeEqual } from 'crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
 import type { AnkiProbe } from './anki-launch'
+import type {
+	CollectionMetadata,
+	DifficultCard,
+	DifficultCardsQuery,
+	NoteSearch,
+	NoteView,
+	StudyOverview
+} from './anki-read'
 import type { ScanReport } from './scan-orchestrator'
+import type { ValidationReport } from './validate'
 
 /** Bump when a response shape changes incompatibly (the MCP checks it). */
-export const API_VERSION = 1
+export const API_VERSION = 2
 
 /** Tokens shorter than this are refused: the API can write to the vault. */
 export const MIN_TOKEN_LENGTH = 24
 
 const MAX_BODY_BYTES = 16 * 1024
+/** Validation can receive a whole unsaved file. */
+const MAX_VALIDATE_BODY_BYTES = 1024 * 1024
 const MAX_PATH_LENGTH = 1024
+const MAX_QUERY_LENGTH = 2048
+const MAX_NOTE_IDS = 100
+const MAX_PAGE_SIZE = 100
+const DEFAULT_PAGE_SIZE = 20
+const MAX_REVIEW_DAYS = 365
+const DEFAULT_REVIEW_DAYS = 30
+const DEFAULT_MIN_LAPSES = 4
 
 /**
  * What the API may do. The plugin wires these to the same code paths the
@@ -23,6 +41,24 @@ export interface ApiHandlers {
 	scanFile(path: string): Promise<ScanReport | null>
 	/** Read-only preview; a path narrows it to one file. null when not found. */
 	dryRun(path?: string): Promise<ScanReport | null>
+	/**
+	 * Check card syntax of the vault, a file, or text that is not saved. With
+	 * `content`, `path` only labels the result. null when `path` alone names no file.
+	 */
+	validate(target: { path?: string; content?: string }): Promise<ValidationReport | null>
+	/** What a scan is doing now, and how the last one ended. */
+	scanState(): ScanState
+	metadata(): Promise<CollectionMetadata>
+	searchNotes(search: NoteSearch): Promise<{ total: number; offset: number; limit: number; notes: NoteView[] }>
+	getNotes(ids: number[], raw: boolean): Promise<{ notes: NoteView[]; missing: number[] }>
+	studyOverview(deck: string | undefined, days: number): Promise<StudyOverview>
+	difficultCards(query: DifficultCardsQuery): Promise<{ total: number; cards: DifficultCard[] }>
+}
+
+interface ScanState {
+	inProgress: boolean
+	/** Without the per-note details, which can run to thousands of entries. */
+	lastReport?: Omit<ScanReport, 'details'>
 }
 
 export interface ApiServerConfig {
@@ -73,13 +109,13 @@ class HttpError extends Error {
 	}
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readJsonBody(req: IncomingMessage, maxBytes = MAX_BODY_BYTES): Promise<Record<string, unknown>> {
 	const chunks: Buffer[] = []
 	let size = 0
 	for await (const chunk of req) {
 		const buffer = chunk as Buffer
 		size += buffer.length
-		if (size > MAX_BODY_BYTES) {
+		if (size > maxBytes) {
 			throw new HttpError(413, 'Request body too large.')
 		}
 		chunks.push(buffer)
@@ -109,6 +145,40 @@ function readPath(body: Record<string, unknown>, required: boolean): string | un
 	}
 	if (typeof value !== 'string' || value.trim() === '' || value.length > MAX_PATH_LENGTH) {
 		throw new HttpError(400, '"path" must be a non-empty vault-relative string.')
+	}
+	return value
+}
+
+function readInteger(
+	body: Record<string, unknown>,
+	name: string,
+	limits: { min: number; max: number; fallback: number }
+): number {
+	const value = body[name]
+	if (value === undefined) {
+		return limits.fallback
+	}
+	if (typeof value !== 'number' || !Number.isInteger(value) || value < limits.min || value > limits.max) {
+		throw new HttpError(400, `"${name}" must be an integer from ${limits.min} to ${limits.max}.`)
+	}
+	return value
+}
+
+function readFlag(body: Record<string, unknown>, name: string): boolean {
+	const value = body[name]
+	if (value !== undefined && typeof value !== 'boolean') {
+		throw new HttpError(400, `"${name}" must be true or false.`)
+	}
+	return value === true
+}
+
+function readDeck(body: Record<string, unknown>): string | undefined {
+	const value = body['deck']
+	if (value === undefined) {
+		return undefined
+	}
+	if (typeof value !== 'string' || value.trim() === '' || value.length > MAX_PATH_LENGTH) {
+		throw new HttpError(400, '"deck" must be a non-empty string.')
 	}
 	return value
 }
@@ -220,7 +290,7 @@ export class LocalApiServer {
 		switch (route) {
 			case '/status': {
 				expectMethod('GET')
-				send(res, 200, { apiVersion: API_VERSION, anki: await handlers.status() })
+				send(res, 200, { apiVersion: API_VERSION, anki: await handlers.status(), scan: handlers.scanState() })
 				return
 			}
 			case '/scan': {
@@ -248,6 +318,87 @@ export class LocalApiServer {
 					throw new HttpError(404, `Not a file in this vault: ${path}`)
 				}
 				send(res, statusForReport(report), report)
+				return
+			}
+			case '/validate': {
+				expectMethod('POST')
+				const body = await readJsonBody(req, MAX_VALIDATE_BODY_BYTES)
+				const path = readPath(body, false)
+				const content = body['content']
+				if (content !== undefined && typeof content !== 'string') {
+					throw new HttpError(400, '"content" must be a string.')
+				}
+				const report = await handlers.validate({ path, content })
+				if (report === null) {
+					throw new HttpError(404, `Not a file in this vault: ${path}`)
+				}
+				send(res, 200, report)
+				return
+			}
+			case '/metadata': {
+				expectMethod('GET')
+				send(res, 200, await handlers.metadata())
+				return
+			}
+			case '/notes/search': {
+				expectMethod('POST')
+				const body = await readJsonBody(req)
+				const query = body['query']
+				if (typeof query !== 'string' || query.length > MAX_QUERY_LENGTH) {
+					throw new HttpError(400, '"query" (Anki search syntax) is required.')
+				}
+				send(
+					res,
+					200,
+					await handlers.searchNotes({
+						query,
+						limit: readInteger(body, 'limit', { min: 1, max: MAX_PAGE_SIZE, fallback: DEFAULT_PAGE_SIZE }),
+						offset: readInteger(body, 'offset', { min: 0, max: Number.MAX_SAFE_INTEGER, fallback: 0 }),
+						raw: readFlag(body, 'raw')
+					})
+				)
+				return
+			}
+			case '/notes/get': {
+				expectMethod('POST')
+				const body = await readJsonBody(req)
+				const ids = body['ids']
+				if (
+					!Array.isArray(ids) ||
+					ids.length === 0 ||
+					ids.length > MAX_NOTE_IDS ||
+					!ids.every((id) => Number.isSafeInteger(id))
+				) {
+					throw new HttpError(400, `"ids" must be 1 to ${MAX_NOTE_IDS} note IDs.`)
+				}
+				send(res, 200, await handlers.getNotes(ids as number[], readFlag(body, 'raw')))
+				return
+			}
+			case '/study/overview': {
+				expectMethod('POST')
+				const body = await readJsonBody(req)
+				const days = readInteger(body, 'days', { min: 1, max: MAX_REVIEW_DAYS, fallback: DEFAULT_REVIEW_DAYS })
+				send(res, 200, await handlers.studyOverview(readDeck(body), days))
+				return
+			}
+			case '/study/difficult': {
+				expectMethod('POST')
+				const body = await readJsonBody(req)
+				send(
+					res,
+					200,
+					await handlers.difficultCards({
+						deck: readDeck(body),
+						minLapses: readInteger(body, 'minLapses', {
+							min: 1,
+							max: Number.MAX_SAFE_INTEGER,
+							fallback: DEFAULT_MIN_LAPSES
+						}),
+						limit: readInteger(body, 'limit', { min: 1, max: MAX_PAGE_SIZE, fallback: DEFAULT_PAGE_SIZE }),
+						includeSuspended: readFlag(body, 'includeSuspended'),
+						raw: readFlag(body, 'raw')
+					})
+				)
 				return
 			}
 			default:

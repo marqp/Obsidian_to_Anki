@@ -17,6 +17,14 @@ import { obsidianNoticePort } from './src/notices'
 import { createProgressNotice } from './src/progress-notice'
 import { describeConnectionFailure, probeAnkiStatus } from './src/anki-launch'
 import { LocalApiServer, MIN_TOKEN_LENGTH, generateToken, type ApiHandlers, pathForms } from './src/api-server'
+import {
+	collectionMetadata,
+	difficultCards,
+	getNotes,
+	searchNotes,
+	studyOverview,
+	type SourceLookup
+} from './src/anki-read'
 import type { DryRunSummary } from './src/dry-run'
 import { DryRunModal } from './src/ui/dry-run-modal'
 import { type ScanControl } from './src/files-manager'
@@ -285,6 +293,19 @@ export default class MyPlugin extends Plugin {
 		return null
 	}
 
+	/** Vault file of each tracked note, as of each file's last scan. */
+	private noteSourceLookup(): SourceLookup {
+		const fileById = new Map<number, string>()
+		for (const [path, entry] of Object.entries(this.file_hashes)) {
+			if (typeof entry !== 'string') {
+				for (const id of entry.noteIds ?? []) {
+					fileById.set(id, path)
+				}
+			}
+		}
+		return (noteId) => fileById.get(noteId)
+	}
+
 	private apiHandlers(): ApiHandlers {
 		return {
 			status: () => probeAnkiStatus(),
@@ -299,7 +320,46 @@ export default class MyPlugin extends Plugin {
 				}
 				const file = this.apiFile(path)
 				return file === null ? null : await this.dryRun(file)
-			}
+			},
+			validate: async ({ path, content }) => {
+				const orchestrator = this.scanOrchestrator()
+				if (content !== undefined) {
+					return await orchestrator.validate({ inline: { path: path ?? 'unsaved.md', text: content } })
+				}
+				if (path === undefined) {
+					return await orchestrator.validate()
+				}
+				const file = this.apiFile(path)
+				return file === null ? null : await orchestrator.validate({ file })
+			},
+			scanState: () => {
+				const orchestrator = this.scanOrchestrator()
+				const last = orchestrator.lastReport
+				if (last === undefined) {
+					return { inProgress: orchestrator.isScanning }
+				}
+				const { details: _details, ...lastReport } = last
+				return { inProgress: orchestrator.isScanning, lastReport }
+			},
+			metadata: () => {
+				const { Defaults: defaults, Syntax: syntax } = this.settings
+				return collectionMetadata(this.fields_dict, {
+					defaultDeck: defaults.Deck,
+					curlyCloze: defaults.CurlyCloze,
+					highlightsToCloze: defaults['CurlyCloze - Highlights to Clozes'],
+					idComments: defaults['ID Comments'],
+					deleteRemovedNotes: defaults['Delete Removed Notes'] ?? true,
+					allowNoteTypeChanges: defaults['Allow Note Type Changes'] ?? false,
+					syncToAnkiWeb: defaults['Sync to AnkiWeb'] ?? false,
+					schedulingIntervalMinutes: defaults['Scheduling Interval'],
+					scanDirectories: defaults['Scan Directories'] ?? [],
+					syntax
+				})
+			},
+			searchNotes: (search) => searchNotes(search, this.noteSourceLookup()),
+			getNotes: (ids, raw) => getNotes(ids, raw, this.noteSourceLookup()),
+			studyOverview: (deck, days) => studyOverview(deck, days),
+			difficultCards: (query) => difficultCards(query, this.noteSourceLookup())
 		}
 	}
 

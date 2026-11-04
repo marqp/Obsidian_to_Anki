@@ -81,9 +81,9 @@ describe('collectDryRunState: exact diff', () => {
 			}
 			if (action === 'cardsInfo') {
 				return [
-					{ cardId: 101, deck: 'Default' },
-					{ cardId: 102, deck: 'Default' },
-					{ cardId: 103, deck: 'Default' }
+					{ cardId: 101, deckName: 'Default' },
+					{ cardId: 102, deckName: 'Default' },
+					{ cardId: 103, deckName: 'Default' }
 				]
 			}
 			throw new Error(`unexpected action in dry-run: ${action}`)
@@ -116,6 +116,37 @@ describe('collectDryRunState: exact diff', () => {
 		}
 	})
 
+	it('reports a type mismatch the sync would refuse, and offers a conversion only when allowed', async () => {
+		const { setTransport } = await import('../../src/anki')
+		setTransport({
+			invoke: async (action: string) => {
+				if (action === 'notesInfo') {
+					return [{ noteId: 11, modelName: 'Cloze', tags: [], fields: {}, cards: [] }] as never
+				}
+				return [] as never
+			}
+		})
+		const files = createManagerFiles(
+			createParsedSettings(),
+			[{ id: 11, fields: { Front: 'q', Back: 'a' }, tags: [] }],
+			[]
+		)
+
+		const refused = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+		expect(refused.changes).toEqual([])
+		expect(refused.issues).toEqual([
+			expect.objectContaining({
+				kind: 'note-type-mismatch',
+				noteId: 11,
+				error: expect.stringContaining('"Basic" in Markdown but "Cloze" in Anki')
+			})
+		])
+
+		const allowed = await collectDryRunState(files, { hasNoteTypeChanges: true, orphanNoteIds: [] })
+		expect(allowed.wouldConvert).toBe(1)
+		expect(allowed.issues).toEqual([])
+	})
+
 	it('includes the file-level FILE TAGS when comparing tags (no false updates)', async () => {
 		const { setTransport } = await import('../../src/anki')
 		setTransport({
@@ -133,7 +164,7 @@ describe('collectDryRunState: exact diff', () => {
 					]
 				}
 				if (action === 'cardsInfo') {
-					return [{ cardId: 301, deck: 'Default' }]
+					return [{ cardId: 301, deckName: 'Default' }]
 				}
 				throw new Error(`unexpected action in dry-run: ${action}`)
 			}
@@ -174,7 +205,7 @@ describe('collectDryRunState: exact diff', () => {
 				]
 			}
 			if (action === 'cardsInfo') {
-				return [{ cardId: 104, deck: 'Default' }]
+				return [{ cardId: 104, deckName: 'Default' }]
 			}
 			throw new Error(`unexpected action in dry-run: ${action}`)
 		})
@@ -263,8 +294,8 @@ describe('collectDryRunState: exact diff', () => {
 			}
 			if (action === 'cardsInfo') {
 				return [
-					{ cardId: 201, deck: 'OldDeck' },
-					{ cardId: 202, deck: 'Default' }
+					{ cardId: 201, deckName: 'OldDeck' },
+					{ cardId: 202, deckName: 'Default' }
 				]
 			}
 			throw new Error(`unexpected action in dry-run: ${action}`)
@@ -395,9 +426,103 @@ describe('collectDryRunState: exact diff', () => {
 				noteId: 35,
 				deck: 'Default',
 				modelName: 'Basic',
-				fields: ['Front', 'Extra']
+				fields: ['Extra']
 			},
-			{ kind: 'delete', file: 'gone.md', noteId: 401 }
+			{ kind: 'delete', file: 'gone.md', noteId: 401, deleteReason: 'orphan' }
+		])
+	})
+
+	it('reports a card in the wrong deck using the key AnkiConnect actually sends', async () => {
+		const { setTransport } = await import('../../src/anki')
+		setTransport({
+			invoke: vi.fn(async (action: string) => {
+				if (action === 'notesInfo') {
+					return [
+						{
+							noteId: 51,
+							modelName: 'Basic',
+							tags: [],
+							fields: { Front: { order: 0, value: 'q' } },
+							cards: [501]
+						}
+					]
+				}
+				return [{ cardId: 501, deckName: 'Elsewhere', type: 2 }]
+			})
+		})
+		const files = createManagerFiles(createParsedSettings(), [{ id: 51, fields: { Front: 'q' }, tags: [] }], [])
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+
+		expect(summary.wouldUpdate).toBe(1)
+		expect(summary.decks).toEqual([{ deck: 'Elsewhere', cards: 1, new: 0 }])
+		// The preview must not leave a deck map behind for a later real scan.
+		expect(files[0].note_edit_deck_map).toEqual([])
+		expect(files[0].card_ids).toEqual([])
+	})
+
+	it('says which parts of a note changed, not just that it did', async () => {
+		const { setTransport } = await import('../../src/anki')
+		setTransport({
+			invoke: vi.fn(async (action: string) =>
+				action === 'notesInfo'
+					? [
+							{
+								noteId: 51,
+								modelName: 'Basic',
+								tags: ['old'],
+								fields: { Front: { order: 0, value: 'q' }, Back: { order: 1, value: 'old' } },
+								cards: [501]
+							}
+						]
+					: [{ cardId: 501, deckName: 'Default', type: 2 }]
+			)
+		})
+		const files = createManagerFiles(
+			createParsedSettings(),
+			[{ id: 51, fields: { Front: 'q', Back: 'new' }, tags: ['new'] }],
+			[]
+		)
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+
+		expect(summary.changes).toEqual([
+			{
+				kind: 'update',
+				file: 'dry-run.md',
+				noteId: 51,
+				deck: 'Default',
+				modelName: 'Basic',
+				fields: ['Back'],
+				tagsChanged: true
+			}
+		])
+	})
+
+	it('shows the start of a new card, without markup', async () => {
+		const { setTransport } = await import('../../src/anki')
+		setTransport({ invoke: vi.fn(async () => []) })
+		const files = createManagerFiles(createParsedSettings(), [], [{ deckName: 'Default', modelName: 'Basic' }])
+		files[0].all_notes_to_add[0].fields = { Front: '<b>Qual</b>   o <i>tratamento</i>?', Back: 'x' }
+		files[0].pendingAdds = [{ position: 30, kind: 'note', start: 0 }]
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+
+		expect(summary.changes[0]).toMatchObject({ line: 1, snippet: 'Qual o tratamento ?' })
+	})
+
+	it('counts explicit DELETE lines, which the real scan also deletes', async () => {
+		const { setTransport } = await import('../../src/anki')
+		setTransport({ invoke: vi.fn(async () => []) })
+		const files = createManagerFiles(createParsedSettings(), [], [])
+		files[0].notes_to_delete = [77]
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [78] })
+
+		expect(summary.wouldDelete).toBe(2)
+		expect(summary.changes).toEqual([
+			{ kind: 'delete', file: 'dry-run.md', noteId: 77, deleteReason: 'delete-line' },
+			{ kind: 'delete', file: '', noteId: 78, deleteReason: 'orphan' }
 		])
 	})
 
@@ -438,10 +563,10 @@ describe('collectDryRunState: exact diff', () => {
 			}
 			if (action === 'cardsInfo') {
 				return [
-					{ cardId: 201, deck: 'B', type: 2 },
-					{ cardId: 401, deck: 'C', type: 0 },
-					{ cardId: 101, deck: 'A', type: 0 },
-					{ cardId: 102, deck: 'A', type: 2 }
+					{ cardId: 201, deckName: 'B', type: 2 },
+					{ cardId: 401, deckName: 'C', type: 0 },
+					{ cardId: 101, deckName: 'A', type: 0 },
+					{ cardId: 102, deckName: 'A', type: 2 }
 				]
 			}
 			throw new Error(`unexpected action in dry-run: ${action}`)
@@ -477,7 +602,7 @@ describe('collectDryRunState: exact diff', () => {
 
 		const summary = await collectDryRunState([], { hasNoteTypeChanges: false, orphanNoteIds: [402] })
 
-		expect(summary.changes).toEqual([{ kind: 'delete', file: '', noteId: 402 }])
+		expect(summary.changes).toEqual([{ kind: 'delete', file: '', noteId: 402, deleteReason: 'orphan' }])
 	})
 
 	it('chunks notesInfo into bounded batches with identical results', async () => {
