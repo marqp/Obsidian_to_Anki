@@ -158,7 +158,7 @@ describe('buildImportPlan', () => {
 	it('refuses an image the renderer cannot embed', () => {
 		vi.spyOn(console, 'warn').mockImplementation(() => undefined)
 
-		const result = plan([basic(1, 'q', '<img src="a.JPG">'), basic(2, 'q', '<img src="b.jpg">')])
+		const result = plan([basic(1, 'q', '<img src="paste">'), basic(2, 'q', '<img src="b.jpg">')])
 
 		expect(result.refused).toEqual([expect.objectContaining({ noteId: 1, reasons: ['field Back'] })])
 		expect(result.images).toEqual(['b.jpg'])

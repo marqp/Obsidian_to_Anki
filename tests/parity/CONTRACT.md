@@ -122,6 +122,9 @@ structural diff by design and serve as living documentation:
 - **Sized image embeds:** `![[a.png|300]]` renders with `width="300"`. Upstream uses the
   number as the image's `alt`, which loses the size.
 
+- **Embed extensions:** the extension of an embed is matched without regard to case, and
+  `.webp` counts as an image. Upstream leaves `![[a.JPG]]` and `![[a.webp]]` as literal text.
+
 ## Updating the upstream pin
 
 1. `git fetch upstream master`
