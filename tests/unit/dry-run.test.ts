@@ -116,6 +116,37 @@ describe('collectDryRunState: exact diff', () => {
 		}
 	})
 
+	it('reports a type mismatch the sync would refuse, and offers a conversion only when allowed', async () => {
+		const { setTransport } = await import('../../src/anki')
+		setTransport({
+			invoke: async (action: string) => {
+				if (action === 'notesInfo') {
+					return [{ noteId: 11, modelName: 'Cloze', tags: [], fields: {}, cards: [] }] as never
+				}
+				return [] as never
+			}
+		})
+		const files = createManagerFiles(
+			createParsedSettings(),
+			[{ id: 11, fields: { Front: 'q', Back: 'a' }, tags: [] }],
+			[]
+		)
+
+		const refused = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+		expect(refused.changes).toEqual([])
+		expect(refused.issues).toEqual([
+			expect.objectContaining({
+				kind: 'note-type-mismatch',
+				noteId: 11,
+				error: expect.stringContaining('"Basic" in Markdown but "Cloze" in Anki')
+			})
+		])
+
+		const allowed = await collectDryRunState(files, { hasNoteTypeChanges: true, orphanNoteIds: [] })
+		expect(allowed.wouldConvert).toBe(1)
+		expect(allowed.issues).toEqual([])
+	})
+
 	it('includes the file-level FILE TAGS when comparing tags (no false updates)', async () => {
 		const { setTransport } = await import('../../src/anki')
 		setTransport({

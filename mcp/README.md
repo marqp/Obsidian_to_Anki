@@ -99,8 +99,9 @@ Every request needs `Authorization: Bearer <token>` and a loopback `Host` header
 `ScanReport`: `outcome` (`completed`, `nothing-to-sync`, `cancelled`, `aborted`, `busy`,
 `awaiting-confirmation`), `filesChanged`, `filesTotal`, `added`, `updated`, `deleted`,
 `converted`, `issues[]`. `busy` → HTTP 409, Anki unavailable → 503. After a sync the counts
-say what really happened: `updated` only counts notes that differed from Anki. For a
-dry-run they say what would happen. Each entry in `issues` has `file`, `kind` and `error`,
+say what really happened: `updated` only counts notes whose content or tags differed from
+Anki. For a dry-run they say what would happen, and `updated` also counts a note that would
+only change deck (`deckChanged` in `details.changes`). Each entry in `issues` has `file`, `kind` and `error`,
 plus `line`, `snippet` and `noteId` when it belongs to one note. See
 [the list of kinds](../docs/troubleshooting.md).
 

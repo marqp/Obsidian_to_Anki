@@ -1,5 +1,6 @@
 import * as AnkiConnect from './anki'
 import type { AllFile } from './file'
+import type { ScanIssue } from './files-manager'
 import type { AnkiConnectNote } from './interfaces/note-interface'
 
 /** One pending change discovered by a dry run, machine-readable. */
@@ -36,6 +37,8 @@ export interface DryRunSummary {
 	/** Live cards touched per deck (read-only review confidence). */
 	decks: DryRunDeckStat[]
 	changes: DryRunChange[]
+	/** Notes the sync would leave alone and report, because their type differs. */
+	issues: ScanIssue[]
 }
 
 /** Cards the preview would touch in one deck (Anki `type === 0` counts as new). */
@@ -108,6 +111,7 @@ export async function collectDryRunState(
 	options: { hasNoteTypeChanges: boolean; orphanNoteIds: number[]; orphanFileById?: Map<number, string> }
 ): Promise<DryRunSummary> {
 	const changes: DryRunChange[] = []
+	const issues: ScanIssue[] = []
 	let wouldAdd = 0
 	let wouldUpdate = 0
 	let wouldConvert = 0
@@ -180,6 +184,8 @@ export async function collectDryRunState(
 						fromModel: anki.modelName,
 						toModel: parsed.note.modelName
 					})
+				} else {
+					issues.push(noteTypeMismatch(file, parsed.identifier, parsed.note.modelName, anki.modelName))
 				}
 				continue
 			}
@@ -223,7 +229,20 @@ export async function collectDryRunState(
 				noteId,
 				deleteReason: 'orphan' as const
 			}))
-		]
+		],
+		issues
+	}
+}
+
+/** The issue for a note whose type differs while "Allow Note Type Changes" is off. */
+export function noteTypeMismatch(file: AllFile, noteId: number, localModel: string, ankiModel: string): ScanIssue {
+	const line = file.editedNoteLine(noteId)
+	return {
+		file: file.path,
+		kind: 'note-type-mismatch',
+		noteId,
+		...(line === undefined ? {} : { line }),
+		error: `Note is "${localModel}" in Markdown but "${ankiModel}" in Anki. Enable "Allow Note Type Changes" to convert it.`
 	}
 }
 

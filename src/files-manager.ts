@@ -4,7 +4,7 @@ import { AnkiConnectNoteAndID } from './interfaces/note-interface'
 import { App, TFile, TFolder, TAbstractFile, CachedMetadata, FileSystemAdapter } from 'obsidian'
 import { obsidianNoticePort, type NoticePort } from './notices'
 import { AllFile } from './file'
-import { isContentMismatch } from './dry-run'
+import { isContentMismatch, noteTypeMismatch } from './dry-run'
 import type { ValidationInput } from './validate'
 import * as AnkiConnect from './anki'
 import { basename } from 'path'
@@ -915,12 +915,7 @@ export class FileManager {
 			console.warn(
 				`Note ${parsed.identifier} in file ${file.path} is "${localModelName}" but "${ankiModelName}" in Anki. Enable "Allow Note Type Changes" in the plugin settings to convert it.`
 			)
-			this.scanIssues.push({
-				file: file.path,
-				kind: 'note-type-mismatch',
-				noteId: parsed.identifier,
-				error: `Note is "${localModelName}" in Markdown but "${ankiModelName}" in Anki. Enable "Allow Note Type Changes" to convert it.`
-			})
+			this.scanIssues.push(noteTypeMismatch(file, parsed.identifier, localModelName, ankiModelName))
 			return
 		}
 		if (!this.useUpdateNoteModel) {

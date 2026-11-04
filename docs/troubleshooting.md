@@ -26,7 +26,8 @@ files; the full list is in the console as `scan issues: [...]`.
 ## Problems listed after a scan
 
 Each entry in `issues` names its file and, when it belongs to one note, its line
-and the start of its text. A dry-run lists the ones the parser finds.
+and the start of its text. A dry-run lists the ones the parser finds and notes whose
+type differs from Anki.
 
 | `kind` | Meaning | Tried again next scan |
 |---|---|---|

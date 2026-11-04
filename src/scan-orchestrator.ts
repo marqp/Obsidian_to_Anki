@@ -520,7 +520,7 @@ export class ScanOrchestrator {
 			updated: summary.wouldUpdate,
 			deleted: summary.wouldDelete,
 			converted: summary.wouldConvert,
-			issues: manager.ownFiles.flatMap((file) => file.parseIssues),
+			issues: [...manager.ownFiles.flatMap((file) => file.parseIssues), ...summary.issues],
 			details: { decks: summary.decks, changes: summary.changes }
 		}
 	}
