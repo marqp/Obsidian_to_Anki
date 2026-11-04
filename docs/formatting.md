@@ -22,8 +22,9 @@ math never become clozes.
 - Local (script): `![alt](path/to/img.png)`. GIFs work.
 - Local (plugin): standard embeds plus Obsidian `![[…]]` embeds.
 
-Media uploads are lazy: files already in `Added Media` are skipped unless
-forced (`-m` flag on the script, or media cache cleared in settings).
+Media uploads are lazy: files already in `Added Media` that Anki still holds are
+skipped unless forced (`-m` flag on the script, or media cache cleared in settings).
+A file Anki no longer has is sent again the next time a scan reads a note citing it.
 
 ## Audio
 

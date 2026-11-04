@@ -37,7 +37,8 @@ describe('requests_1 media batch', () => {
 		files: Array<{ path: string; media: string[] }>,
 		dest: (link: string) => TFile | null,
 		mediaResult: unknown[],
-		preseeded: string[] = []
+		preseeded: string[] = [],
+		listMedia: () => string[] = () => preseeded
 	) {
 		const vault = {
 			read: async () => '',
@@ -55,6 +56,9 @@ describe('requests_1 media batch', () => {
 		const invokeMock = vi.fn(async (action: string) => {
 			if (action === 'apiReflect') {
 				return { scopes: ['actions'], actions: ['updateNote', 'updateNoteModel'] }
+			}
+			if (action === 'getMediaFilesNames') {
+				return listMedia()
 			}
 			return multiResponse
 		})
@@ -185,6 +189,89 @@ describe('requests_1 media batch', () => {
 		expect(uploadedFilenames(invokeMock)).toEqual(['new.png'])
 		expect(manager.added_media_set.has('old.png')).toBe(true)
 		expect(manager.added_media_set.has('new.png')).toBe(true)
+	})
+
+	it('sends again a cached file that Anki no longer has', async () => {
+		const { manager, invokeMock } = mediaManager(
+			[
+				{ path: 'a.md', media: ['gone.png', 'kept.png'] },
+				{ path: 'b.md', media: ['gone.png'] }
+			],
+			(link) => locatedFile(link),
+			[{ error: null }],
+			['gone.png', 'kept.png'],
+			() => ['kept.png']
+		)
+
+		await manager.requests_1()
+
+		expect(uploadedFilenames(invokeMock)).toEqual(['gone.png'])
+		expect(manager.scanIssues).toEqual([])
+	})
+
+	it.each([
+		['case', 'Foto.PNG', 'foto.png'],
+		['Unicode form', 'Pa\u0301gina.png', 'P\u00e1gina.png']
+	])('finds a cached file that Anki holds in another %s', async (_label, link, listed) => {
+		const { manager, invokeMock } = mediaManager(
+			[{ path: 'a.md', media: [`sub/${link}`] }],
+			(name) => locatedFile(name),
+			[],
+			[`sub/${link}`],
+			() => [listed]
+		)
+
+		await manager.requests_1()
+
+		expect(uploadedFilenames(invokeMock)).toEqual([])
+	})
+
+	it('reports a cached file that neither Anki nor the vault has', async () => {
+		const { manager, invokeMock } = mediaManager(
+			[{ path: 'a.md', media: ['ghost.png'] }],
+			() => null,
+			[],
+			['ghost.png'],
+			() => []
+		)
+		vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+		await manager.requests_1()
+
+		expect(uploadedFilenames(invokeMock)).toEqual([])
+		expect(manager.scanIssues).toEqual([
+			{ file: 'a.md', kind: 'media-missing', error: "Couldn't locate media file ghost.png" }
+		])
+	})
+
+	it('trusts the cache when Anki cannot list its media', async () => {
+		const { manager, invokeMock } = mediaManager(
+			[{ path: 'a.md', media: ['old.png'] }],
+			(link) => locatedFile(link),
+			[],
+			['old.png'],
+			() => {
+				throw new Error('unsupported action')
+			}
+		)
+		vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+		await manager.requests_1()
+
+		expect(uploadedFilenames(invokeMock)).toEqual([])
+		expect(manager.scanIssues).toEqual([])
+	})
+
+	it('does not list the media when no file is cached', async () => {
+		const { manager, invokeMock } = mediaManager(
+			[{ path: 'a.md', media: ['new.png'] }],
+			(link) => locatedFile(link),
+			[{ error: null }]
+		)
+
+		await manager.requests_1()
+
+		expect(invokeMock.mock.calls.map((call) => call[0])).not.toContain('getMediaFilesNames')
 	})
 
 	it('notifies on the legacy media-batch error', async () => {

@@ -64,7 +64,7 @@ do not count.
 
 Plugin `data.json` (script: `obsidian_to_anki_data.json`) stores:
 
-- `Added Media`: filenames already uploaded (skip re-upload).
+- `Added Media`: filenames already uploaded (skip re-upload while Anki still has them).
 - `File Hashes`: per file `{ hash, mtime, size, noteIds }`. Same
   mtime+size → skip without reading; same hash → skip without parsing.
   Legacy plain-string hashes still read.
