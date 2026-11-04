@@ -444,8 +444,11 @@ export async function applyImport(
 		result.blocked.push(`${plan.structuralErrors} structural problem(s) in the planned files.`)
 		return result
 	}
-	const available = new Set(await AnkiConnect.invoke<string[]>('getMediaFilesNames', { pattern: '*' }))
-	const missing = plan.images.filter((name) => !available.has(name))
+	// A note can cite a file in another case, and Anki still shows it where the
+	// disk ignores case, as on macOS. Elsewhere the read below reports it missing.
+	const listed = await AnkiConnect.invoke<string[]>('getMediaFilesNames', { pattern: '*' })
+	const available = new Set(listed.map((name) => name.toLowerCase()))
+	const missing = plan.images.filter((name) => !available.has(name.toLowerCase()))
 	if (missing.length > 0) {
 		result.blocked.push(...missing.map((name) => `Image not in Anki's media folder: ${name}`))
 		return result
