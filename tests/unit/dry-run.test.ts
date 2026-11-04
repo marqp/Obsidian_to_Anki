@@ -395,7 +395,7 @@ describe('collectDryRunState: exact diff', () => {
 				noteId: 35,
 				deck: 'Default',
 				modelName: 'Basic',
-				fields: ['Front', 'Extra']
+				fields: ['Extra']
 			},
 			{ kind: 'delete', file: 'gone.md', noteId: 401, deleteReason: 'orphan' }
 		])
@@ -428,6 +428,56 @@ describe('collectDryRunState: exact diff', () => {
 		// The preview must not leave a deck map behind for a later real scan.
 		expect(files[0].note_edit_deck_map).toEqual([])
 		expect(files[0].card_ids).toEqual([])
+	})
+
+	it('says which parts of a note changed, not just that it did', async () => {
+		const { setTransport } = await import('../../src/anki')
+		setTransport({
+			invoke: vi.fn(async (action: string) =>
+				action === 'notesInfo'
+					? [
+							{
+								noteId: 51,
+								modelName: 'Basic',
+								tags: ['old'],
+								fields: { Front: { order: 0, value: 'q' }, Back: { order: 1, value: 'old' } },
+								cards: [501]
+							}
+						]
+					: [{ cardId: 501, deckName: 'Default', type: 2 }]
+			)
+		})
+		const files = createManagerFiles(
+			createParsedSettings(),
+			[{ id: 51, fields: { Front: 'q', Back: 'new' }, tags: ['new'] }],
+			[]
+		)
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+
+		expect(summary.changes).toEqual([
+			{
+				kind: 'update',
+				file: 'dry-run.md',
+				noteId: 51,
+				deck: 'Default',
+				modelName: 'Basic',
+				fields: ['Back'],
+				tagsChanged: true
+			}
+		])
+	})
+
+	it('shows the start of a new card, without markup', async () => {
+		const { setTransport } = await import('../../src/anki')
+		setTransport({ invoke: vi.fn(async () => []) })
+		const files = createManagerFiles(createParsedSettings(), [], [{ deckName: 'Default', modelName: 'Basic' }])
+		files[0].all_notes_to_add[0].fields = { Front: '<b>Qual</b>   o <i>tratamento</i>?', Back: 'x' }
+		files[0].pendingAdds = [{ position: 30, kind: 'note', start: 0 }]
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+
+		expect(summary.changes[0]).toMatchObject({ line: 1, snippet: 'Qual o tratamento ?' })
 	})
 
 	it('counts explicit DELETE lines, which the real scan also deletes', async () => {

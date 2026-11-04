@@ -108,3 +108,19 @@ describe('formatDeckLine', () => {
 		expect(formatDeckLine({ deck: 'Med', cards: 12, new: 0 })).toBe('Med — 12 cards (0 new)')
 	})
 })
+
+describe('formatChangeLine: what an update changes', () => {
+	it('names the changed fields, tags and deck', () => {
+		expect(
+			formatChangeLine({
+				kind: 'update',
+				file: 'a.md',
+				noteId: 5,
+				deck: 'D',
+				fields: ['Back'],
+				tagsChanged: true,
+				deckChanged: true
+			})
+		).toBe('~ #5 D (Back, tags, deck)')
+	})
+})

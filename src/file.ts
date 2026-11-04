@@ -78,6 +78,8 @@ export function string_insert(text: string, position_inserts: Array<[number, str
 export interface PendingAdd {
 	position: number
 	kind: 'note' | 'inline' | 'regex'
+	/** Where the note starts, for reports. */
+	start: number
 }
 
 const ISSUE_SNIPPET_LENGTH = 100
@@ -406,6 +408,8 @@ export class AllFile extends AbstractFile {
 	/** Notes this file cannot sync as written; reported, never sent to Anki. */
 	parseIssues: ScanIssue[] = []
 	private editedIds = new Set<number>()
+	/** Offset of the block carrying each edited note ID. */
+	private editStarts = new Map<number, number>()
 
 	constructor(file_contents: string, path: string, url: string, data: FileData, file_cache: CachedMetadata) {
 		super(file_contents, path, url, data, file_cache)
@@ -447,6 +451,7 @@ export class AllFile extends AbstractFile {
 		this.pendingAdds = []
 		this.parseIssues = []
 		this.editedIds = new Set()
+		this.editStarts = new Map()
 		this.notes_to_edit = []
 		this.notes_to_delete = []
 		this.note_edit_deck_map = []
@@ -482,6 +487,18 @@ export class AllFile extends AbstractFile {
 		}
 		opts.onEdit()
 		return true
+	}
+
+	/** 1-based line of the block behind `all_notes_to_add[index]`. */
+	addedNoteLine(index: number): number | undefined {
+		const start = this.pendingAdds[index]?.start
+		return start === undefined ? undefined : lineAt(this.file, start)
+	}
+
+	/** 1-based line of the block carrying this note ID (the last one, if repeated). */
+	editedNoteLine(noteId: number): number | undefined {
+		const start = this.editStarts.get(noteId)
+		return start === undefined ? undefined : lineAt(this.file, start)
 	}
 
 	private addParseIssue(
@@ -523,7 +540,7 @@ export class AllFile extends AbstractFile {
 				onNew: () => {
 					parsed.note.tags.push(...this.global_tags.split(TAG_SEP))
 					notesToAdd.push(parsed.note)
-					this.pendingAdds.push({ position, kind })
+					this.pendingAdds.push({ position, kind, start: note_match.index })
 				},
 				onUnknownId: (identifier) => {
 					if (identifier == NOTE_TYPE_ERROR) {
@@ -566,6 +583,7 @@ export class AllFile extends AbstractFile {
 						)
 					}
 					this.editedIds.add(noteId)
+					this.editStarts.set(noteId, note_match.index)
 					this.notes_to_edit.push(parsed)
 				}
 			})
@@ -656,7 +674,11 @@ export class AllFile extends AbstractFile {
 						onNew: () => {
 							parsed.note.tags.push(...this.global_tags.split(TAG_SEP))
 							this.regex_notes_to_add.push(parsed.note)
-							this.pendingAdds.push({ position: matchPos + match[0].length, kind: 'regex' })
+							this.pendingAdds.push({
+								position: matchPos + match[0].length,
+								kind: 'regex',
+								start: matchPos
+							})
 						},
 						onUnknownId: () => undefined,
 						onEdit: () => undefined

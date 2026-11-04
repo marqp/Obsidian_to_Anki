@@ -241,3 +241,15 @@ describe('AllFile.parseIssues: notes the scan cannot sync are reported', () => {
 		expect(file.parseIssues).toHaveLength(1)
 	})
 })
+
+describe('AllFile note lines, for reports', () => {
+	it('locates new and existing notes', () => {
+		const data = buildFileData({ EXISTING_IDS: new Set([7]) })
+		const file = scan('# H\n\nSTART\nBasic\nFront: new\nEND\n\nSTART\nBasic\nFront: old\n<!--ID: 7-->\nEND\n', data)
+
+		expect(file.addedNoteLine(0)).toBe(3)
+		expect(file.addedNoteLine(1)).toBeUndefined()
+		expect(file.editedNoteLine(7)).toBe(8)
+		expect(file.editedNoteLine(8)).toBeUndefined()
+	})
+})

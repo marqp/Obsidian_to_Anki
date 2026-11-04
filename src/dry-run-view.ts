@@ -44,13 +44,17 @@ export function groupDryRunChanges(summary: DryRunSummary): DryRunGroup[] {
 	return groups
 }
 
+function changedParts(change: DryRunChange): string[] {
+	return [...(change.fields ?? []), ...(change.tagsChanged ? ['tags'] : []), ...(change.deckChanged ? ['deck'] : [])]
+}
+
 /** One human-readable line per change (mirrors the console semantics). */
 export function formatChangeLine(change: DryRunChange): string {
 	switch (change.kind) {
 		case 'add':
 			return `+ ${change.deck ?? ''}/${change.modelName ?? ''}`
 		case 'update':
-			return `~ #${change.noteId ?? '?'} ${change.deck ?? ''} (${(change.fields ?? []).join(', ')})`
+			return `~ #${change.noteId ?? '?'} ${change.deck ?? ''} (${changedParts(change).join(', ')})`
 		case 'delete':
 			return `- #${change.noteId ?? '?'}`
 		case 'convert':

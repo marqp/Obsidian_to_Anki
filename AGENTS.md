@@ -33,7 +33,10 @@ behavior intentionally diverged (orphan deletion, updateNote, dry-run — see RE
 is a dependency-free stdio MCP bridge over it (see `mcp/README.md`). Rules: bind `127.0.0.1` only, bearer token
 on every request, keep `api-server.ts` free of `obsidian` imports, and never send the token to a non-loopback URL.
 Scans return a structured `ScanReport` (`src/scan-orchestrator.ts`); change its shape only together with
-`API_VERSION` and the bridge.
+`API_VERSION` and the bridge's `EXPECTED_API_VERSION`. `src/anki-read.ts` is read-only by contract (a test
+pins it): Markdown owns the cards, so no API route edits a note in Anki. New note problems found while parsing
+go in `AllFile.parseIssues`, so scans, dry-runs and `POST /validate` all report them. Decide in
+`RETRYABLE_ISSUES` whether a new issue kind should keep its file "changed" for the next scan.
 
 ## Obsidian CLI workflow (manual, agent-friendly)
 
