@@ -329,6 +329,33 @@ describe('applyImport', () => {
 		expect(vault.createAttachment).not.toHaveBeenCalled()
 	})
 
+	describe('when a note cites an image in another case', () => {
+		const notes = [basic(1, 'q', '<img src="Foto.png">', ['Bio'])]
+
+		it('imports it where the disk ignores case', async () => {
+			const { vault, invoke } = setup(notes, { 'foto.png': png })
+			const reads = invoke.getMockImplementation()
+			AnkiConnect.setTransport({
+				invoke: (async (action: string, params?: Record<string, unknown>) =>
+					action === 'retrieveMediaFile' ? png : reads?.(action, params)) as never
+			})
+
+			const result = await applyImport(new Set(), options, vault, 'deck:Med')
+
+			expect(result).toMatchObject({ blocked: [], notesWritten: 1, imagesCopied: 1 })
+			expect(vi.mocked(vault.createNote).mock.calls[0][1]).toContain('![[Foto.png]]')
+		})
+
+		it('writes no note where the disk tells the two names apart', async () => {
+			const { vault } = setup(notes, { 'foto.png': png })
+
+			const result = await applyImport(new Set(), options, vault, 'deck:Med')
+
+			expect(result.blocked).toEqual(["Image not in Anki's media folder: Foto.png"])
+			expect(vault.createNote).not.toHaveBeenCalled()
+		})
+	})
+
 	it('writes no note when another file has the same name, and never replaces it', async () => {
 		const notes = [basic(1, 'q', '<img src="a.png"><img src="b.png">')]
 		const { vault } = setup(notes, { 'a.png': png, 'b.png': png }, { 'a.png': 'outra coisa' })
