@@ -346,12 +346,17 @@ abstract class AbstractFile {
 	/**
 	 * Where the real scan would move each card: card ID → target deck.
 	 * Shared by the real scan (requests_2) and the dry-run diff so both agree
-	 * on what "the deck should be" means. Must be called after parse.
+	 * on what "the deck should be" means. A real scan passes nothing and uses
+	 * what parse_requests_1 recorded; the dry-run passes its own notesInfo read.
 	 */
-	getTargetDeckByCard(): Map<number, string> {
+	getTargetDeckByCard(
+		cardIds: number[] = this.card_ids,
+		noteDecks: Array<{ card_ids: number[]; deck: string }> = this.note_edit_deck_map
+	): Map<number, string> {
 		const byCard = new Map<number, string>()
-		for (const [deck, cardIds] of this.getTargetDeckByCardGrouped()) {
-			for (const cardId of cardIds) {
+		const grouped = groupTargetDecks(this.frontmatter_has_deck, this.target_deck, cardIds, noteDecks)
+		for (const [deck, deckCardIds] of grouped) {
+			for (const cardId of deckCardIds) {
 				byCard.set(cardId, deck)
 			}
 		}

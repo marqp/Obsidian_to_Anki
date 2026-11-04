@@ -12,6 +12,8 @@ export interface DryRunChange {
 	fromModel?: string
 	toModel?: string
 	fields?: string[]
+	/** Delete entries only: an explicit DELETE line, or a block gone from the Markdown. */
+	deleteReason?: 'delete-line' | 'orphan'
 }
 
 /** Aggregated dry-run result: one console one-liner + one JSON blob. */
@@ -44,7 +46,8 @@ interface AnkiNoteInfo {
 
 interface AnkiCardInfo {
 	cardId: number
-	deck: string
+	/** AnkiConnect names this `deckName`; there is no `deck` key on the wire. */
+	deckName: string
 	/** Anki card type: 0 = new (learning/review/relearning are non-zero). */
 	type?: number
 }
@@ -123,14 +126,19 @@ export async function collectDryRunState(
 	const cardInfoById = new Map<number, AnkiCardInfo>()
 	for (const card of cardInfos) {
 		if (card) {
-			deckByCardId.set(card.cardId, card.deck)
+			deckByCardId.set(card.cardId, card.deckName)
 			cardInfoById.set(card.cardId, card)
 		}
 	}
 
 	const updatedNoteIds = new Set<number>()
+	const explicitDeletes: DryRunChange[] = []
 
 	for (const file of files) {
+		const targets = targetDecksFor(file, infoById)
+		for (const noteId of file.notes_to_delete) {
+			explicitDeletes.push({ kind: 'delete', file: file.path, noteId, deleteReason: 'delete-line' })
+		}
 		for (const note of file.all_notes_to_add) {
 			wouldAdd += 1
 			changes.push({
@@ -163,7 +171,7 @@ export async function collectDryRunState(
 			}
 			if (
 				isContentMismatch(parsed.note, file.noteTagsFor(parsed), anki) ||
-				isDeckMismatch(file, anki, deckByCardId)
+				isDeckMismatch(targets, anki, deckByCardId)
 			) {
 				if (!updatedNoteIds.has(parsed.identifier)) {
 					updatedNoteIds.add(parsed.identifier)
@@ -186,15 +194,17 @@ export async function collectDryRunState(
 		filesTotal: files.length,
 		wouldAdd,
 		wouldUpdate,
-		wouldDelete: orphanNoteIds.length,
+		wouldDelete: explicitDeletes.length + orphanNoteIds.length,
 		wouldConvert,
 		decks: collectDeckStats(uniqueCardIds, deckByCardId, cardInfoById),
 		changes: [
 			...changes,
+			...explicitDeletes,
 			...orphanNoteIds.map((noteId) => ({
 				kind: 'delete' as const,
 				file: orphanFileById?.get(noteId) ?? '',
-				noteId
+				noteId,
+				deleteReason: 'orphan' as const
 			}))
 		]
 	}
@@ -261,8 +271,25 @@ function collectDeckStats(
 	return [...byDeck.values()].sort((a, b) => (a.deck < b.deck ? -1 : a.deck > b.deck ? 1 : 0))
 }
 
-function isDeckMismatch(file: AllFile, anki: AnkiNoteInfo, deckByCardId: Map<number, string>): boolean {
-	const targets = file.getTargetDeckByCard()
+/**
+ * Where the real scan would move each card. The file's own deck map is only
+ * filled while a real scan parses its batch, so the preview supplies the same
+ * inputs from its notesInfo read, leaving the file untouched for a later commit.
+ */
+function targetDecksFor(file: AllFile, infoById: Map<number, AnkiNoteInfo>): Map<number, string> {
+	const cardIds: number[] = []
+	const noteDecks: Array<{ card_ids: number[]; deck: string }> = []
+	for (const parsed of file.notes_to_edit) {
+		const cards = parsed.identifier == null ? undefined : infoById.get(parsed.identifier)?.cards
+		if (cards) {
+			cardIds.push(...cards)
+			noteDecks.push({ card_ids: cards, deck: parsed.note.deckName })
+		}
+	}
+	return file.getTargetDeckByCard(cardIds, noteDecks)
+}
+
+function isDeckMismatch(targets: Map<number, string>, anki: AnkiNoteInfo, deckByCardId: Map<number, string>): boolean {
 	for (const cardId of anki.cards ?? []) {
 		const currentDeck = deckByCardId.get(cardId)
 		const targetDeck = targets.get(cardId)

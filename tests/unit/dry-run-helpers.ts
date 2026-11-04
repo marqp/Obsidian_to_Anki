@@ -60,8 +60,9 @@ export interface DryRunScenario {
 }
 
 /**
- * Build a scanned AllFile whose notes_to_edit match the given specs, with a
- * deck map derived from notesInfo cards so getTargetDeckByCard() works.
+ * Build a scanned AllFile whose notes_to_edit match the given specs. Like a
+ * real scan before its batch runs, it carries no deck map: the dry-run has to
+ * derive card targets from its own notesInfo read.
  */
 export function createManagerFiles(
 	data: ParsedSettings,
@@ -70,6 +71,7 @@ export function createManagerFiles(
 ): AllFile[] {
 	const file = new AllFile('', 'dry-run.md', '', createFileData(data, 'Default', []), {} as CachedMetadata)
 	file.global_tags = ''
+	file.target_deck = 'Default'
 	file.notes_to_add = adds.map((spec): AnkiConnectNote => ({
 		deckName: spec.deckName,
 		modelName: spec.modelName,
@@ -88,17 +90,5 @@ export function createManagerFiles(
 			tags: [...spec.tags]
 		}
 	}))
-	// Mirror parse_requests_1: one deck-map entry per edited note, driven by
-	// the notesInfo card lists the real scan would have returned.
-	const idToCards = new Map<number, number[]>()
-	let nextCardId = 1000
-	for (const spec of edits) {
-		idToCards.set(spec.id, spec.cardIds ?? [nextCardId++])
-	}
-	file.note_edit_deck_map = file.notes_to_edit.map((parsed) => ({
-		card_ids: idToCards.get(parsed.identifier ?? -1) ?? [],
-		deck: parsed.note.deckName
-	}))
-	file.card_ids = [...idToCards.values()].flat()
 	return [file]
 }
