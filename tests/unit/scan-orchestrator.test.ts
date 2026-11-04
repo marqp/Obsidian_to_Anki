@@ -73,6 +73,9 @@ interface FakeManager {
 	initialiseFiles: (control?: ScanControl) => Promise<void>
 	requests_1: () => Promise<void>
 	getHashes: () => FileHashes
+	updatedNoteCount: () => number
+	failedDeleteCount: number
+	convertedCount: number
 }
 
 interface Harness {
@@ -104,7 +107,10 @@ function makeHarness(overrides: Partial<ScanEnvironment> = {}, scanDirs: string[
 		added_media_set: new Set<string>(),
 		initialiseFiles: () => Promise.resolve(),
 		requests_1: () => Promise.resolve(),
-		getHashes: () => ({})
+		getHashes: () => ({}),
+		updatedNoteCount: () => 0,
+		failedDeleteCount: 0,
+		convertedCount: 0
 	}
 	const data = createParsedSettings()
 	const env: ScanEnvironment = {
@@ -320,6 +326,7 @@ describe('ScanOrchestrator pipeline', () => {
 			'a.md': { hash: 'h', mtime: 1, size: 1, noteIds: [] }
 		})
 		h.fake.getHashes = getHashes
+		h.fake.updatedNoteCount = () => 1
 		const requests = vi.fn()
 		h.fake.requests_1 = requests
 		await h.orchestrator.scanVault()
@@ -404,6 +411,10 @@ describe('ScanReport', () => {
 			[{ deckName: 'Default', modelName: 'Basic' }]
 		)
 		h.fake.scanIssues = [{ file: 'a.md', kind: 'media', error: 'missing' }]
+		h.fake.updatedNoteCount = () => 1
+		h.fake.convertedCount = 2
+		h.fake.orphanNoteIds = [8, 9]
+		h.fake.failedDeleteCount = 1
 		const report = await h.orchestrator.scanVault()
 		expect(report).toMatchObject({
 			outcome: 'completed',
@@ -412,7 +423,8 @@ describe('ScanReport', () => {
 			filesTotal: 2,
 			added: 1,
 			updated: 1,
-			deleted: 0,
+			deleted: 1,
+			converted: 2,
 			issues: [{ file: 'a.md', kind: 'media', error: 'missing' }]
 		})
 	})

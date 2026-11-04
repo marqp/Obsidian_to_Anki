@@ -22,6 +22,28 @@ Since the plugin now names the exact status in its Notices (instead of a generic
 mention a *problem* after a sync (`N problem(s) during sync`) list the first few failing
 files; the full list is in the console as `scan issues: [...]`.
 
+## Problems listed after a scan
+
+Each entry in `issues` names its file and, when it belongs to one note, its line
+and the start of its text. A dry-run lists the ones the parser finds.
+
+| `kind` | Meaning | Tried again next scan |
+|---|---|---|
+| `cloze-without-deletions` | Cloze note with no deletion; it was not sent | No, fix the note |
+| `unknown-note-type` | Note type not in the plugin's table; it was not sent | No, fix the note or refresh the table |
+| `stale-note-id` | The ID no longer exists in Anki; the block was not synced | No, remove the ID line to recreate it |
+| `duplicate-note-id` | Two blocks in one file share an ID and overwrite one note | No, remove one ID line |
+| `note-type-mismatch` | Type differs from Anki and cannot be converted | No, enable `Allow Note Type Changes` |
+| `media-missing` | Embedded file not found in the vault | No |
+| `ankiweb-sync` | Local sync worked, the AnkiWeb sync did not | No |
+| `add-note`, `add-notes`, `add-notes-file` | Anki refused the new note | Yes |
+| `update-note`, `delete-note`, `change-deck`, `update-tags`, `convert-note` | Anki refused the change | Yes |
+| `notes-info`, `note-info-file`, `media` | A read or an upload failed | Yes |
+
+"Tried again" means the file keeps counting as changed, so the next scan processes
+it again and resends all of its notes. A problem you must fix yourself is reported
+once, when the file is scanned; it does not repeat until the file changes.
+
 ## Local API / MCP
 
 | Symptom | Cause | Fix |

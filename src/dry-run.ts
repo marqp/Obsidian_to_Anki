@@ -36,7 +36,7 @@ export interface DryRunDeckStat {
 	new: number
 }
 
-interface AnkiNoteInfo {
+export interface AnkiNoteInfo {
 	noteId: number
 	modelName: string
 	tags: string[]
@@ -231,7 +231,7 @@ function normalizeTags(tags: string[]): string[] {
  * plus the file's FILE TAGS), not the bare `local.tags`: comparing those
  * flagged every note of a file with FILE TAGS as an update.
  */
-function isContentMismatch(local: AnkiConnectNote, localTags: string[], anki: AnkiNoteInfo): boolean {
+export function isContentMismatch(local: AnkiConnectNote, localTags: string[], anki: AnkiNoteInfo): boolean {
 	for (const field of Object.keys(local.fields)) {
 		if (normalizeText(anki.fields[field]?.value ?? '') !== normalizeText(local.fields[field])) {
 			return true

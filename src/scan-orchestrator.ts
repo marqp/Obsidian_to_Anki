@@ -58,7 +58,7 @@ export interface ScanReport {
 	added: number
 	updated: number
 	deleted: number
-	/** Dry-run only: notes whose type would be converted. */
+	/** Notes whose type was (or, in a dry-run, would be) converted. */
 	converted: number
 	issues: ScanIssue[]
 	/** Dry-run only: per-note changes and per-deck stats. */
@@ -426,14 +426,16 @@ export class ScanOrchestrator {
 		// NOTE: totalFiles is captured before initialiseFiles narrows
 		// manager.files down to the changed files — do not recompute it here.
 		const issues = manager.scanIssues
-		// Planned adds minus the ones AnkiConnect rejected; updates/deletes are
-		// batched without per-item results, so those stay planned counts.
+		// What really happened: planned adds and deletes minus the rejected ones,
+		// and only the notes whose content actually differed from Anki.
 		const failedAdds = issues.filter((i) => i.kind === 'add-note').length
 		const added = manager.ownFiles.reduce((n, f) => n + f.all_notes_to_add.length, 0) - failedAdds
-		const updated = manager.ownFiles.reduce((n, f) => n + f.notes_to_edit.length, 0)
+		const updated = manager.updatedNoteCount()
 		// Explicit DELETE lines plus notes whose block vanished from Markdown.
 		const deleted =
-			manager.ownFiles.reduce((n, f) => n + f.notes_to_delete.length, 0) + manager.orphanNoteIds.length
+			manager.ownFiles.reduce((n, f) => n + f.notes_to_delete.length, 0) +
+			manager.orphanNoteIds.length -
+			manager.failedDeleteCount
 		console.info(
 			`[Obsidian_to_Anki] scan complete: files_changed=${manager.ownFiles.length}/${totalFiles} added=${added} updated=${updated} deleted=${deleted}${issues.length > 0 ? ` failed=${issues.length}` : ''}`
 		)
@@ -450,6 +452,7 @@ export class ScanOrchestrator {
 			added,
 			updated,
 			deleted,
+			converted: manager.convertedCount,
 			issues: [...issues]
 		}
 	}

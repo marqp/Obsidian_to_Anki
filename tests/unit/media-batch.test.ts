@@ -113,9 +113,9 @@ describe('requests_1 media batch', () => {
 		await manager.requests_1()
 
 		expect(manager.scanIssues).toEqual([{ file: 'b.md', kind: 'media', error: 'disk full' }])
-		// Both links were located, so both stay marked as added.
+		// Only the upload that worked stays marked, so the failed one is queued again.
 		expect(manager.added_media_set.has('img.png')).toBe(true)
-		expect(manager.added_media_set.has('snd.mp3')).toBe(true)
+		expect(manager.added_media_set.has('snd.mp3')).toBe(false)
 	})
 
 	it('attributes a stray result with no matching upload to an empty file', async () => {
