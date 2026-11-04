@@ -16,7 +16,7 @@ import { openNoteInAnki, registerPluginCommands } from './src/commands'
 import { obsidianNoticePort } from './src/notices'
 import { createProgressNotice } from './src/progress-notice'
 import { describeConnectionFailure, probeAnkiStatus } from './src/anki-launch'
-import { LocalApiServer, MIN_TOKEN_LENGTH, generateToken, type ApiHandlers } from './src/api-server'
+import { LocalApiServer, MIN_TOKEN_LENGTH, generateToken, type ApiHandlers, pathForms } from './src/api-server'
 import type { DryRunSummary } from './src/dry-run'
 import { DryRunModal } from './src/ui/dry-run-modal'
 import { type ScanControl } from './src/files-manager'
@@ -276,8 +276,13 @@ export default class MyPlugin extends Plugin {
 
 	/** Vault file for an API-supplied path, or null when it is not a file. */
 	private apiFile(path: string): TFile | null {
-		const file = this.app.vault.getAbstractFileByPath(path)
-		return file instanceof TFile ? file : null
+		for (const form of pathForms(path)) {
+			const file = this.app.vault.getAbstractFileByPath(form)
+			if (file instanceof TFile) {
+				return file
+			}
+		}
+		return null
 	}
 
 	private apiHandlers(): ApiHandlers {
