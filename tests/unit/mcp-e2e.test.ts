@@ -64,7 +64,14 @@ describe('MCP bridge against the real local API', () => {
 			status: vi.fn(async () => ({ status: 'ready' as const, message: 'ok', version: 6 })),
 			scan: vi.fn(async () => report()),
 			scanFile: vi.fn(async () => report({ added: 1 })),
-			dryRun: vi.fn(async () => report({ dryRun: true }))
+			dryRun: vi.fn(async () => report({ dryRun: true })),
+			validate: vi.fn(async () => null),
+			scanState: () => ({ inProgress: false }),
+			metadata: vi.fn(),
+			searchNotes: vi.fn(),
+			getNotes: vi.fn(),
+			studyOverview: vi.fn(),
+			difficultCards: vi.fn()
 		}
 		const token = generateToken()
 		server = new LocalApiServer({ port: 0, token, handlers })
@@ -106,7 +113,14 @@ describe('MCP bridge against the real local API', () => {
 				status: vi.fn(),
 				scan: vi.fn(),
 				scanFile: vi.fn(),
-				dryRun: vi.fn()
+				dryRun: vi.fn(),
+				validate: vi.fn(),
+				scanState: vi.fn(),
+				metadata: vi.fn(),
+				searchNotes: vi.fn(),
+				getNotes: vi.fn(),
+				studyOverview: vi.fn(),
+				difficultCards: vi.fn()
 			}
 		})
 		await server.start()

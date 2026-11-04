@@ -835,3 +835,36 @@ describe('ScanOrchestrator.validate', () => {
 		expect((await h.orchestrator.validate()).ankiChecked).toBe(false)
 	})
 })
+
+describe('ScanOrchestrator scan state', () => {
+	it('says when a scan is running and remembers how the last one ended', async () => {
+		const h = makeHarness()
+		expect(h.orchestrator.lastReport).toBeUndefined()
+		let release!: () => void
+		h.fake.initialiseFiles = () => new Promise<void>((resolve) => (release = resolve))
+
+		const scan = h.orchestrator.scanVault()
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect(h.orchestrator.isScanning).toBe(true)
+		release()
+		const report = await scan
+
+		expect(h.orchestrator.isScanning).toBe(false)
+		expect(h.orchestrator.lastReport).toBe(report)
+	})
+
+	it('remembers a dry-run too, but not a refused concurrent call', async () => {
+		const h = makeHarness()
+		const report = await h.orchestrator.runDryRun()
+		expect(h.orchestrator.lastReport).toBe(report)
+
+		let release!: () => void
+		h.fake.initialiseFiles = () => new Promise<void>((resolve) => (release = resolve))
+		const first = h.orchestrator.scanVault()
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect((await h.orchestrator.scanVault()).outcome).toBe('busy')
+		expect(h.orchestrator.lastReport).toBe(report)
+		release()
+		await first
+	})
+})

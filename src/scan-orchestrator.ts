@@ -191,8 +191,18 @@ export function getAllTFilesInFolder(tfolder: TFolder): TFile[] {
  */
 export class ScanOrchestrator {
 	private scanInProgress = false
+	private latestReport: ScanReport | undefined
 
 	constructor(private readonly env: ScanEnvironment) {}
+
+	get isScanning(): boolean {
+		return this.scanInProgress
+	}
+
+	/** How the last scan or dry-run ended, for a caller that stopped waiting. */
+	get lastReport(): ScanReport | undefined {
+		return this.latestReport
+	}
 
 	async scanVault(
 		file?: TFile | null,
@@ -210,7 +220,8 @@ export class ScanOrchestrator {
 
 		this.scanInProgress = true
 		try {
-			return await this.scanVaultOnce(file, false, control)
+			this.latestReport = await this.scanVaultOnce(file, false, control)
+			return this.latestReport
 		} finally {
 			this.scanInProgress = false
 		}
@@ -225,7 +236,8 @@ export class ScanOrchestrator {
 
 		this.scanInProgress = true
 		try {
-			return await this.scanVaultOnce(file, true, control)
+			this.latestReport = await this.scanVaultOnce(file, true, control)
+			return this.latestReport
 		} finally {
 			this.scanInProgress = false
 		}
