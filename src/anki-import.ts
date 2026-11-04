@@ -39,6 +39,29 @@ export interface ImportOptions {
 	/** Line starts the block parser reads as structure. */
 	reservedWords: string[]
 	dataFor(deck: string): FileData
+	/** Subject by note ID, overriding the one taken from its tags. */
+	subjects?: ReadonlyMap<number, string>
+	/** A plan must not reuse a path that already exists. */
+	pathExists?: (path: string) => boolean
+}
+
+/** What the import needs from the vault. */
+export interface ImportVault {
+	/** Writes a new note and waits until Obsidian has read its embeds. */
+	createNote(path: string, text: string): Promise<void>
+	/** The file with this name anywhere in the vault, or null. */
+	readAttachment(name: string): Promise<ArrayBuffer | null>
+	createAttachment(name: string, data: ArrayBuffer): Promise<void>
+}
+
+export interface ImportResult {
+	/** Why nothing was written to the notes. Empty when the import went through. */
+	blocked: string[]
+	filesWritten: string[]
+	notesWritten: number
+	imagesCopied: number
+	imagesAlreadyInVault: number
+	refused: RefusedNote[]
 }
 
 interface ImportFile {
@@ -169,7 +192,7 @@ function roundTripProblems(file: ImportFile, notes: ImportableNote[], data: File
 }
 
 /** The note's subject: its most used tag across the import, at the top of a hierarchy. */
-function mainTags(notes: ImportableNote[]): Map<number, string> {
+function mainTags(notes: ImportableNote[], subjects?: ReadonlyMap<number, string>): Map<number, string> {
 	const rootOf = (tag: string): string => tag.split('::')[0]
 	const uses = new Map<string, number>()
 	const display = new Map<string, string>()
@@ -187,6 +210,11 @@ function mainTags(notes: ImportableNote[]): Map<number, string> {
 		const keys = note.tags.map((tag) => rootOf(tag).toLowerCase()).filter((key) => !STATUS_TAGS.has(key))
 		const best = keys.sort((a, b) => (uses.get(b) ?? 0) - (uses.get(a) ?? 0) || a.localeCompare(b))[0]
 		main.set(note.noteId, best === undefined ? UNTAGGED : (display.get(best) ?? best))
+	}
+	for (const [noteId, subject] of subjects ?? []) {
+		if (main.has(noteId)) {
+			main.set(noteId, subject)
+		}
 	}
 	return main
 }
@@ -223,7 +251,7 @@ function groupIntoFiles(
 	deckOf: (note: ImportableNote) => string,
 	options: ImportOptions
 ): Array<{ path: string; deck: string; notes: ImportableNote[] }> {
-	const main = mainTags(notes)
+	const main = mainTags(notes, options.subjects)
 	const groups = new Map<string, ImportableNote[]>()
 	for (const note of notes) {
 		const key = JSON.stringify([deckOf(note), main.get(note.noteId)])
@@ -239,7 +267,7 @@ function groupIntoFiles(
 			const date = new Date(chunk[0].noteId).toISOString().slice(0, 10)
 			const base = `${folder}/${safeName(subject)}${chunks.length > 1 ? ` ${date}` : ''}`
 			let path = `${base}.md`
-			for (let copy = 2; used.has(path); copy++) {
+			for (let copy = 2; used.has(path) || options.pathExists?.(path) === true; copy++) {
 				path = `${base} (${copy}).md`
 			}
 			used.add(path)
@@ -336,9 +364,12 @@ export function buildImportPlan(
 	}
 }
 
-/** Asks Anki which notes the vault does not hold yet, and plans their import. */
-export async function previewImport(trackedIds: ReadonlySet<number>, options: ImportOptions): Promise<ImportPreview> {
-	const ids = await AnkiConnect.invoke<number[]>('findNotes', { query: '' })
+async function loadPlan(
+	trackedIds: ReadonlySet<number>,
+	options: ImportOptions,
+	query: string
+): Promise<{ plan: ImportPlan; candidates: number; leftInAnki: Record<string, number> }> {
+	const ids = await AnkiConnect.invoke<number[]>('findNotes', { query })
 	const untracked = ids.filter((id) => !trackedIds.has(id))
 	const notes = await inBatches(untracked, BATCH_SIZE, (batch) =>
 		AnkiConnect.invoke<ImportableNote[]>('notesInfo', { notes: batch })
@@ -357,14 +388,85 @@ export async function previewImport(trackedIds: ReadonlySet<number>, options: Im
 		BATCH_SIZE,
 		(batch) => AnkiConnect.invoke<Array<{ cardId: number; deckName: string }>>('cardsInfo', { cards: batch })
 	)
-	const plan = buildImportPlan(candidates, new Map(cards.map((card) => [card.cardId, card.deckName])), options)
+	const decks = new Map(cards.map((card) => [card.cardId, card.deckName]))
+	return { plan: buildImportPlan(candidates, decks, options), candidates: candidates.length, leftInAnki }
+}
+
+/** Asks Anki which notes the vault does not hold yet, and plans their import. Writes nothing. */
+export async function previewImport(
+	trackedIds: ReadonlySet<number>,
+	options: ImportOptions,
+	query = ''
+): Promise<ImportPreview> {
+	const { plan, candidates, leftInAnki } = await loadPlan(trackedIds, options, query)
 	const { files, images, ...rest } = plan
 	return {
 		...rest,
-		candidates: candidates.length,
+		candidates,
 		ready: files.reduce((sum, file) => sum + file.noteIds.length, 0),
 		leftInAnki,
 		files: files.map((file) => ({ path: file.path, deck: file.deck, notes: file.noteIds.length })),
 		imageCount: images.length
 	}
+}
+
+/**
+ * Copies the images and writes the new files. Never overwrites anything, and
+ * changes nothing in Anki: the notes only change at the next scan, which a
+ * dry-run can preview. Stops before the notes if an image is missing or differs,
+ * so no file ever points at a wrong picture. Images already copied stay: they
+ * reference nothing until a note embeds them.
+ */
+export async function applyImport(
+	trackedIds: ReadonlySet<number>,
+	options: ImportOptions,
+	vault: ImportVault,
+	query: string
+): Promise<ImportResult> {
+	const { plan } = await loadPlan(trackedIds, options, query)
+	const result: ImportResult = {
+		blocked: [],
+		filesWritten: [],
+		notesWritten: 0,
+		imagesCopied: 0,
+		imagesAlreadyInVault: 0,
+		refused: plan.refused
+	}
+	if (plan.structuralErrors > 0) {
+		result.blocked.push(`${plan.structuralErrors} structural problem(s) in the planned files.`)
+		return result
+	}
+	const available = new Set(await AnkiConnect.invoke<string[]>('getMediaFilesNames', { pattern: '*' }))
+	const missing = plan.images.filter((name) => !available.has(name))
+	if (missing.length > 0) {
+		result.blocked.push(...missing.map((name) => `Image not in Anki's media folder: ${name}`))
+		return result
+	}
+	for (const name of plan.images) {
+		const encoded = await AnkiConnect.invoke<string | false>('retrieveMediaFile', { filename: name })
+		if (encoded === false) {
+			result.blocked.push(`Image not in Anki's media folder: ${name}`)
+			continue
+		}
+		const fromAnki = Buffer.from(encoded, 'base64')
+		const inVault = await vault.readAttachment(name)
+		if (inVault === null) {
+			const copy = fromAnki.buffer.slice(fromAnki.byteOffset, fromAnki.byteOffset + fromAnki.byteLength)
+			await vault.createAttachment(name, copy as ArrayBuffer)
+			result.imagesCopied += 1
+		} else if (fromAnki.equals(Buffer.from(inVault))) {
+			result.imagesAlreadyInVault += 1
+		} else {
+			result.blocked.push(`A different file named ${name} is already in the vault.`)
+		}
+	}
+	if (result.blocked.length > 0) {
+		return result
+	}
+	for (const file of plan.files) {
+		await vault.createNote(file.path, file.text)
+		result.filesWritten.push(file.path)
+		result.notesWritten += file.noteIds.length
+	}
+	return result
 }

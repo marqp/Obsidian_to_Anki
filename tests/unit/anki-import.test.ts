@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as AnkiConnect from '../../src/anki'
-import { buildImportPlan, previewImport, type ImportableNote, type ImportOptions } from '../../src/anki-import'
+import {
+	applyImport,
+	buildImportPlan,
+	previewImport,
+	type ImportableNote,
+	type ImportOptions,
+	type ImportVault
+} from '../../src/anki-import'
 import { createFileData } from '../../src/scan-optimizations'
 import { createParsedSettings } from './anki-test-helpers'
 
@@ -82,6 +89,25 @@ describe('buildImportPlan', () => {
 			path: 'Cards/Importados/Outro Deck/Comum.md',
 			deck: 'Outro::Deck'
 		})
+	})
+
+	it('lets a chosen subject override the tags, and never reuses an existing path', () => {
+		const notes = [basic(1, 'a', 'b', ['Bio']), basic(2, 'c', 'd')]
+
+		const result = buildImportPlan(notes, inDeck(notes), {
+			...options,
+			subjects: new Map([
+				[1, 'Cardio'],
+				[2, 'Cardio'],
+				[99, 'Nunca usado']
+			]),
+			pathExists: (path) => path === 'Cards/Importados/Cardio.md'
+		})
+
+		expect(result.files.map((file) => [file.path, file.noteIds])).toEqual([
+			['Cards/Importados/Cardio (2).md', [1, 2]]
+		])
+		expect(result.files[0].text).toContain('Tags: Bio')
 	})
 
 	it('splits a big subject at pauses between study sessions, dating each file', () => {
@@ -208,5 +234,94 @@ describe('previewImport', () => {
 		daemon([])
 
 		await expect(previewImport(new Set(), options)).resolves.toMatchObject({ candidates: 0, ready: 0, files: [] })
+	})
+})
+
+describe('applyImport', () => {
+	const png = Buffer.from('imagem').toString('base64')
+
+	function setup(
+		notes: ImportableNote[],
+		media: Record<string, string> = {},
+		attachments: Record<string, string> = {}
+	) {
+		const written: string[] = []
+		const invoke = vi.fn(async (action: string, params?: Record<string, unknown>) => {
+			written.push(action)
+			if (action === 'findNotes') {
+				return notes.map((note) => note.noteId)
+			}
+			if (action === 'notesInfo') {
+				return notes
+			}
+			if (action === 'cardsInfo') {
+				return (params?.['cards'] as number[]).map((cardId) => ({ cardId, deckName: 'Med' }))
+			}
+			if (action === 'getMediaFilesNames') {
+				return Object.keys(media)
+			}
+			if (action === 'retrieveMediaFile') {
+				return media[params?.['filename'] as string] ?? false
+			}
+			throw new Error(`must not change Anki: ${action}`)
+		})
+		AnkiConnect.setTransport({ invoke: invoke as never })
+		const vault: ImportVault = {
+			createNote: vi.fn(async () => undefined),
+			readAttachment: vi.fn(async (name: string) =>
+				attachments[name] === undefined ? null : new Uint8Array(Buffer.from(attachments[name])).buffer
+			),
+			createAttachment: vi.fn(async () => undefined)
+		}
+		return { vault, invoke }
+	}
+
+	it('copies new images, keeps identical ones, and writes the notes without changing Anki', async () => {
+		const notes = [basic(1, 'q', '<img src="novo.png"><img src="igual.png">', ['Bio'])]
+		const { vault, invoke } = setup(notes, { 'novo.png': png, 'igual.png': png }, { 'igual.png': 'imagem' })
+
+		const result = await applyImport(new Set(), options, vault, 'deck:Med')
+
+		expect(result).toMatchObject({
+			blocked: [],
+			filesWritten: ['Cards/Importados/Bio.md'],
+			notesWritten: 1,
+			imagesCopied: 1,
+			imagesAlreadyInVault: 1
+		})
+		expect(vault.createAttachment).toHaveBeenCalledTimes(1)
+		expect(Buffer.from(vi.mocked(vault.createAttachment).mock.calls[0][1]).toString()).toBe('imagem')
+		expect(vi.mocked(vault.createNote).mock.calls[0][1]).toContain('![[novo.png]]')
+		expect(invoke).toHaveBeenCalledWith('findNotes', { query: 'deck:Med' })
+	})
+
+	it('skips notes the vault already holds', async () => {
+		const { vault } = setup([basic(1, 'q', 'a')])
+
+		const result = await applyImport(new Set([1]), options, vault, 'deck:Med')
+
+		expect(result.notesWritten).toBe(0)
+		expect(vault.createNote).not.toHaveBeenCalled()
+	})
+
+	it('writes no note when an image is missing from Anki', async () => {
+		const { vault } = setup([basic(1, 'q', '<img src="sumiu.png">')])
+
+		const result = await applyImport(new Set(), options, vault, 'deck:Med')
+
+		expect(result.blocked).toEqual(["Image not in Anki's media folder: sumiu.png"])
+		expect(vault.createNote).not.toHaveBeenCalled()
+		expect(vault.createAttachment).not.toHaveBeenCalled()
+	})
+
+	it('writes no note when another file has the same name, and never replaces it', async () => {
+		const notes = [basic(1, 'q', '<img src="a.png"><img src="b.png">')]
+		const { vault } = setup(notes, { 'a.png': png, 'b.png': png }, { 'a.png': 'outra coisa' })
+
+		const result = await applyImport(new Set(), options, vault, 'deck:Med')
+
+		expect(result.blocked).toEqual(['A different file named a.png is already in the vault.'])
+		expect(vault.createNote).not.toHaveBeenCalled()
+		expect(vi.mocked(vault.createAttachment).mock.calls.map(([name]) => name)).toEqual(['b.png'])
 	})
 })
