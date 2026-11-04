@@ -67,9 +67,16 @@ describe('buildImportPlan', () => {
 		expect(result.files[0].path).toBe('Cards/Importados/Bio.md')
 		expect(result.files[0].text).toBe(
 			'TARGET DECK: Med\n\n' +
-				'START\nBasic\nFront: q\nBack: **a**\nTags: Bio leech\n<!--ID: 1-->\nEND\n\n' +
+				'START\nBasic\nFront: q\nBack: **a**\nTags: Bio\n<!--ID: 1-->\nEND\n\n' +
 				'START\nCloze\nText: O {{c1::x}}\nTags: Bio\n<!--ID: 2-->\nEND\n'
 		)
+	})
+
+	it('leaves the tags Anki sets out of the file', () => {
+		const result = plan([basic(1, 'q', 'a', ['leech', 'marked'])])
+
+		expect(result.refused).toEqual([])
+		expect(result.files[0].text).toBe('TARGET DECK: Med\n\nSTART\nBasic\nFront: q\nBack: a\n<!--ID: 1-->\nEND\n')
 	})
 
 	it('groups by most used tag, ignoring tags Anki sets, and folders other decks', () => {

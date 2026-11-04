@@ -8,13 +8,12 @@ import { AllFile } from './file'
 import { canonicalHtml, htmlToMarkdown, protectLineStarts } from './html-to-markdown'
 import type { FileData } from './interfaces/settings-interface'
 import { inBatches } from './anki-read'
+import { ANKI_STATUS_TAGS } from './requests'
 import { validateFiles } from './validate'
 import type { CachedMetadata } from 'obsidian'
 
 /** Their masks and generated fields have no Markdown form. */
 const LEFT_IN_ANKI = /image occlusion|overlapping/i
-/** Anki's own markers say nothing about a card's subject. */
-const STATUS_TAGS: ReadonlySet<string> = new Set(['leech', 'marked'])
 const MAX_NOTES_PER_FILE = 150
 const MIN_NOTES_PER_FILE = 30
 /** Note IDs are creation times, so a long pause separates study sessions. */
@@ -119,6 +118,14 @@ function snippetOf(note: ImportableNote): string {
 		.slice(0, SNIPPET_LENGTH)
 }
 
+/**
+ * Anki's own markers stay out of the file: the scan keeps them in Anki, and a
+ * copy in Markdown would bring one back after you removed it there.
+ */
+function markdownTags(note: ImportableNote): string[] {
+	return note.tags.filter((tag) => !ANKI_STATUS_TAGS.includes(tag.toLowerCase()))
+}
+
 function noteBlock(note: ImportableNote, reservedWords: string[]): { text: string; unsupported: string[] } {
 	const lines = [note.modelName]
 	const unsupported: string[] = []
@@ -129,8 +136,9 @@ function noteBlock(note: ImportableNote, reservedWords: string[]): { text: strin
 			lines.push(`${name}: ${protectLineStarts(converted.markdown, reservedWords)}`)
 		}
 	}
-	if (note.tags.length > 0) {
-		lines.push(`Tags: ${note.tags.join(' ')}`)
+	const tags = markdownTags(note)
+	if (tags.length > 0) {
+		lines.push(`Tags: ${tags.join(' ')}`)
 	}
 	lines.push(`<!--ID: ${note.noteId}-->`)
 	return { text: `START\n${lines.join('\n')}\nEND\n`, unsupported: [...new Set(unsupported)] }
@@ -176,7 +184,7 @@ function roundTripProblems(file: ImportFile, notes: ImportableNote[], data: File
 			reasons.push('deck')
 		}
 		const tags = result.tags.filter((tag) => tag !== '')
-		if ([...tags].sort().join(' ') !== [...note.tags].sort().join(' ')) {
+		if ([...tags].sort().join(' ') !== [...markdownTags(note)].sort().join(' ')) {
 			reasons.push('tags')
 		}
 		for (const [name, html] of fieldsInOrder(note)) {
@@ -197,17 +205,15 @@ function mainTags(notes: ImportableNote[], subjects?: ReadonlyMap<number, string
 	const uses = new Map<string, number>()
 	const display = new Map<string, string>()
 	for (const note of notes) {
-		for (const tag of note.tags) {
+		for (const tag of markdownTags(note)) {
 			const key = rootOf(tag).toLowerCase()
-			if (!STATUS_TAGS.has(key)) {
-				uses.set(key, (uses.get(key) ?? 0) + 1)
-				display.set(key, display.get(key) ?? rootOf(tag))
-			}
+			uses.set(key, (uses.get(key) ?? 0) + 1)
+			display.set(key, display.get(key) ?? rootOf(tag))
 		}
 	}
 	const main = new Map<number, string>()
 	for (const note of notes) {
-		const keys = note.tags.map((tag) => rootOf(tag).toLowerCase()).filter((key) => !STATUS_TAGS.has(key))
+		const keys = markdownTags(note).map((tag) => rootOf(tag).toLowerCase())
 		const best = keys.sort((a, b) => (uses.get(b) ?? 0) - (uses.get(a) ?? 0) || a.localeCompare(b))[0]
 		main.set(note.noteId, best === undefined ? UNTAGGED : (display.get(best) ?? best))
 	}
