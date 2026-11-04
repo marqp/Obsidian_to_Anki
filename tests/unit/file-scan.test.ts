@@ -209,16 +209,21 @@ describe('AllFile.parseIssues: notes the scan cannot sync are reported', () => {
 		})
 
 		it.each([
-			['no mask', ['Occlusion: {{c1::just text}}', 'Image: <img src="a.png">']],
-			['no image', [`Occlusion: ${MASK}`, 'Header: q']]
-		])('reports one with %s and does not send it', (_case, lines) => {
+			['no mask', ['Occlusion: {{c1::just text}}', 'Image: <img src="a.png">'], 'at least one'],
+			['no image', [`Occlusion: ${MASK}`, 'Header: q'], 'an image is required'],
+			[
+				'a mask outside the image',
+				['Occlusion: {{c1::image-occlusion:rect:left=.9:top=.2:width=.3:height=.1}}', 'Image: ![[a.png]]'],
+				'c1 rect leaves the image'
+			]
+		])('reports one with %s and does not send it', (_case, lines, reason) => {
 			const file = scan(block(lines), occlusionData())
 
 			expect(file.notes_to_add).toEqual([])
 			expect(file.parseIssues).toEqual([
 				expect.objectContaining({
 					kind: 'cloze-without-deletions',
-					error: expect.stringContaining('Image Occlusion note needs an image')
+					error: expect.stringContaining(reason)
 				})
 			])
 		})

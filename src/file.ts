@@ -19,6 +19,7 @@ import { Md5 } from 'ts-md5'
 import * as AnkiConnect from './anki'
 import * as c from './constants'
 import { FormatConverter } from './format'
+import { occlusionProblem } from './occlusion'
 import type { ScanIssue } from './files-manager'
 import {
 	buildAddNotes,
@@ -569,7 +570,7 @@ export class AllFile extends AbstractFile {
 						note_match.index,
 						note,
 						isImageOcclusion(parsed.note.modelName)
-							? 'Image Occlusion note needs an image and at least one {{cN::image-occlusion:...}} mask, so it was not sent to Anki.'
+							? `Image Occlusion note was not sent to Anki: ${occlusionProblem(Object.values(parsed.note.fields))}.`
 							: 'Cloze note has no cloze deletions, so it was not sent to Anki. Add a deletion or change its type.',
 						existingIdIn(note)
 					)
