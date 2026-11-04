@@ -150,8 +150,43 @@ export interface AnkiConnectRequest {
 	params: Record<string, unknown>
 }
 
-export function invoke<T = unknown>(action: string, params: Record<string, unknown> = {}): Promise<T> {
-	return activeTransport.invoke<T>(action, params)
+/**
+ * Waits between attempts while Anki holds its collection, about 15 s in all.
+ * An AnkiWeb sync holds it for around 2 s, and a scan that syncs starts one.
+ */
+const COLLECTION_BUSY_WAITS_MS = [250, 500, 1000, 1000, 2000, 2000, 4000, 4000]
+
+function isCollectionBusy(error: unknown): error is AnkiConnectError {
+	return error instanceof AnkiConnectError && error.ankiError.includes('Collection lifecycle operation is active')
+}
+
+/**
+ * Sends one AnkiConnect request. While Anki holds its collection it refuses the
+ * whole request, including every action of a `multi`, so nothing has run and
+ * sending it again cannot apply anything twice.
+ */
+export async function invoke<T = unknown>(action: string, params: Record<string, unknown> = {}): Promise<T> {
+	for (const wait of COLLECTION_BUSY_WAITS_MS) {
+		try {
+			return await activeTransport.invoke<T>(action, params)
+		} catch (error) {
+			if (!isCollectionBusy(error)) {
+				throw error
+			}
+		}
+		await new Promise((resolve) => setTimeout(resolve, wait))
+	}
+	try {
+		return await activeTransport.invoke<T>(action, params)
+	} catch (error) {
+		if (isCollectionBusy(error)) {
+			throw new AnkiConnectError(
+				action,
+				'Anki is busy with its collection, probably syncing. Try again in a moment.'
+			)
+		}
+		throw error
+	}
 }
 
 export function parse<T>(response: { error: string | null; result: T }): T {

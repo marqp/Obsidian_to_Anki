@@ -17,6 +17,50 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
+describe('invoke while Anki holds its collection', () => {
+	const busy = (action: string) => new AnkiConnectError(action, 'Collection lifecycle operation is active.')
+
+	it('sends the request again until Anki lets go', async () => {
+		vi.useFakeTimers()
+		const send = vi
+			.fn<AnkiTransport['invoke']>()
+			.mockRejectedValueOnce(busy('multi'))
+			.mockRejectedValueOnce(busy('multi'))
+			.mockResolvedValueOnce(['done'])
+		setTransport({ invoke: send })
+
+		const reply = invoke('multi', { actions: [] })
+		await vi.runAllTimersAsync()
+
+		await expect(reply).resolves.toEqual(['done'])
+		expect(send).toHaveBeenCalledTimes(3)
+		expect(send).toHaveBeenLastCalledWith('multi', { actions: [] })
+	})
+
+	it('gives up with a message that says what to do', async () => {
+		vi.useFakeTimers()
+		const send = vi.fn<AnkiTransport['invoke']>().mockImplementation(async (action) => {
+			throw busy(action)
+		})
+		setTransport({ invoke: send })
+
+		const reply = invoke('findNotes')
+		const failure = expect(reply).rejects.toThrow('AnkiConnect [findNotes]: Anki is busy')
+		await vi.runAllTimersAsync()
+
+		await failure
+		expect(send).toHaveBeenCalledTimes(9)
+	})
+
+	it('does not repeat a request that failed for any other reason', async () => {
+		const send = vi.fn<AnkiTransport['invoke']>().mockRejectedValue(new AnkiConnectError('addNote', 'duplicate'))
+		setTransport({ invoke: send })
+
+		await expect(invoke('addNote')).rejects.toThrow('duplicate')
+		expect(send).toHaveBeenCalledTimes(1)
+	})
+})
+
 describe('Transport: AnkiTransport & AnkiConnectError', () => {
 	it('throws AnkiConnectError with action and message when Anki returns error', async () => {
 		const mockTransport: AnkiTransport = {

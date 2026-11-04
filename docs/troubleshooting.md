@@ -14,6 +14,7 @@
 | `denied-origin` | CORS origin missing | Add `app://obsidian.md` to `webCorsOriginList`, restart Anki |
 | `busy-port` / `starting-or-busy` | Port held by another process / Anki busy | Free `:8765` or wait and re-run |
 | Scan silently does nothing via CLI | Notice shown in app, CLI exits 0 | Pre-check `curl -sf localhost:8765`; read the app console |
+| `Anki is busy with its collection` | Anki held its collection for over 15 s, usually a long AnkiWeb sync. Shorter waits are retried for you | Wait for the sync to finish and re-run |
 
 Dry-run needs Anki up too (live `notesInfo`/`cardsInfo` for the diff).
 
