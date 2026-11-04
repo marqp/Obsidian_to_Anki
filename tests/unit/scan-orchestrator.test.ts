@@ -792,3 +792,46 @@ describe('scanVault confirm routing', () => {
 		expect(requests).toHaveBeenCalledTimes(1)
 	})
 })
+
+describe('ScanOrchestrator.validate', () => {
+	const clean = 'START\nBasic\nFront: q\nBack: a\nEND\n'
+
+	it('checks unsaved text and reports Anki as unchecked when it is closed', async () => {
+		const h = makeHarness({ probeAnki: async () => ({ status: 'closed', message: 'closed' }) })
+		;(h.fake as unknown as Record<string, unknown>)['data'] = {
+			...createParsedSettings(),
+			loadExistingIds: async () => []
+		}
+		const report = await h.orchestrator.validate({ inline: { path: 'draft.md', text: clean } })
+
+		expect(report).toMatchObject({ filesChecked: 1, blocks: 1, errors: 0, ankiChecked: false })
+	})
+
+	it('reads every file a scan would see, changed or not', async () => {
+		const h = makeHarness()
+		const manager = h.fake as unknown as Record<string, unknown>
+		manager['data'] = { ...createParsedSettings(), loadExistingIds: async () => [] }
+		manager['validationInputs'] = async () => [
+			{ path: 'a.md', text: clean, data: createParsedSettings() },
+			{ path: 'b.md', text: clean, data: createParsedSettings() }
+		]
+
+		const report = await h.orchestrator.validate()
+
+		expect(report.filesChecked).toBe(2)
+		expect(report.ankiChecked).toBe(true)
+	})
+
+	it('stays useful when reading the note IDs fails', async () => {
+		const h = makeHarness()
+		vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+		const manager = h.fake as unknown as Record<string, unknown>
+		manager['data'] = {
+			...createParsedSettings(),
+			loadExistingIds: () => Promise.reject(new Error('offline'))
+		}
+		manager['validationInputs'] = async () => []
+
+		expect((await h.orchestrator.validate()).ankiChecked).toBe(false)
+	})
+})

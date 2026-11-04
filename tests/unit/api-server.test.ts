@@ -8,6 +8,7 @@ import {
 	pathForms,
 	type ApiHandlers
 } from '../../src/api-server'
+import type { ValidationReport } from '../../src/validate'
 import type { ScanReport } from '../../src/scan-orchestrator'
 
 const TOKEN = 'test-token-test-token-test-token'
@@ -41,12 +42,23 @@ function report(overrides: Partial<ScanReport> = {}): ScanReport {
 	}
 }
 
+const validation: ValidationReport = {
+	filesChecked: 1,
+	blocks: 0,
+	errors: 0,
+	warnings: 0,
+	ankiChecked: true,
+	byKind: {},
+	issues: []
+}
+
 function makeHandlers(overrides: Partial<ApiHandlers> = {}): ApiHandlers {
 	return {
 		status: vi.fn(async () => ({ status: 'ready' as const, message: 'ok', version: 6 })),
 		scan: vi.fn(async () => report()),
 		scanFile: vi.fn(async () => report()),
 		dryRun: vi.fn(async () => report({ dryRun: true })),
+		validate: vi.fn(async () => validation),
 		...overrides
 	}
 }
@@ -199,6 +211,25 @@ describe('LocalApiServer routes', () => {
 		expect(handlers.dryRun).toHaveBeenLastCalledWith(undefined)
 		await call(s.port, 'POST', '/dry-run', { body: JSON.stringify({ path: 'a.md' }) })
 		expect(handlers.dryRun).toHaveBeenLastCalledWith('a.md')
+	})
+
+	it('POST /validate takes a path, unsaved content or nothing, and accepts a whole file', async () => {
+		const handlers = makeHandlers()
+		const s = await start(handlers)
+		expect((await call(s.port, 'POST', '/validate')).body).toEqual(validation)
+		expect(handlers.validate).toHaveBeenLastCalledWith({ path: undefined, content: undefined })
+		const content = 'x'.repeat(100_000)
+		const reply = await call(s.port, 'POST', '/validate', { body: JSON.stringify({ path: 'a.md', content }) })
+		expect(reply.status).toBe(200)
+		expect(handlers.validate).toHaveBeenLastCalledWith({ path: 'a.md', content })
+	})
+
+	it('POST /validate rejects bad content and reports a missing file', async () => {
+		const s = await start(makeHandlers({ validate: vi.fn(async () => null) }))
+		expect((await call(s.port, 'POST', '/validate', { body: JSON.stringify({ content: 3 }) })).status).toBe(400)
+		const missing = await call(s.port, 'POST', '/validate', { body: JSON.stringify({ path: 'no.md' }) })
+		expect(missing.status).toBe(404)
+		expect((await call(s.port, 'GET', '/validate')).status).toBe(405)
 	})
 
 	it('answers 404 for unknown routes and 405 for the wrong method', async () => {

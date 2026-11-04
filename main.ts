@@ -299,6 +299,17 @@ export default class MyPlugin extends Plugin {
 				}
 				const file = this.apiFile(path)
 				return file === null ? null : await this.dryRun(file)
+			},
+			validate: async ({ path, content }) => {
+				const orchestrator = this.scanOrchestrator()
+				if (content !== undefined) {
+					return await orchestrator.validate({ inline: { path: path ?? 'unsaved.md', text: content } })
+				}
+				if (path === undefined) {
+					return await orchestrator.validate()
+				}
+				const file = this.apiFile(path)
+				return file === null ? null : await orchestrator.validate({ file })
 			}
 		}
 	}

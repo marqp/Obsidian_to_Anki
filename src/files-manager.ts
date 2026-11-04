@@ -5,6 +5,7 @@ import { App, TFile, TFolder, TAbstractFile, CachedMetadata, FileSystemAdapter }
 import { obsidianNoticePort, type NoticePort } from './notices'
 import { AllFile } from './file'
 import { isContentMismatch } from './dry-run'
+import type { ValidationInput } from './validate'
 import * as AnkiConnect from './anki'
 import { basename } from 'path'
 import multimatch from 'multimatch'
@@ -303,6 +304,18 @@ export class FileManager {
 			String.raw`&file=` +
 			encodeURIComponent(file.path)
 		)
+	}
+
+	/** Every file a scan would look at, whether or not it changed. */
+	async validationInputs(): Promise<ValidationInput[]> {
+		const inputs: ValidationInput[] = []
+		for (const file of this.findFilesThatAreNotIgnored(this.files, this.data)) {
+			inputs.push({ path: file.path, text: await this.vault.read(file), data: this.dataToFileData(file) })
+			if (inputs.length % VAULT_SCAN_YIELD_INTERVAL === 0) {
+				await yieldToEventLoop()
+			}
+		}
+		return inputs
 	}
 
 	findFilesThatAreNotIgnored(files: TFile[], data: ParsedSettings): TFile[] {

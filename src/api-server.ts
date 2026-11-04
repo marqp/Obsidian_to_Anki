@@ -2,14 +2,17 @@ import { createHash, randomBytes, timingSafeEqual } from 'crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
 import type { AnkiProbe } from './anki-launch'
 import type { ScanReport } from './scan-orchestrator'
+import type { ValidationReport } from './validate'
 
 /** Bump when a response shape changes incompatibly (the MCP checks it). */
-export const API_VERSION = 1
+export const API_VERSION = 2
 
 /** Tokens shorter than this are refused: the API can write to the vault. */
 export const MIN_TOKEN_LENGTH = 24
 
 const MAX_BODY_BYTES = 16 * 1024
+/** Validation can receive a whole unsaved file. */
+const MAX_VALIDATE_BODY_BYTES = 1024 * 1024
 const MAX_PATH_LENGTH = 1024
 
 /**
@@ -23,6 +26,11 @@ export interface ApiHandlers {
 	scanFile(path: string): Promise<ScanReport | null>
 	/** Read-only preview; a path narrows it to one file. null when not found. */
 	dryRun(path?: string): Promise<ScanReport | null>
+	/**
+	 * Check card syntax of the vault, a file, or text that is not saved. With
+	 * `content`, `path` only labels the result. null when `path` alone names no file.
+	 */
+	validate(target: { path?: string; content?: string }): Promise<ValidationReport | null>
 }
 
 export interface ApiServerConfig {
@@ -73,13 +81,13 @@ class HttpError extends Error {
 	}
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readJsonBody(req: IncomingMessage, maxBytes = MAX_BODY_BYTES): Promise<Record<string, unknown>> {
 	const chunks: Buffer[] = []
 	let size = 0
 	for await (const chunk of req) {
 		const buffer = chunk as Buffer
 		size += buffer.length
-		if (size > MAX_BODY_BYTES) {
+		if (size > maxBytes) {
 			throw new HttpError(413, 'Request body too large.')
 		}
 		chunks.push(buffer)
@@ -248,6 +256,21 @@ export class LocalApiServer {
 					throw new HttpError(404, `Not a file in this vault: ${path}`)
 				}
 				send(res, statusForReport(report), report)
+				return
+			}
+			case '/validate': {
+				expectMethod('POST')
+				const body = await readJsonBody(req, MAX_VALIDATE_BODY_BYTES)
+				const path = readPath(body, false)
+				const content = body['content']
+				if (content !== undefined && typeof content !== 'string') {
+					throw new HttpError(400, '"content" must be a string.')
+				}
+				const report = await handlers.validate({ path, content })
+				if (report === null) {
+					throw new HttpError(404, `Not a file in this vault: ${path}`)
+				}
+				send(res, 200, report)
 				return
 			}
 			default:

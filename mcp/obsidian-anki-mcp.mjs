@@ -17,6 +17,7 @@ const SUPPORTED_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05']
 const DEFAULT_URL = 'http://127.0.0.1:27180'
 const STATUS_TIMEOUT_MS = 15_000
 const SCAN_TIMEOUT_MS = 10 * 60_000
+const VALIDATE_TIMEOUT_MS = 2 * 60_000
 /** A dry-run on a big vault can list thousands of notes; keep replies readable. */
 const MAX_CHANGES = 200
 
@@ -47,6 +48,30 @@ export const TOOLS = [
 			route: '/dry-run',
 			body: args.path === undefined ? {} : { path: args.path },
 			timeoutMs: SCAN_TIMEOUT_MS
+		})
+	},
+	{
+		name: 'anki_validate',
+		description:
+			'Check flashcard syntax: Cloze without deletions, unknown note types, blocks missing END, IDs reused across blocks or missing from Anki, and labels such as "Extra:" that are not fields of the note type. Read-only. Unlike anki_dry_run it checks files that have not changed, works with Anki closed (IDs are then not checked against Anki), and accepts unsaved text in `content`.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				path: pathProperty(
+					'One file to check; omit to check the whole vault. With `content`, it only labels the result.'
+				),
+				content: { type: 'string', description: 'Markdown to check instead of a saved file (up to 1 MB).' }
+			},
+			additionalProperties: false
+		},
+		request: (args) => ({
+			method: 'POST',
+			route: '/validate',
+			body: {
+				...(args.path === undefined ? {} : { path: args.path }),
+				...(args.content === undefined ? {} : { content: args.content })
+			},
+			timeoutMs: VALIDATE_TIMEOUT_MS
 		})
 	},
 	{

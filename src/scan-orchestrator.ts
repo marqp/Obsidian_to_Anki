@@ -6,7 +6,8 @@ import { launchAnki, probeAnkiStatus, type AnkiProbe, type LaunchOutcome } from 
 import { obsidianNoticePort, type NoticePort } from './notices'
 import type { ScanProgressHandle } from './progress-notice'
 import type { ParsedSettings, PluginSettings } from './interfaces/settings-interface'
-import type { FileHashes } from './scan-optimizations'
+import { createFileData, type FileHashes } from './scan-optimizations'
+import { validateFiles, type ValidationReport } from './validate'
 
 /** Live plugin state the scan reads; results are written back via commitScanResults. */
 export interface ScanState {
@@ -351,6 +352,35 @@ export class ScanOrchestrator {
 				}
 			})
 		})
+	}
+
+	/**
+	 * Check card syntax for the vault, one file, or text that is not saved yet.
+	 * Reads only, so it does not take the scan guard. Anki is optional.
+	 */
+	async validate(target?: { file?: TFile; inline?: { path: string; text: string } }): Promise<ValidationReport> {
+		const { manager } = await this.prepareManager(target?.file)
+		const inputs = target?.inline
+			? [{ ...target.inline, data: createFileData(manager.data, manager.data.template.deckName, []) }]
+			: await manager.validationInputs()
+		return validateFiles(inputs, {
+			beginNote: this.env.loadState().settings.Syntax['Begin Note'],
+			existingIds: await this.readExistingIds(manager)
+		})
+	}
+
+	/** Anki's note IDs, or undefined when it cannot answer right now. */
+	private async readExistingIds(manager: FileManager): Promise<ReadonlySet<number> | undefined> {
+		const load = manager.data.loadExistingIds
+		if (!load || (await this.env.probeAnki()).status !== 'ready') {
+			return undefined
+		}
+		try {
+			return new Set(await load())
+		} catch (error) {
+			console.warn('[Obsidian_to_Anki] validate could not read note IDs:', error)
+			return undefined
+		}
 	}
 
 	/** Caller-supplied control wins; otherwise the env's progress UI (if any). */
