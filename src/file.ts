@@ -18,6 +18,7 @@ import { Md5 } from 'ts-md5'
 import * as AnkiConnect from './anki'
 import * as c from './constants'
 import { FormatConverter } from './format'
+import type { ScanIssue } from './files-manager'
 import {
 	buildAddNotes,
 	buildChangeDecks,
@@ -77,6 +78,24 @@ export function string_insert(text: string, position_inserts: Array<[number, str
 export interface PendingAdd {
 	position: number
 	kind: 'note' | 'inline' | 'regex'
+}
+
+const ISSUE_SNIPPET_LENGTH = 100
+
+/** One line of a note's text, short enough to identify it in a report. */
+function issueSnippet(noteText: string): string {
+	return noteText.replace(/\s+/g, ' ').trim().slice(0, ISSUE_SNIPPET_LENGTH)
+}
+
+/** The ID a block carries; a sentinel identifier hides it from the parsed note. */
+function existingIdIn(noteText: string): number | undefined {
+	const match = /(?:<!--)?ID: (\d+)/.exec(noteText)
+	return match ? parseInt(match[1], 10) : undefined
+}
+
+/** 1-based line of a character offset. */
+function lineAt(text: string, position: number): number {
+	return text.slice(0, position).split('\n').length
 }
 
 function spans(pattern: RegExp, text: string): Array<[number, number]> {
@@ -384,6 +403,9 @@ export class AllFile extends AbstractFile {
 	 * offset arithmetic.
 	 */
 	pendingAdds: PendingAdd[] = []
+	/** Notes this file cannot sync as written; reported, never sent to Anki. */
+	parseIssues: ScanIssue[] = []
+	private editedIds = new Set<number>()
 
 	constructor(file_contents: string, path: string, url: string, data: FileData, file_cache: CachedMetadata) {
 		super(file_contents, path, url, data, file_cache)
@@ -423,6 +445,8 @@ export class AllFile extends AbstractFile {
 		this.inline_notes_to_add = []
 		this.regex_notes_to_add = []
 		this.pendingAdds = []
+		this.parseIssues = []
+		this.editedIds = new Set()
 		this.notes_to_edit = []
 		this.notes_to_delete = []
 		this.note_edit_deck_map = []
@@ -441,6 +465,7 @@ export class AllFile extends AbstractFile {
 			onNew: (identifier: number | null) => void
 			onUnknownId: (identifier: number | null) => void
 			onEdit: () => void
+			onClozeError?: () => void
 		}
 	): boolean {
 		if (parsed.identifier == null) {
@@ -449,6 +474,7 @@ export class AllFile extends AbstractFile {
 		}
 		if (!this.data.EXISTING_IDS.has(parsed.identifier)) {
 			if (parsed.identifier == CLOZE_ERROR) {
+				opts.onClozeError?.()
 				return false
 			}
 			opts.onUnknownId(parsed.identifier)
@@ -456,6 +482,23 @@ export class AllFile extends AbstractFile {
 		}
 		opts.onEdit()
 		return true
+	}
+
+	private addParseIssue(
+		kind: ScanIssue['kind'],
+		position: number,
+		noteText: string,
+		error: string,
+		noteId?: number
+	): void {
+		this.parseIssues.push({
+			file: this.path,
+			kind,
+			error,
+			line: lineAt(this.file, position),
+			snippet: issueSnippet(noteText),
+			...(noteId === undefined ? {} : { noteId })
+		})
 	}
 
 	scanPattern(
@@ -485,11 +528,44 @@ export class AllFile extends AbstractFile {
 				onUnknownId: (identifier) => {
 					if (identifier == NOTE_TYPE_ERROR) {
 						console.warn('Did not recognise note type ', parsed.note.modelName, ' in file ', this.path)
+						this.addParseIssue(
+							'unknown-note-type',
+							note_match.index,
+							note,
+							`Unknown note type "${parsed.note.modelName}": the note was not sent to Anki. If the type is new, refresh the note type table in the plugin settings.`
+						)
 					} else {
 						console.warn('Note with id', identifier, ' in file ', this.path, ' does not exist in Anki!')
+						this.addParseIssue(
+							'stale-note-id',
+							note_match.index,
+							note,
+							`Note ${identifier} does not exist in Anki, so this block was not synced. Remove its ID line to create the note again.`,
+							identifier ?? undefined
+						)
 					}
 				},
+				onClozeError: () => {
+					this.addParseIssue(
+						'cloze-without-deletions',
+						note_match.index,
+						note,
+						'Cloze note has no cloze deletions, so it was not sent to Anki. Add a deletion or change its type.',
+						existingIdIn(note)
+					)
+				},
 				onEdit: () => {
+					const noteId = parsed.identifier as number
+					if (this.editedIds.has(noteId)) {
+						this.addParseIssue(
+							'duplicate-note-id',
+							note_match.index,
+							note,
+							`Note ID ${noteId} is used by more than one block in this file, so they overwrite the same Anki note. Remove the ID line from the block that should become its own card.`,
+							noteId
+						)
+					}
+					this.editedIds.add(noteId)
 					this.notes_to_edit.push(parsed)
 				}
 			})

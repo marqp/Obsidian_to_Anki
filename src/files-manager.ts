@@ -100,8 +100,18 @@ export interface ScanIssue {
 		| 'media'
 		| 'media-missing'
 		| 'file-changed'
+		| 'cloze-without-deletions'
+		| 'unknown-note-type'
+		| 'stale-note-id'
+		| 'duplicate-note-id'
 	/** The AnkiConnect error message (never the full payload). */
 	error: string
+	/** 1-based line of the note, when the problem belongs to one block. */
+	line?: number
+	/** Start of the note's text, to identify it without opening the file. */
+	snippet?: string
+	/** The Anki note involved, when it has one. */
+	noteId?: number
 }
 
 /**
@@ -420,7 +430,7 @@ export class FileManager {
 
 	async requests_1() {
 		const requests: AnkiConnect.AnkiConnectRequest[] = []
-		this.scanIssues = []
+		this.scanIssues = this.ownFiles.flatMap((file) => file.parseIssues)
 		this.mediaUploads = []
 		// One reflection call per scan decides which late actions this daemon
 		// supports. Failures degrade to the legacy paths (see detectSupportedActions).

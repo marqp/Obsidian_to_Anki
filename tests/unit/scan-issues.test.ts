@@ -197,4 +197,20 @@ describe('parse_requests_1: named batch + ScanIssue collection', () => {
 		])
 		expect(manager.ownFiles[0].tags).toEqual([])
 	})
+
+	it('carries the notes the parser refused into the report of a real scan', async () => {
+		const data = createParsedSettings()
+		const { manager } = managerWithFiles(data, ['a.md'], {
+			addedIds: [{ error: null, result: [] }],
+			notesInfo: { error: null, result: [{ error: null, result: [] }] },
+			tagList: { error: null, result: [] }
+		})
+		const issue = { file: 'a.md', kind: 'unknown-note-type' as const, error: 'unknown', line: 2 }
+		manager.ownFiles[0].parseIssues = [issue]
+		vi.spyOn(console, 'info').mockImplementation(() => undefined)
+
+		await manager.requests_1()
+
+		expect(manager.scanIssues).toEqual([issue])
+	})
 })

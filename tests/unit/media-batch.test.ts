@@ -19,6 +19,7 @@ function scannedFile(path: string, media: string[]): AllFile {
 		all_notes_to_add: [],
 		notes_to_edit: [],
 		notes_to_delete: [],
+		parseIssues: [],
 		formatter: { detectedMedia: new Set(media) },
 		getAddNotes: () => AnkiConnect.multi([]),
 		getNoteInfo: () => AnkiConnect.multi([]),

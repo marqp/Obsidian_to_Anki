@@ -480,6 +480,22 @@ describe('ScanReport', () => {
 		expect(report).toMatchObject({ outcome: 'completed', dryRun: true, added: 1, updated: 0, deleted: 0 })
 		expect(report.details?.changes.length).toBeGreaterThan(0)
 	})
+
+	it('includes the notes a dry-run found it cannot sync', async () => {
+		const h = makeHarness()
+		const data: ParsedSettings = createParsedSettings()
+		h.fake.files = [tfile('a.md')]
+		h.fake.ownFiles = createManagerFiles(data, [], [])
+		const issue: ScanIssue = { file: 'a.md', kind: 'cloze-without-deletions', error: 'no deletions', line: 4 }
+		h.fake.ownFiles[0].parseIssues = [issue]
+		const manager = h.fake as unknown as Record<string, unknown>
+		manager['data'] = { allow_note_type_changes: false }
+		manager['orphanFileById'] = () => new Map<number, string>()
+
+		const report = await h.orchestrator.runDryRun()
+
+		expect(report.issues).toEqual([issue])
+	})
 })
 
 describe('createScanEnvironment', () => {
