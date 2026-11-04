@@ -8,6 +8,7 @@ function fakeApp(contents: Record<string, string>) {
 	const app = {
 		vault: {
 			read: async (file: TFile) => contents[file.path] ?? '',
+			getMarkdownFiles: () => Object.keys(contents).map((path) => ({ path }) as TFile),
 			process: vi.fn(),
 			getName: () => 'vault',
 			adapter: { getFullPath: (p: string) => p }

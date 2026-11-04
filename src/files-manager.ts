@@ -130,6 +130,8 @@ export interface ScanIssue {
  */
 export interface VaultPort {
 	read(file: TFile): Promise<string>
+	/** Every Markdown file in the vault, including those outside the scan. */
+	markdownFiles(): TFile[]
 	/** Atomic read-modify-write; `fn` receives the file's current content. */
 	process(file: TFile, fn: (data: string) => string): Promise<string>
 	getCache(path: string): CachedMetadata
@@ -144,6 +146,7 @@ export interface VaultPort {
 function vaultPortFromApp(app: App): VaultPort {
 	return {
 		read: (file) => app.vault.read(file),
+		markdownFiles: () => app.vault.getMarkdownFiles(),
 		process: (file, fn) => app.vault.process(file, fn),
 		getCache: (path) => app.metadataCache.getCache(path) ?? {},
 		getFirstLinkpathDest: (linkpath, sourcePath) => app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath),
@@ -430,10 +433,41 @@ export class FileManager {
 
 		this.ownFiles = files_changed
 		this.files = obfiles_changed
-		this.orphanNoteIds = this.computeOrphanNoteIds(files_changed)
+		this.orphanNoteIds = await this.withoutIdsElsewhere(this.computeOrphanNoteIds(files_changed), files_changed)
+		this.throwIfCancelled(control)
 		if (this.orphanNoteIds.length > 0) {
 			console.info(`Notes removed from Markdown will be deleted from Anki: ${this.orphanNoteIds.join(', ')}`)
 		}
+	}
+
+	/**
+	 * A block cut from a scanned file and pasted into one this scan did not read
+	 * is not an orphan, yet the stored records cannot show it: they learn the new
+	 * place only when that file is scanned. Deleting would lose the card's review
+	 * history, so anything about to be deleted is first looked for in the rest of
+	 * the vault. Scans that delete nothing read no extra file.
+	 */
+	private async withoutIdsElsewhere(orphanIds: number[], scanned: AllFile[]): Promise<number[]> {
+		if (orphanIds.length === 0) {
+			return orphanIds
+		}
+		const scannedPaths = new Set(scanned.map((file) => file.path))
+		const others = this.vault.markdownFiles().filter((file) => !scannedPaths.has(file.path))
+		const found = new Set<number>()
+		await mapConcurrent(others, 8, async (obFile) => {
+			const content = await this.vault.read(obFile)
+			const file = new AllFile(
+				content,
+				obFile.path,
+				'',
+				createFileData(this.data, '', []),
+				this.vault.getCache(obFile.path)
+			)
+			for (const id of file.getNoteIdsInFile()) {
+				found.add(id)
+			}
+		})
+		return orphanIds.filter((id) => !found.has(id))
 	}
 
 	/** Load the Anki note-ID set once, the first time a changed file needs it. */
@@ -476,7 +510,8 @@ export class FileManager {
 	 * Note IDs whose blocks disappeared from the scanned files since the last
 	 * scan. Safe by construction: files with no stored record (first scan,
 	 * rename, new file) never produce orphans, IDs still referenced by another
-	 * tracked file are kept, and only IDs Anki still reports are returned.
+	 * tracked file are kept, and only IDs Anki still reports are returned. The
+	 * caller then checks the files this scan did not read.
 	 */
 	computeOrphanNoteIds(currentFiles: AllFile[]): number[] {
 		if (!this.data.delete_removed_notes) {

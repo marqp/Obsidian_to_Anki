@@ -47,9 +47,14 @@ Separate from other blocks with blank lines, or `DELETE` reads as card text.
 **Orphan deletion (fork, `Delete Removed Notes`, on by default):** removing a
 `START…END` block deletes its card on the next scan — no `DELETE` line needed.
 Safety rules: only IDs that vanished from a file with a stored record, not
-referenced by any other tracked file, not consumed by an explicit `DELETE`,
-and still reported by Anki. First scans, new files, and renames only record —
-never delete.
+referenced by any other tracked file, absent from every other Markdown file in
+the vault, not consumed by an explicit `DELETE`, and still reported by Anki.
+First scans, new files, and renames only record — never delete.
+
+So you can move a block between files and scan only one of them, in any order.
+To delete a card, remove its block everywhere: a copy in any other file, even
+outside `Scan Directories`, keeps the card in Anki. IDs inside fenced code blocks
+do not count.
 
 ## Data file
 
