@@ -1,4 +1,5 @@
 import type { ImportPreview, ImportResult } from './anki-import'
+import type { OcclusionPullResult } from './occlusion-pull'
 import { createHash, randomBytes, timingSafeEqual } from 'crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
 import type { AnkiProbe } from './anki-launch'
@@ -58,6 +59,8 @@ export interface ApiHandlers {
 	importPreview(selection: ImportSelection): Promise<ImportPreview>
 	/** Writes the new files and images, never touching Anki. The next scan updates the notes. */
 	importApply(selection: ImportSelection & { query: string }): Promise<ImportResult>
+	/** Lists occlusions whose masks differ from the Markdown; with `apply`, copies Anki's to the Markdown. */
+	occlusionPull(request: { noteIds?: number[]; apply: boolean }): Promise<OcclusionPullResult>
 }
 
 interface ImportSelection {
@@ -393,6 +396,33 @@ export class LocalApiServer {
 					)
 				}
 				send(res, 200, await handlers.importApply({ ...selection, query: selection.query }))
+				return
+			}
+			case '/occlusion/pull': {
+				expectMethod('POST')
+				const body = await readJsonBody(req)
+				const noteIds = body['noteIds']
+				if (
+					noteIds !== undefined &&
+					(!Array.isArray(noteIds) ||
+						noteIds.length === 0 ||
+						noteIds.length > MAX_NOTE_IDS ||
+						!noteIds.every((id) => Number.isSafeInteger(id)))
+				) {
+					throw new HttpError(400, `"noteIds" must be 1 to ${MAX_NOTE_IDS} note IDs.`)
+				}
+				const apply = readFlag(body, 'apply')
+				if (apply && noteIds === undefined) {
+					throw new HttpError(400, '"noteIds" is required with "apply": say which notes to pull.')
+				}
+				send(
+					res,
+					200,
+					await handlers.occlusionPull({
+						...(noteIds === undefined ? {} : { noteIds: noteIds as number[] }),
+						apply
+					})
+				)
 				return
 			}
 			case '/notes/search': {

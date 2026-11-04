@@ -40,7 +40,11 @@ describe('occlusionProblem', () => {
 			['{{c2::image-occlusion:polygon:left=.1:top=.2:points=.1,.2 .3,.2}}', IMAGE],
 			'c2 polygon has invalid'
 		],
-		['a polygon with no points', ['{{c1::image-occlusion:polygon:left=.1:top=.2}}', IMAGE], 'c1 polygon has no points'],
+		[
+			'a polygon with no points',
+			['{{c1::image-occlusion:polygon:left=.1:top=.2}}', IMAGE],
+			'c1 polygon has no points'
+		],
 		['an ellipse with no size', ['{{c1::image-occlusion:ellipse:left=.1:top=.2:rx=0:ry=.1}}', IMAGE], 'invalid']
 	])('reports %s', (_case, fields, reason) => {
 		expect(occlusionProblem(fields)).toContain(reason)

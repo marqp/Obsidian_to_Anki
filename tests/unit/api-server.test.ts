@@ -84,6 +84,13 @@ function makeHandlers(overrides: Partial<ApiHandlers> = {}): ApiHandlers {
 			cosmeticChanges: { imageWidth: 0, imageAlt: 0, inlineStyle: 0 },
 			structuralErrors: 0
 		})),
+		occlusionPull: vi.fn(async () => ({
+			blocked: [],
+			differences: [],
+			notInVault: [],
+			pulled: [],
+			problems: []
+		})),
 		importApply: vi.fn(async () => ({
 			blocked: [],
 			filesWritten: [],
@@ -328,6 +335,25 @@ describe('LocalApiServer routes', () => {
 		expect(preview.body).toMatchObject({ candidates: 0, ready: 0 })
 		expect(handlers.importPreview).toHaveBeenCalledTimes(1)
 		expect((await call(s.port, 'GET', '/import/preview')).status).toBe(405)
+	})
+
+	it('lists occlusion differences, and needs named notes before writing', async () => {
+		const handlers = makeHandlers()
+		const s = await start(handlers)
+
+		expect((await call(s.port, 'POST', '/occlusion/pull', { body: '{}' })).status).toBe(200)
+		expect(handlers.occlusionPull).toHaveBeenLastCalledWith({ apply: false })
+
+		expect((await call(s.port, 'POST', '/occlusion/pull', { body: '{"apply":true}' })).status).toBe(400)
+		for (const noteIds of ['[]', '"1"', '[1.5]', JSON.stringify(Array.from({ length: 101 }, (_v, i) => i))]) {
+			expect((await call(s.port, 'POST', '/occlusion/pull', { body: `{"noteIds":${noteIds}}` })).status).toBe(400)
+		}
+		expect(handlers.occlusionPull).toHaveBeenCalledTimes(1)
+
+		const request = { noteIds: [12], apply: true }
+		expect((await call(s.port, 'POST', '/occlusion/pull', { body: JSON.stringify(request) })).status).toBe(200)
+		expect(handlers.occlusionPull).toHaveBeenLastCalledWith(request)
+		expect((await call(s.port, 'GET', '/occlusion/pull')).status).toBe(405)
 	})
 
 	it('needs a query before writing an import, and passes the selection on', async () => {
