@@ -83,12 +83,20 @@ describe('buildImportPlan', () => {
 		expect(plan(notes).files.map((file) => [file.path, file.noteIds])).toEqual([
 			['Cards/Importados/Comum.md', [1, 2]],
 			['Cards/Importados/Sem tag.md', [3]],
-			['Cards/Importados/pai.md', [4]]
+			['Cards/Importados/Pai.md', [4]]
 		])
 		expect(plan(notes.slice(1, 2), 'Outro::Deck').files[0]).toMatchObject({
 			path: 'Cards/Importados/Outro Deck/Comum.md',
 			deck: 'Outro::Deck'
 		})
+	})
+
+	it('keeps subjects that differ only in case in one file, named with a capital', () => {
+		const notes = [basic(1, 'a', 'b', ['bio']), basic(2, 'c', 'd')]
+
+		const result = buildImportPlan(notes, inDeck(notes), { ...options, subjects: new Map([[2, 'Bio']]) })
+
+		expect(result.files.map((file) => [file.path, file.noteIds])).toEqual([['Cards/Importados/Bio.md', [1, 2]]])
 	})
 
 	it('lets a chosen subject override the tags, and never reuses an existing path', () => {

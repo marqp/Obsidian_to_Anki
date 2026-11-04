@@ -254,23 +254,25 @@ function groupIntoFiles(
 	const main = mainTags(notes, options.subjects)
 	const groups = new Map<string, ImportableNote[]>()
 	for (const note of notes) {
-		const key = JSON.stringify([deckOf(note), main.get(note.noteId)])
+		// Folders ignore case on macOS and Windows, so `Bio` and `bio` must share one file.
+		const key = JSON.stringify([deckOf(note), main.get(note.noteId)?.toLowerCase()])
 		groups.set(key, [...(groups.get(key) ?? []), note])
 	}
 	const files: Array<{ path: string; deck: string; notes: ImportableNote[] }> = []
 	const used = new Set<string>()
 	for (const [key, group] of groups) {
-		const [deck, subject] = JSON.parse(key) as [string, string]
+		const [deck, lowercased] = JSON.parse(key) as [string, string]
+		const subject = lowercased.charAt(0).toUpperCase() + lowercased.slice(1)
 		const folder = deck === options.defaultDeck ? options.folder : `${options.folder}/${safeName(deck)}`
 		const chunks = chunkBySession(group)
 		for (const chunk of chunks) {
 			const date = new Date(chunk[0].noteId).toISOString().slice(0, 10)
 			const base = `${folder}/${safeName(subject)}${chunks.length > 1 ? ` ${date}` : ''}`
 			let path = `${base}.md`
-			for (let copy = 2; used.has(path) || options.pathExists?.(path) === true; copy++) {
+			for (let copy = 2; used.has(path.toLowerCase()) || options.pathExists?.(path) === true; copy++) {
 				path = `${base} (${copy}).md`
 			}
-			used.add(path)
+			used.add(path.toLowerCase())
 			files.push({ path, deck, notes: chunk })
 		}
 	}
