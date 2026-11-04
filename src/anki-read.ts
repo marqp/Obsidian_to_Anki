@@ -25,6 +25,7 @@ interface RawNote {
 interface RawCard {
 	cardId: number
 	note: number
+	ord: number
 	deckName: string
 	type: number
 	queue: number
@@ -44,6 +45,8 @@ export type SourceLookup = (noteId: number) => string | undefined
 
 interface CardView {
 	cardId: number
+	/** The card's number within its note. In a cloze or occlusion note it answers to cN, where N = ord + 1. */
+	ord: number
 	deck: string
 	state: string
 	suspended: boolean
@@ -120,6 +123,7 @@ function readCards(ids: number[]): Promise<RawCard[]> {
 function cardView(card: RawCard): CardView {
 	return {
 		cardId: card.cardId,
+		ord: card.ord,
 		deck: card.deckName,
 		state: CARD_STATES[card.type] ?? 'unknown',
 		suspended: card.queue === SUSPENDED_QUEUE,
