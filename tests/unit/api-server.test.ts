@@ -73,6 +73,17 @@ function makeHandlers(overrides: Partial<ApiHandlers> = {}): ApiHandlers {
 			decks: []
 		})),
 		difficultCards: vi.fn(async () => ({ total: 0, cards: [] })),
+		importPreview: vi.fn(async () => ({
+			candidates: 0,
+			ready: 0,
+			leftInAnki: {},
+			files: [],
+			imageCount: 0,
+			refused: [],
+			externalImages: 0,
+			cosmeticChanges: { imageWidth: 0, imageAlt: 0, inlineStyle: 0 },
+			structuralErrors: 0
+		})),
 		...overrides
 	}
 }
@@ -298,6 +309,17 @@ describe('LocalApiServer routes', () => {
 		const s = await start(handlers)
 		await call(s.port, 'POST', '/notes/get', { body: JSON.stringify({ ids: [1, 2], raw: true }) })
 		expect(handlers.getNotes).toHaveBeenLastCalledWith([1, 2], true)
+	})
+
+	it('serves the import preview by POST only', async () => {
+		const handlers = makeHandlers()
+		const s = await start(handlers)
+
+		const preview = await call(s.port, 'POST', '/import/preview', { body: '{}' })
+		expect(preview.status).toBe(200)
+		expect(preview.body).toMatchObject({ candidates: 0, ready: 0 })
+		expect(handlers.importPreview).toHaveBeenCalledTimes(1)
+		expect((await call(s.port, 'GET', '/import/preview')).status).toBe(405)
 	})
 
 	it('POST /study routes apply their defaults', async () => {

@@ -136,7 +136,8 @@ describe('tool calls', () => {
 		['anki_search_notes', { query: 'tag:x', limit: 5 }, '/notes/search', { query: 'tag:x', limit: 5 }],
 		['anki_get_notes', { ids: [1, 2] }, '/notes/get', { ids: [1, 2] }],
 		['anki_study_overview', { deck: 'D' }, '/study/overview', { deck: 'D' }],
-		['anki_difficult_cards', { minLapses: 8 }, '/study/difficult', { minLapses: 8 }]
+		['anki_difficult_cards', { minLapses: 8 }, '/study/difficult', { minLapses: 8 }],
+		['anki_import_preview', {}, '/import/preview', {}]
 	])('%s %j posts to its route', async (name, args, route, body) => {
 		const calls: Call[] = []
 		await callTool(handlerWith(fakeFetch(200, { issues: [] }, calls)), name, args)

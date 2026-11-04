@@ -3,7 +3,9 @@ import * as AnkiConnect from './src/anki'
 import { PluginSettings, StoredPluginData } from './src/interfaces/settings-interface'
 import { DEFAULT_IGNORED_FILE_GLOBS, SettingsTab } from './src/settings'
 import { ANKI_ICON } from './src/constants'
-import { FileHashes, pruneFileHashes } from './src/scan-optimizations'
+import { FileHashes, createFileData, pruneFileHashes } from './src/scan-optimizations'
+import { previewImport, type ImportOptions } from './src/anki-import'
+import { settingToData } from './src/setting-to-data'
 import { migrateSettings } from './src/ui/settings-migration'
 import { buildDefaults } from './src/defaults-meta'
 import {
@@ -306,6 +308,43 @@ export default class MyPlugin extends Plugin {
 		return (noteId) => fileById.get(noteId)
 	}
 
+	/** Every note ID written in the vault, scanned folder or not, so nothing gets imported twice. */
+	private async idsInVault(): Promise<Set<number>> {
+		const ids = new Set<number>()
+		for (const file of this.app.vault.getMarkdownFiles()) {
+			for (const match of (await this.app.vault.cachedRead(file)).matchAll(/ID: (\d+)/g)) {
+				ids.add(parseInt(match[1], 10))
+			}
+		}
+		return ids
+	}
+
+	private async importOptions(): Promise<ImportOptions> {
+		const { Defaults: defaults, Syntax: syntax } = this.settings
+		const data = await settingToData(this.app, this.settings, this.fields_dict)
+		const scanned = defaults['Scan Directories'][0] ?? ''
+		return {
+			folder: `${scanned === '' ? '' : `${scanned}/`}Importados`,
+			defaultDeck: defaults.Deck,
+			beginNote: syntax['Begin Note'],
+			reservedWords: [
+				syntax['Begin Note'],
+				syntax['End Note'],
+				syntax['Target Deck Line'],
+				syntax['File Tags Line'],
+				syntax['Frozen Fields Line'],
+				syntax['Delete Note Line'],
+				'Tags: ',
+				...new Set(
+					Object.values(this.fields_dict)
+						.flat()
+						.map((field) => `${field}:`)
+				)
+			],
+			dataFor: (deck) => createFileData(data, deck, [])
+		}
+	}
+
 	private apiHandlers(): ApiHandlers {
 		return {
 			status: () => probeAnkiStatus(),
@@ -359,7 +398,8 @@ export default class MyPlugin extends Plugin {
 			searchNotes: (search) => searchNotes(search, this.noteSourceLookup()),
 			getNotes: (ids, raw) => getNotes(ids, raw, this.noteSourceLookup()),
 			studyOverview: (deck, days) => studyOverview(deck, days),
-			difficultCards: (query) => difficultCards(query, this.noteSourceLookup())
+			difficultCards: (query) => difficultCards(query, this.noteSourceLookup()),
+			importPreview: async () => previewImport(await this.idsInVault(), await this.importOptions())
 		}
 	}
 

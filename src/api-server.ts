@@ -1,3 +1,4 @@
+import type { ImportPreview } from './anki-import'
 import { createHash, randomBytes, timingSafeEqual } from 'crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
 import type { AnkiProbe } from './anki-launch'
@@ -13,7 +14,7 @@ import type { ScanReport } from './scan-orchestrator'
 import type { ValidationReport } from './validate'
 
 /** Bump when a response shape changes incompatibly (the MCP checks it). */
-export const API_VERSION = 2
+export const API_VERSION = 3
 
 /** Tokens shorter than this are refused: the API can write to the vault. */
 export const MIN_TOKEN_LENGTH = 24
@@ -53,6 +54,8 @@ export interface ApiHandlers {
 	getNotes(ids: number[], raw: boolean): Promise<{ notes: NoteView[]; missing: number[] }>
 	studyOverview(deck: string | undefined, days: number): Promise<StudyOverview>
 	difficultCards(query: DifficultCardsQuery): Promise<{ total: number; cards: DifficultCard[] }>
+	/** What importing the notes that exist only in Anki would do. Writes nothing. */
+	importPreview(): Promise<ImportPreview>
 }
 
 interface ScanState {
@@ -338,6 +341,11 @@ export class LocalApiServer {
 			case '/metadata': {
 				expectMethod('GET')
 				send(res, 200, await handlers.metadata())
+				return
+			}
+			case '/import/preview': {
+				expectMethod('POST')
+				send(res, 200, await handlers.importPreview())
 				return
 			}
 			case '/notes/search': {

@@ -21,7 +21,7 @@ const VALIDATE_TIMEOUT_MS = 2 * 60_000
 const READ_TIMEOUT_MS = 60_000
 const MAX_PAGE = 100
 /** The plugin API this bridge was written for. */
-export const EXPECTED_API_VERSION = 2
+export const EXPECTED_API_VERSION = 3
 /** A dry-run on a big vault can list thousands of notes; keep replies readable. */
 const MAX_CHANGES = 200
 /** Validating a whole vault can flag thousands of lines; counts say the rest. */
@@ -332,6 +332,26 @@ export const TOOLS = [
 			required: ['total', 'cards']
 		},
 		request: (args) => ({ method: 'POST', route: '/study/difficult', body: args, timeoutMs: READ_TIMEOUT_MS })
+	},
+	{
+		name: 'anki_import_preview',
+		title: 'Preview importing Anki-only notes',
+		description:
+			'Plans bringing the notes that exist only in Anki into the vault, without writing anything. Each note is converted to Markdown and rendered back by the real parser; a note that would change stays in Anki and is listed in `refused` with the reason. Image Occlusion and overlapping Cloze notes are never candidates.',
+		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+		annotations: READ_ONLY,
+		outputSchema: {
+			type: 'object',
+			properties: {
+				candidates: { type: 'number' },
+				ready: { type: 'number' },
+				refused: { type: 'array', items: { type: 'object' } },
+				files: { type: 'array', items: { type: 'object' } },
+				structuralErrors: { type: 'number' }
+			},
+			required: ['candidates', 'ready', 'refused', 'files', 'structuralErrors']
+		},
+		request: () => ({ method: 'POST', route: '/import/preview', body: {}, timeoutMs: SCAN_TIMEOUT_MS })
 	}
 ]
 
