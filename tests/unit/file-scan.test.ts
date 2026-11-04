@@ -184,6 +184,46 @@ describe('AllFile.parseIssues: notes the scan cannot sync are reported', () => {
 		])
 	})
 
+	describe('Image Occlusion blocks', () => {
+		const MASK = '{{c1::image-occlusion:rect:left=.1:top=.2:width=.3:height=.1:oi=1}}'
+		const occlusionData = (): FileData =>
+			buildFileData({
+				fields_dict: { 'Image Occlusion': ['Occlusion', 'Image', 'Header', 'Back Extra', 'Comments'] },
+				curly_cloze: true,
+				highlights_to_cloze: true
+			})
+		const block = (lines: string[]): string => ['START', 'Image Occlusion', ...lines, 'END', ''].join('\n')
+
+		it('sends one with masks and an image, leaving the masks as written', () => {
+			const file = scan(block([`Occlusion: ${MASK}`, 'Image: <img src="a.png">']), occlusionData())
+
+			expect(file.parseIssues).toEqual([])
+			expect(file.notes_to_add[0].fields['Occlusion']).toBe(MASK)
+		})
+
+		it('accepts an embedded image that the metadata cache has not resolved', () => {
+			const file = scan(block([`Occlusion: ${MASK}`, 'Image: ![[a.png|879]]']), occlusionData())
+
+			expect(file.parseIssues).toEqual([])
+			expect(file.notes_to_add).toHaveLength(1)
+		})
+
+		it.each([
+			['no mask', ['Occlusion: {{c1::just text}}', 'Image: <img src="a.png">']],
+			['no image', [`Occlusion: ${MASK}`, 'Header: q']]
+		])('reports one with %s and does not send it', (_case, lines) => {
+			const file = scan(block(lines), occlusionData())
+
+			expect(file.notes_to_add).toEqual([])
+			expect(file.parseIssues).toEqual([
+				expect.objectContaining({
+					kind: 'cloze-without-deletions',
+					error: expect.stringContaining('Image Occlusion note needs an image')
+				})
+			])
+		})
+	})
+
 	it('names the existing note when a Cloze block with an ID lost its deletions', () => {
 		const file = scan('START\nCloze\nPlain text\n<!--ID: 1234-->\nEND\n', clozeData())
 
