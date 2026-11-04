@@ -345,7 +345,7 @@ export const TOOLS = [
 		name: 'anki_import_preview',
 		title: 'Preview importing Anki-only notes',
 		description:
-			'Plans bringing the notes that exist only in Anki into the vault, without writing anything. Each note is converted to Markdown and rendered back by the real parser; a note that would change stays in Anki and is listed in `refused` with the reason. Image Occlusion and overlapping Cloze notes are never candidates.',
+			'Plans bringing the notes that exist only in Anki into the vault, without writing anything. Each note is converted to Markdown and rendered back by the real parser; a note that would change stays in Anki and is listed in `refused` with the reason. Image Occlusion Enhanced (the legacy add-on) and overlapping Cloze notes are never candidates.',
 		inputSchema: { type: 'object', properties: IMPORT_SELECTION, additionalProperties: false },
 		annotations: READ_ONLY,
 		outputSchema: {

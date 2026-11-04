@@ -15,6 +15,7 @@ export const TAG_REGEXP_STR: string = String.raw`(Tags: .*)`
 const OBS_TAG_REGEXP: RegExp = /(?<=^|[\t ])#([\p{L}\p{N}\p{Emoji}\p{M}_/-]+)/gu
 
 const ANKI_CLOZE_REGEXP: RegExp = /{{c\d+::[\s\S]+?}}/
+const OCCLUSION_MASK_REGEXP: RegExp = /{{c\d+::image-occlusion:[\s\S]+?}}/
 export const CLOZE_ERROR: number = 42
 export const NOTE_TYPE_ERROR: number = 69
 
@@ -26,6 +27,24 @@ function has_clozes(text: string): boolean {
 function note_has_clozes(note: AnkiConnectNote): boolean {
 	/*Checks whether a note has cloze deletions in any of its fields.*/
 	return Object.values(note.fields).some(has_clozes)
+}
+
+/** Anki's own note type. The legacy "Image Occlusion Enhanced" add-on keeps its masks in files instead. */
+export function isImageOcclusion(modelName: string): boolean {
+	return modelName === 'Image Occlusion'
+}
+
+/** Note types whose cards come from the cloze numbers in their fields. */
+export function hasClozeCards(modelName: string): boolean {
+	return modelName.includes('Cloze') || isImageOcclusion(modelName)
+}
+
+function occlusion_is_complete(note: AnkiConnectNote): boolean {
+	const fields = Object.values(note.fields)
+	// `![[a.png]]` is still an embed when the metadata cache is absent, as in validation.
+	return (
+		fields.some((field) => OCCLUSION_MASK_REGEXP.test(field)) && fields.some((field) => /<img\b|!\[\[/.test(field))
+	)
 }
 
 export function cloneTemplate(template: AnkiConnectNote): AnkiConnectNote {
@@ -102,7 +121,10 @@ export function buildAnkiNote(params: BuildAnkiNoteParams): AnkiConnectNoteAndID
 	}
 
 	let identifier = params.identifier
-	if (modelName.includes('Cloze') && !note_has_clozes(template)) {
+	const complete = isImageOcclusion(modelName)
+		? occlusion_is_complete(template)
+		: !modelName.includes('Cloze') || note_has_clozes(template)
+	if (!complete) {
 		identifier = CLOZE_ERROR
 	}
 

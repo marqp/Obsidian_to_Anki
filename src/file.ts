@@ -9,6 +9,7 @@ import {
 	RegexNote,
 	AbstractNote,
 	CLOZE_ERROR,
+	isImageOcclusion,
 	NOTE_TYPE_ERROR,
 	TAG_SEP,
 	ID_REGEXP_STR,
@@ -567,7 +568,9 @@ export class AllFile extends AbstractFile {
 						'cloze-without-deletions',
 						note_match.index,
 						note,
-						'Cloze note has no cloze deletions, so it was not sent to Anki. Add a deletion or change its type.',
+						isImageOcclusion(parsed.note.modelName)
+							? 'Image Occlusion note needs an image and at least one {{cN::image-occlusion:...}} mask, so it was not sent to Anki.'
+							: 'Cloze note has no cloze deletions, so it was not sent to Anki. Add a deletion or change its type.',
 						existingIdIn(note)
 					)
 				},

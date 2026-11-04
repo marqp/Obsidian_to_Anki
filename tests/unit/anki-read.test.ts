@@ -25,6 +25,7 @@ const note = (noteId: number, overrides: Record<string, unknown> = {}) => ({
 const card = (cardId: number, overrides: Record<string, unknown> = {}) => ({
 	cardId,
 	note: Math.floor(cardId / 10),
+	ord: 0,
 	deckName: 'Medicina',
 	type: 2,
 	queue: 2,
@@ -88,6 +89,7 @@ describe('searchNotes', () => {
 			cards: [
 				{
 					cardId: 20,
+					ord: 0,
 					deck: 'Medicina',
 					state: 'review',
 					suspended: false,

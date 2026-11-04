@@ -4,7 +4,7 @@ import { AnkiConnectNoteAndID } from './interfaces/note-interface'
 import { App, TFile, TFolder, TAbstractFile, CachedMetadata, FileSystemAdapter } from 'obsidian'
 import { obsidianNoticePort, type NoticePort } from './notices'
 import { AllFile } from './file'
-import { isContentMismatch, noteTypeMismatch } from './dry-run'
+import { clozeCardsEmptied, isContentMismatch, noteTypeMismatch } from './dry-run'
 import { ANKI_STATUS_TAGS } from './requests'
 import type { ValidationInput } from './validate'
 import * as AnkiConnect from './anki'
@@ -109,6 +109,7 @@ export interface ScanIssue {
 		| 'update-tags'
 		| 'convert-note'
 		| 'note-type-mismatch'
+		| 'cloze-card-emptied'
 		| 'ankiweb-sync'
 		| 'cloze-without-deletions'
 		| 'unknown-note-type'
@@ -797,6 +798,10 @@ export class FileManager {
 					isContentMismatch(noteToEdit.note, file.noteTagsFor(noteToEdit), note_response)
 				) {
 					this.changedNoteIds.add(noteToEdit.identifier)
+				}
+				const emptied = clozeCardsEmptied(file, noteToEdit, note_response)
+				if (emptied) {
+					this.scanIssues.push(emptied)
 				}
 				this.detectModelChange(file, noteToEdit, note_response.modelName)
 			}
