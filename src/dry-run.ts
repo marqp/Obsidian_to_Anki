@@ -1,7 +1,8 @@
 import * as AnkiConnect from './anki'
 import type { AllFile } from './file'
 import type { ScanIssue } from './files-manager'
-import type { AnkiConnectNote } from './interfaces/note-interface'
+import type { AnkiConnectNote, AnkiConnectNoteAndID } from './interfaces/note-interface'
+import { hasClozeCards } from './note'
 import { ANKI_STATUS_TAGS } from './requests'
 
 /** One pending change discovered by a dry run, machine-readable. */
@@ -190,6 +191,10 @@ export async function collectDryRunState(
 				}
 				continue
 			}
+			const emptied = clozeCardsEmptied(file, parsed, anki)
+			if (emptied) {
+				issues.push(emptied)
+			}
 			const difference = diffNote(parsed.note, file.noteTagsFor(parsed), anki)
 			const deckChanged = isDeckMismatch(targets, anki, deckByCardId)
 			if (difference.fields.length > 0 || difference.tagsChanged || deckChanged) {
@@ -244,6 +249,49 @@ export function noteTypeMismatch(file: AllFile, noteId: number, localModel: stri
 		noteId,
 		...(line === undefined ? {} : { line }),
 		error: `Note is "${localModel}" in Markdown but "${ankiModel}" in Anki. Enable "Allow Note Type Changes" to convert it.`
+	}
+}
+
+function clozeNumbers(text: string): number[] {
+	return Array.from(text.matchAll(/{{c(\d+(?:,\d+)*)::/g), (match) => match[1].split(',').map(Number)).flat()
+}
+
+/**
+ * The issue for a note that would lose a cloze number. Anki does not delete that
+ * card: it stays empty, with its review history, until "Empty Cards" removes it.
+ * Fields the block leaves out keep their text in Anki, so their numbers survive.
+ */
+export function clozeCardsEmptied(
+	file: AllFile,
+	parsed: AnkiConnectNoteAndID,
+	anki: AnkiNoteInfo
+): ScanIssue | undefined {
+	if (parsed.identifier == null || !hasClozeCards(anki.modelName) || parsed.note.modelName !== anki.modelName) {
+		return undefined
+	}
+	const kept = new Set<number>()
+	const before = new Set<number>()
+	for (const [name, field] of Object.entries(anki.fields)) {
+		const numbers = clozeNumbers(field.value)
+		numbers.forEach((number) => before.add(number))
+		if (!(name in parsed.note.fields)) {
+			numbers.forEach((number) => kept.add(number))
+		}
+	}
+	for (const value of Object.values(parsed.note.fields)) {
+		clozeNumbers(value).forEach((number) => kept.add(number))
+	}
+	const gone = [...before].filter((number) => !kept.has(number)).sort((a, b) => a - b)
+	if (gone.length === 0) {
+		return undefined
+	}
+	const line = file.editedNoteLine(parsed.identifier)
+	return {
+		file: file.path,
+		kind: 'cloze-card-emptied',
+		noteId: parsed.identifier,
+		...(line === undefined ? {} : { line }),
+		error: `${gone.map((number) => `c${number}`).join(', ')} no longer in the Markdown. Anki keeps each of those cards empty, with its review history, until "Empty Cards" removes it. Put the number back to keep the card.`
 	}
 }
 

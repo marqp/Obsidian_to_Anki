@@ -255,6 +255,33 @@ describe('requests_2: follow-up batches are no longer fire-and-forget', () => {
 		expect(manager.getHashes()).toEqual({})
 	})
 
+	it('reports a cloze number that left the note, without retrying forever', async () => {
+		const { manager } = setup([{ id: 1, fields: { Text: '{{c1::a}}' }, tags: [], model: 'Cloze' }], {
+			notesInfo: [
+				{
+					noteId: 1,
+					modelName: 'Cloze',
+					tags: [],
+					fields: { Text: { order: 0, value: '{{c1::a}} {{c2::b}}' } },
+					cards: [10, 11]
+				}
+			],
+			updates: { result: [{ result: [ok], error: null }], error: null }
+		})
+
+		await manager.requests_1()
+
+		expect(manager.scanIssues).toEqual([
+			expect.objectContaining({
+				kind: 'cloze-card-emptied',
+				noteId: 1,
+				file: 'dry-run.md',
+				error: expect.stringContaining('c2 no longer in the Markdown')
+			})
+		])
+		expect(Object.keys(manager.getHashes())).toEqual(['dry-run.md'])
+	})
+
 	it('reports a type mismatch when conversion is off, without retrying forever', async () => {
 		const { manager } = setup([{ id: 1, fields: { Text: 'q' }, tags: [], model: 'Cloze' }], {
 			notesInfo: [ankiNote(1, 'q', 'Basic')],

@@ -558,6 +558,96 @@ describe('collectDryRunState: exact diff', () => {
 		expect(summary.changes.length > 0).toBe(changed)
 	})
 
+	describe('a cloze number leaving the note', () => {
+		async function issuesFor(
+			ankiFields: Record<string, string>,
+			localFields: Record<string, string>,
+			modelName = 'Cloze',
+			localModel = modelName
+		) {
+			const { setTransport } = await import('../../src/anki')
+			setTransport({
+				invoke: vi.fn(async (action: string) =>
+					action === 'notesInfo'
+						? [
+								{
+									noteId: 51,
+									modelName,
+									tags: [],
+									fields: Object.fromEntries(
+										Object.entries(ankiFields).map(([name, value], order) => [
+											name,
+											{ order, value }
+										])
+									),
+									cards: [501]
+								}
+							]
+						: [{ cardId: 501, deckName: 'Default', type: 2 }]
+				)
+			})
+			const files = createManagerFiles(
+				createParsedSettings(),
+				[{ id: 51, fields: localFields, tags: [], model: localModel }],
+				[]
+			)
+			const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+			return summary.issues.filter((issue) => issue.kind === 'cloze-card-emptied')
+		}
+
+		it('names the numbers whose cards would be left empty', async () => {
+			const issues = await issuesFor({ Text: '{{c1::a}} {{c2::b}} {{c3::c}}' }, { Text: '{{c1::a}}' })
+
+			expect(issues).toEqual([
+				expect.objectContaining({
+					file: 'dry-run.md',
+					noteId: 51,
+					error: expect.stringContaining('c2, c3 no longer in the Markdown')
+				})
+			])
+		})
+
+		it('covers Image Occlusion masks', async () => {
+			const mask = (n: number) => `{{c${n}::image-occlusion:rect:left=.1:top=.2:width=.3:height=.1:oi=1}}`
+			const issues = await issuesFor(
+				{ Occlusion: `${mask(1)}<br>${mask(2)}` },
+				{ Occlusion: mask(2) },
+				'Image Occlusion'
+			)
+
+			expect(issues[0].error).toContain('c1 no longer')
+		})
+
+		it('reads a deletion that belongs to several cards', async () => {
+			const issues = await issuesFor({ Text: '{{c1,2::a}}' }, { Text: '{{c1::a}}' })
+
+			expect(issues[0].error).toContain('c2 no longer')
+		})
+
+		it.each([
+			['the text changed but the numbers stayed', { Text: '{{c1::a}}' }, { Text: '{{c1::other}}' }, 'Cloze'],
+			[
+				'the number moved to another field',
+				{ Text: '{{c1::a}}', Extra: '' },
+				{ Text: 'a', Extra: '{{c1::a}}' },
+				'Cloze'
+			],
+			[
+				'the block leaves out the field holding it',
+				{ Text: '{{c1::a}}', Extra: '{{c2::b}}' },
+				{ Text: '{{c1::a}}' },
+				'Cloze'
+			],
+			['the note type has no cloze cards', { Front: '{{c1::a}}' }, { Front: 'a' }, 'Basic']
+		])('stays quiet when %s', async (_case, anki, local, model) => {
+			expect(await issuesFor(anki, local as Record<string, string>, model)).toEqual([])
+		})
+
+		it('leaves a type change to its own report', async () => {
+			expect(await issuesFor({ Text: '{{c1::a}}' }, { Front: 'a' }, 'Cloze', 'Basic')).toEqual([])
+		})
+	})
+
 	it('shows the start of a new card, without markup', async () => {
 		const { setTransport } = await import('../../src/anki')
 		setTransport({ invoke: vi.fn(async () => []) })
