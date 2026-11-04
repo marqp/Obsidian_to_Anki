@@ -578,7 +578,7 @@ export class SettingsTab extends PluginSettingTab {
 			.setDesc(
 				`Clear the cached list of media filenames that have been added to Anki.
 
-			The plugin will skip over adding a media file if it's added a file with the same name before, so clear this if e.g. you've updated the media file with the same name.`
+			The plugin will skip over adding a media file if it's added a file with the same name before and Anki still has it, so clear this if e.g. you've updated the media file with the same name.`
 			)
 			.addButton((button) => {
 				button

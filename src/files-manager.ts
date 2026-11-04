@@ -155,12 +155,9 @@ function vaultPortFromApp(app: App): VaultPort {
 	}
 }
 
-function difference<T>(setA: Set<T>, setB: Set<T>): Set<T> {
-	const _difference = new Set(setA)
-	for (const elem of setB) {
-		_difference.delete(elem)
-	}
-	return _difference
+/** Anki and the disk can each change a name's case and Unicode form. */
+function mediaKey(link: string): string {
+	return basename(link).normalize('NFC').toLowerCase()
 }
 
 /** Message text for a ScanIssue (mirrors the transport's error rendering). */
@@ -619,9 +616,12 @@ export class FileManager {
 		requests.push(AnkiConnect.multi(temp))
 		temp = []
 		console.info('Requesting addition of media...')
+		const inAnki = await this.mediaInAnki()
 		for (const file of this.ownFiles) {
-			const mediaLinks = difference(file.formatter.detectedMedia, this.added_media_set)
-			for (const mediaLink of mediaLinks) {
+			for (const mediaLink of file.formatter.detectedMedia) {
+				if (this.added_media_set.has(mediaLink) && (inAnki === null || inAnki.has(mediaKey(mediaLink)))) {
+					continue
+				}
 				console.log('Adding media file: ', mediaLink)
 				const dataFile = this.vault.getFirstLinkpathDest(mediaLink, file.path)
 				if (!dataFile) {
@@ -634,6 +634,7 @@ export class FileManager {
 				} else {
 					// Located successfully, so treat as if we've added the media
 					this.added_media_set.add(mediaLink)
+					inAnki?.add(mediaKey(mediaLink))
 					const realPath = this.vault.getFullPath(dataFile.path)
 					this.mediaUploads.push({ file: file.path, link: mediaLink })
 					temp.push(AnkiConnect.storeMediaFileByPath(basename(mediaLink), realPath))
@@ -644,6 +645,27 @@ export class FileManager {
 		temp = []
 		this.requests_1_result = await AnkiConnect.invoke<unknown[]>('multi', { actions: requests })
 		await this.parse_requests_1()
+	}
+
+	/**
+	 * The media Anki holds now. `Added Media` only says a file was sent once, and
+	 * Anki can drop it later, as Check Media does with files no card uses. Null
+	 * when nothing needs checking or Anki can't say: then that cache decides.
+	 */
+	private async mediaInAnki(): Promise<Set<string> | null> {
+		const needsCheck = this.ownFiles.some((file) =>
+			[...file.formatter.detectedMedia].some((link) => this.added_media_set.has(link))
+		)
+		if (!needsCheck) {
+			return null
+		}
+		try {
+			const names = await AnkiConnect.invoke<string[]>('getMediaFilesNames', { pattern: '*' })
+			return new Set(names.map(mediaKey))
+		} catch (error) {
+			console.warn('Could not list the media in Anki: ', error)
+			return null
+		}
 	}
 
 	async parse_requests_1() {
