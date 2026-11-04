@@ -161,3 +161,25 @@ describe('sized image embeds', () => {
 		expect(render('![[a.png|um olho]]')).toBe('<img src="a.png" alt="um olho">')
 	})
 })
+
+describe('embed extensions', () => {
+	it.each([
+		['an upper-case extension', 'FOTO.JPG'],
+		['a mixed-case extension', 'foto.Png'],
+		['webp', 'foto.webp']
+	])('renders an image with %s, keeping the name as written', (_label, name) => {
+		expect(render(`![[${name}]]`)).toBe(`<img src="${name}" alt="${name}">`)
+	})
+
+	it('renders audio with an upper-case extension', () => {
+		expect(render('![[som.MP3]]')).toBe('[sound:som.MP3]')
+	})
+
+	it('leaves an unknown extension as written', () => {
+		expect(render('![[nota.pdf]]')).toBe('![[nota.pdf]]')
+	})
+
+	it.each([['<img src="FOTO.JPG">'], ['<img src="foto.webp">']])('round-trips %s', (html) => {
+		expect(canonicalHtml(render(md(html)))).toBe(canonicalHtml(html))
+	})
+})

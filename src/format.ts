@@ -18,7 +18,7 @@ const DISPLAY_CODE_MASK_REGEXP: RegExp = new RegExp(DISPLAY_CODE_REPLACE, 'g')
 
 const CLOZE_REGEXP: RegExp = /(?:(?<!{){(?:c?(\d+)[:|])?(?!{))((?:[^\n][\n]?)+?)(?:(?<!})}(?!}))/g
 
-const IMAGE_EXTS: string[] = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.tiff']
+const IMAGE_EXTS: string[] = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.tiff', '.webp']
 const AUDIO_EXTS: string[] = ['.wav', '.m4a', '.flac', '.mp3', '.wma', '.aac', '.webm', '.mp4']
 
 const PARA_OPEN: string = '<p>'
@@ -137,7 +137,7 @@ export class FormatConverter {
 		for (const embed of this.file_cache.embeds) {
 			if (note_text.includes(embed.original)) {
 				this.detectedMedia.add(embed.link)
-				const ext = extname(embed.link)
+				const ext = extname(embed.link).toLowerCase()
 				if (AUDIO_EXTS.includes(ext)) {
 					note_text = note_text.replaceAll(embed.original, '[sound:' + basename(embed.link) + ']')
 				} else if (IMAGE_EXTS.includes(ext)) {
