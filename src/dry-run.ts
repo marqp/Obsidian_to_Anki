@@ -259,8 +259,9 @@ function normalizeText(value: string): string {
 	return value.normalize('NFC')
 }
 
+/** Anki treats tags that differ only in case as one tag and keeps a single spelling of it. */
 function normalizeTags(tags: string[]): string[] {
-	return [...new Set(tags.filter((tag) => tag.length > 0).map(normalizeText))].sort()
+	return [...new Set(tags.filter((tag) => tag.length > 0).map((tag) => normalizeText(tag).toLowerCase()))].sort()
 }
 
 /**
