@@ -28,6 +28,10 @@ Edit fields/tags in Markdown, re-scan. Field+tag updates go through one
 `updateNote` call when the daemon supports it (probed per scan, legacy
 `updateNoteFields`/`updateNoteTags` fallback otherwise).
 
+An update replaces the note's tags with those in Markdown, except `leech` and
+`marked`: Anki sets them while you study, so a scan keeps them. Removing either
+one is done in Anki, unless it is also written in the note's `Tags:` line.
+
 Note-type change (`Basic` → `Cloze` on the same ID) only converts with
 `Allow Note Type Changes` on (default off, `updateNoteModel`); Anki discards
 fields absent from the new model, so dry-run first. With the toggle off you get

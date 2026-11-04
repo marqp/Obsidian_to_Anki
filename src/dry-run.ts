@@ -2,6 +2,7 @@ import * as AnkiConnect from './anki'
 import type { AllFile } from './file'
 import type { ScanIssue } from './files-manager'
 import type { AnkiConnectNote } from './interfaces/note-interface'
+import { ANKI_STATUS_TAGS } from './requests'
 
 /** One pending change discovered by a dry run, machine-readable. */
 export interface DryRunChange {
@@ -278,8 +279,8 @@ function diffNote(
 	// The real scan converges to the same end state on both paths (legacy
 	// updateNoteTags vs consolidated updateNote), so one normalized
 	// order-insensitive tag comparison covers both.
-	const wantedTags = normalizeTags(localTags)
 	const ankiTags = normalizeTags(anki.tags ?? [])
+	const wantedTags = normalizeTags([...localTags, ...ankiTags.filter((tag) => ANKI_STATUS_TAGS.includes(tag))])
 	const tagsChanged =
 		wantedTags.length !== ankiTags.length || wantedTags.some((tag, index) => tag !== ankiTags[index])
 	return { fields, tagsChanged }

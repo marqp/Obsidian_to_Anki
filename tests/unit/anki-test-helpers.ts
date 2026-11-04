@@ -75,6 +75,8 @@ export interface ManagerOptions {
 	allowNoteTypeChanges?: boolean
 	localModelName?: string
 	ankiModelName?: string
+	/** Tags that Anki's search finds on the note. */
+	ankiStatusTags?: string[]
 }
 
 export function createManager(options: ManagerOptions) {
@@ -104,9 +106,13 @@ export function createManager(options: ManagerOptions) {
 		{ error: null, result: [null] },
 		{ error: null, result: [] }
 	]
-	const invokeMock = vi.fn(async (action: string) => {
+	const invokeMock = vi.fn(async (action: string, params?: Record<string, unknown>) => {
 		if (action === 'apiReflect') {
 			return { scopes: ['actions'], actions: options.supportedActions }
+		}
+		if (action === 'findNotes') {
+			const tag = String(params?.['query']).replace('tag:', '')
+			return (options.ankiStatusTags ?? []).includes(tag) ? [55] : []
 		}
 		return multiResponse
 	})
@@ -116,12 +122,18 @@ export function createManager(options: ManagerOptions) {
 	return { manager, invokeMock }
 }
 
+function multiCalls(
+	invokeMock: ReturnType<typeof vi.fn>
+): Array<[string, { actions: AnkiConnect.AnkiConnectRequest[] }]> {
+	return invokeMock.mock.calls.filter(([action]) => action === 'multi') as Array<
+		[string, { actions: AnkiConnect.AnkiConnectRequest[] }]
+	>
+}
+
 export function mainMultiActions(invokeMock: ReturnType<typeof vi.fn>): AnkiConnect.AnkiConnectRequest[] {
-	const mainMulti = invokeMock.mock.calls[1] as [string, { actions: AnkiConnect.AnkiConnectRequest[] }]
-	return mainMulti[1].actions
+	return multiCalls(invokeMock)[0][1].actions
 }
 
 export function requests2Payload(invokeMock: ReturnType<typeof vi.fn>): string {
-	const requests2Multi = invokeMock.mock.calls[2] as [string, unknown]
-	return JSON.stringify(requests2Multi[1])
+	return JSON.stringify(multiCalls(invokeMock)[1][1])
 }

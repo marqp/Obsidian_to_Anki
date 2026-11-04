@@ -19,7 +19,10 @@ describe('Phase 5: updateNoteModel behind opt-in', () => {
 
 		const payload = requests2Payload(invokeMock)
 		expect(payload).toContain('updateNoteModel')
-		const requests2Multi = invokeMock.mock.calls[2] as [string, { actions: AnkiConnectRequest[] }]
+		const requests2Multi = invokeMock.mock.calls.filter(([action]) => action === 'multi')[1] as [
+			string,
+			{ actions: AnkiConnectRequest[] }
+		]
 		const modelBatch = requests2Multi[1].actions.find((action) =>
 			JSON.stringify(action).includes('updateNoteModel')
 		)

@@ -18,6 +18,7 @@ Anki state), both engines must produce identical **observable** outputs:
 
 - Fork-intentional divergences (README [Fork additions]): orphan deletion,
   `updateNote` vs `updateNoteFields+Tags` (compare **end state**, not wire),
+  a scan keeping Anki's `leech` and `marked` tags,
   dry-run, auto-launch, apiKey. Parity runs set all fork-only toggles OFF.
 - Timings, batching order, Notices, console log formats.
 - `getNoteIdsInFile`/orphans and `updateNoteModel` have no upstream

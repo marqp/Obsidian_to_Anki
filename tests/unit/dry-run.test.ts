@@ -499,6 +499,34 @@ describe('collectDryRunState: exact diff', () => {
 		])
 	})
 
+	it('does not report tags Anki set while you study as a change', async () => {
+		const { setTransport } = await import('../../src/anki')
+		setTransport({
+			invoke: vi.fn(async (action: string) =>
+				action === 'notesInfo'
+					? [
+							{
+								noteId: 51,
+								modelName: 'Basic',
+								tags: ['anatomia', 'leech', 'marked'],
+								fields: { Front: { order: 0, value: 'q' }, Back: { order: 1, value: 'a' } },
+								cards: [501]
+							}
+						]
+					: [{ cardId: 501, deckName: 'Default', type: 2 }]
+			)
+		})
+		const files = createManagerFiles(
+			createParsedSettings(),
+			[{ id: 51, fields: { Front: 'q', Back: 'a' }, tags: ['anatomia'] }],
+			[]
+		)
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+
+		expect(summary.changes).toEqual([])
+	})
+
 	it('shows the start of a new card, without markup', async () => {
 		const { setTransport } = await import('../../src/anki')
 		setTransport({ invoke: vi.fn(async () => []) })

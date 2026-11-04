@@ -71,7 +71,9 @@ describe('orphan deletion: initialiseFiles wiring', () => {
 		AnkiConnect.setTransport({ invoke: invokeMock })
 		await manager.requests_1()
 
-		const mainMulti = invokeMock.mock.calls[1][1] as { actions: AnkiConnect.AnkiConnectRequest[] }
+		const mainMulti = invokeMock.mock.calls.filter(([action]) => action === 'multi')[0][1] as {
+			actions: AnkiConnect.AnkiConnectRequest[]
+		}
 		const deleteBatches = mainMulti.actions
 			.filter((action) => action.action === 'multi')
 			.flatMap((action) => action.params['actions'] as AnkiConnect.AnkiConnectRequest[])

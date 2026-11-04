@@ -8,6 +8,12 @@ import type { AnkiConnectNote, AnkiConnectNoteAndID } from './interfaces/note-in
  * AbstractFile get* methods delegate 1:1 and stay the callers' entry point.
  */
 
+/**
+ * Tags Anki sets while you study. They say something about your reviews, not
+ * about the note, so Markdown does not own them and a scan keeps them.
+ */
+export const ANKI_STATUS_TAGS: readonly string[] = ['leech', 'marked']
+
 /** Tags an existing note should carry in Anki: note tags plus file-level tags. */
 export function noteTagsFor(noteTags: string[], globalTags: string): string[] {
 	return joinedNoteTags(noteTags, globalTags)
