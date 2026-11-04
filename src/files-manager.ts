@@ -5,6 +5,7 @@ import { App, TFile, TFolder, TAbstractFile, CachedMetadata, FileSystemAdapter }
 import { obsidianNoticePort, type NoticePort } from './notices'
 import { AllFile } from './file'
 import { isContentMismatch, noteTypeMismatch } from './dry-run'
+import { ANKI_STATUS_TAGS } from './requests'
 import type { ValidationInput } from './validate'
 import * as AnkiConnect from './anki'
 import { basename } from 'path'
@@ -536,6 +537,26 @@ export class FileManager {
 		)
 	}
 
+	/**
+	 * Updates replace a note's whole tag list, so tags Anki set during study must
+	 * be read first. The notesInfo of the main batch runs too late: those updates
+	 * are already built by then.
+	 */
+	private async keepAnkiStatusTags(): Promise<void> {
+		const edits = this.ownFiles.flatMap((file) => file.notes_to_edit)
+		if (edits.length === 0) {
+			return
+		}
+		for (const tag of ANKI_STATUS_TAGS) {
+			const tagged = new Set(await AnkiConnect.invoke<number[]>('findNotes', { query: `tag:${tag}` }))
+			for (const parsed of edits) {
+				if (parsed.identifier != null && tagged.has(parsed.identifier) && !parsed.note.tags.includes(tag)) {
+					parsed.note.tags = [...parsed.note.tags, tag]
+				}
+			}
+		}
+	}
+
 	async requests_1() {
 		const requests: AnkiConnect.AnkiConnectRequest[] = []
 		this.scanIssues = this.ownFiles.flatMap((file) => file.parseIssues)
@@ -552,6 +573,7 @@ export class FileManager {
 		if (this.useUpdateNote) {
 			console.info('AnkiConnect supports updateNote: field and tag updates will be consolidated.')
 		}
+		await this.keepAnkiStatusTags()
 		console.info('Requesting addition of new deck into Anki...')
 		const uniqueDecks = new Set<string>()
 		for (const file of this.ownFiles) {

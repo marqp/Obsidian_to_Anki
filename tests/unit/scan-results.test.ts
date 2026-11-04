@@ -50,6 +50,9 @@ function setup(edits: DryRunNoteSpec[], daemon: Daemon, data: ParsedSettings = c
 			if (action === 'sync') {
 				return daemon.sync?.()
 			}
+			if (action === 'findNotes') {
+				return []
+			}
 			multiCalls += 1
 			if (multiCalls > 1) {
 				return daemon.followUps ?? [{ result: [], error: null }]

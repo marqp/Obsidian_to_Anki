@@ -59,6 +59,61 @@ describe('Phase 4: updateNote capability gate', () => {
 		expect(requests2Payload(invokeMock)).not.toContain('updateNoteTags')
 	})
 
+	describe('tags Anki sets while you study', () => {
+		function sentTags(actions: AnkiConnect.AnkiConnectRequest[]): unknown {
+			const perFile = (actions[4].params['actions'] as AnkiConnect.AnkiConnectRequest[])[0]
+			const update = (perFile.params['actions'] as AnkiConnect.AnkiConnectRequest[])[0]
+			return (update.params['note'] as { tags: string[] }).tags
+		}
+
+		it('keeps them in an update', async () => {
+			const { manager, invokeMock } = createManager({
+				supportedActions: ['updateNote'],
+				ankiStatusTags: ['leech', 'marked']
+			})
+			await manager.requests_1()
+
+			expect(sentTags(mainMultiActions(invokeMock))).toEqual(['noteTag', 'leech', 'marked', 'fileTag'])
+		})
+
+		it('does not add them to a note Anki has not marked', async () => {
+			const { manager, invokeMock } = createManager({ supportedActions: ['updateNote'] })
+			await manager.requests_1()
+
+			expect(sentTags(mainMultiActions(invokeMock))).toEqual(['noteTag', 'fileTag'])
+		})
+
+		it('keeps them on the legacy path', async () => {
+			const { manager, invokeMock } = createManager({ supportedActions: [], ankiStatusTags: ['leech'] })
+			await manager.requests_1()
+			await manager.requests_2()
+
+			expect(requests2Payload(invokeMock)).toContain('"leech"')
+		})
+
+		it('keeps them when a note changes type', async () => {
+			const { manager, invokeMock } = createManager({
+				supportedActions: ['updateNote', 'updateNoteModel'],
+				allowNoteTypeChanges: true,
+				localModelName: 'Cloze',
+				ankiModelName: 'Basic',
+				ankiStatusTags: ['marked']
+			})
+			await manager.requests_1()
+			await manager.requests_2()
+
+			expect(requests2Payload(invokeMock)).toContain('"marked"')
+		})
+
+		it('does not search when the scan updates no note', async () => {
+			const { manager, invokeMock } = createManager({ supportedActions: ['updateNote'] })
+			manager.ownFiles[0].notes_to_edit = []
+			await manager.requests_1()
+
+			expect(invokeMock.mock.calls.map(([action]) => action)).not.toContain('findNotes')
+		})
+	})
+
 	it('keeps the legacy round-1/round-2 split when updateNote is unsupported', async () => {
 		const { manager, invokeMock } = createManager({
 			supportedActions: []
