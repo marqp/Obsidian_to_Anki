@@ -179,6 +179,16 @@ describe('studyOverview', () => {
 		getNumCardsReviewedToday: 5
 	}
 
+	it('keeps a deck name with a backslash inside its quotes', async () => {
+		const invoke = daemon({ ...replies, findCards: [] })
+
+		await studyOverview('abc\\" or deck:* or "x\\', 1)
+
+		expect(invoke).toHaveBeenCalledWith('findCards', {
+			query: 'deck:"abc\\\\\\" or deck:* or \\"x\\\\" is:due'
+		})
+	})
+
 	it('counts within the deck asked for, escaping its name', async () => {
 		const invoke = daemon({ ...replies, findCards: [1, 2] })
 

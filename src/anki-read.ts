@@ -188,7 +188,7 @@ export async function getNotes(
 }
 
 function deckQuery(deck: string | undefined): string {
-	return deck === undefined ? 'deck:*' : `deck:"${deck.replace(/"/g, '\\"')}"`
+	return deck === undefined ? 'deck:*' : `deck:"${deck.replace(/["\\]/g, '\\$&')}"`
 }
 
 async function countCards(query: string): Promise<number> {
