@@ -563,7 +563,8 @@ describe('collectDryRunState: exact diff', () => {
 			ankiFields: Record<string, string>,
 			localFields: Record<string, string>,
 			modelName = 'Cloze',
-			localModel = modelName
+			localModel = modelName,
+			kind = 'cloze-card-emptied'
 		) {
 			const { setTransport } = await import('../../src/anki')
 			setTransport({
@@ -592,7 +593,7 @@ describe('collectDryRunState: exact diff', () => {
 				[]
 			)
 			const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
-			return summary.issues.filter((issue) => issue.kind === 'cloze-card-emptied')
+			return summary.issues.filter((issue) => issue.kind === kind)
 		}
 
 		it('names the numbers whose cards would be left empty', async () => {
@@ -616,6 +617,41 @@ describe('collectDryRunState: exact diff', () => {
 			)
 
 			expect(issues[0].error).toContain('c1 no longer')
+		})
+
+		describe('masks replaced', () => {
+			const mask = (left: string, n = 1) =>
+				`{{c${n}::image-occlusion:rect:left=${left}:top=.2:width=.3:height=.1}}`
+			const replaced = (
+				local: Record<string, string>,
+				remote: Record<string, string>,
+				model = 'Image Occlusion'
+			) => issuesFor(remote, local, model, model, 'occlusion-masks-replaced')
+
+			it('keeps the masks a sync would drop from Anki', async () => {
+				const issues = await replaced({ Occlusion: mask('.1') }, { Occlusion: mask('.7') })
+
+				expect(issues).toEqual([
+					expect.objectContaining({
+						noteId: 51,
+						error: expect.stringContaining('c1:rect:height=0.1:left=0.7:top=0.2:width=0.3')
+					})
+				])
+			})
+
+			it('stays quiet when the Markdown only adds masks', async () => {
+				const issues = await replaced(
+					{ Occlusion: `${mask('.1')}<br />\n${mask('.5', 2)}` },
+					{ Occlusion: mask('.1') }
+				)
+
+				expect(issues).toEqual([])
+			})
+
+			it('leaves other note types and a block without the field alone', async () => {
+				expect(await replaced({ Occlusion: mask('.1') }, { Occlusion: mask('.7') }, 'Cloze')).toEqual([])
+				expect(await replaced({ Header: 'q' }, { Occlusion: mask('.7'), Header: 'q' })).toEqual([])
+			})
 		})
 
 		it('reads a deletion that belongs to several cards', async () => {

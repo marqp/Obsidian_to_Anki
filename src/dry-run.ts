@@ -2,7 +2,8 @@ import * as AnkiConnect from './anki'
 import type { AllFile } from './file'
 import type { ScanIssue } from './files-manager'
 import type { AnkiConnectNote, AnkiConnectNoteAndID } from './interfaces/note-interface'
-import { hasClozeCards } from './note'
+import { hasClozeCards, isImageOcclusion } from './note'
+import { canonicalMasks } from './occlusion'
 import { ANKI_STATUS_TAGS } from './requests'
 
 /** One pending change discovered by a dry run, machine-readable. */
@@ -195,6 +196,10 @@ export async function collectDryRunState(
 			if (emptied) {
 				issues.push(emptied)
 			}
+			const replaced = occlusionMasksReplaced(file, parsed, anki)
+			if (replaced) {
+				issues.push(replaced)
+			}
 			const difference = diffNote(parsed.note, file.noteTagsFor(parsed), anki)
 			const deckChanged = isDeckMismatch(targets, anki, deckByCardId)
 			if (difference.fields.length > 0 || difference.tagsChanged || deckChanged) {
@@ -292,6 +297,34 @@ export function clozeCardsEmptied(
 		noteId: parsed.identifier,
 		...(line === undefined ? {} : { line }),
 		error: `${gone.map((number) => `c${number}`).join(', ')} no longer in the Markdown. Anki keeps each of those cards empty, with its review history, until "Empty Cards" removes it. Put the number back to keep the card.`
+	}
+}
+
+/**
+ * The issue for a sync that drops masks present in Anki. They may be an adjustment
+ * made in its editor, so the issue keeps them: nothing else would.
+ */
+export function occlusionMasksReplaced(
+	file: AllFile,
+	parsed: AnkiConnectNoteAndID,
+	anki: AnkiNoteInfo
+): ScanIssue | undefined {
+	const markdown = parsed.note.fields['Occlusion']
+	if (parsed.identifier == null || !isImageOcclusion(anki.modelName) || markdown === undefined) {
+		return undefined
+	}
+	const kept = canonicalMasks(markdown)
+	const dropped = canonicalMasks(anki.fields['Occlusion']?.value ?? '').filter((mask) => !kept.includes(mask))
+	if (dropped.length === 0) {
+		return undefined
+	}
+	const line = file.editedNoteLine(parsed.identifier)
+	return {
+		file: file.path,
+		kind: 'occlusion-masks-replaced',
+		noteId: parsed.identifier,
+		...(line === undefined ? {} : { line }),
+		error: `The Markdown replaces these masks in Anki: ${dropped.join(' ')}. If they were adjusted in Anki and the file should keep them, pull them into the Markdown (anki_occlusion_pull) before the scan.`
 	}
 }
 
