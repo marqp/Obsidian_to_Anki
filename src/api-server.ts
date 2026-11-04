@@ -1,3 +1,4 @@
+import type { ImportPreview, ImportResult } from './anki-import'
 import { createHash, randomBytes, timingSafeEqual } from 'crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
 import type { AnkiProbe } from './anki-launch'
@@ -13,7 +14,7 @@ import type { ScanReport } from './scan-orchestrator'
 import type { ValidationReport } from './validate'
 
 /** Bump when a response shape changes incompatibly (the MCP checks it). */
-export const API_VERSION = 2
+export const API_VERSION = 3
 
 /** Tokens shorter than this are refused: the API can write to the vault. */
 export const MIN_TOKEN_LENGTH = 24
@@ -53,6 +54,17 @@ export interface ApiHandlers {
 	getNotes(ids: number[], raw: boolean): Promise<{ notes: NoteView[]; missing: number[] }>
 	studyOverview(deck: string | undefined, days: number): Promise<StudyOverview>
 	difficultCards(query: DifficultCardsQuery): Promise<{ total: number; cards: DifficultCard[] }>
+	/** What importing the notes that exist only in Anki would do. Writes nothing. */
+	importPreview(selection: ImportSelection): Promise<ImportPreview>
+	/** Writes the new files and images, never touching Anki. The next scan updates the notes. */
+	importApply(selection: ImportSelection & { query: string }): Promise<ImportResult>
+}
+
+interface ImportSelection {
+	/** Anki search narrowing which notes to consider. */
+	query?: string
+	/** Subject by note ID, for the file each note goes to. */
+	subjects?: Record<string, string>
 }
 
 interface ScanState {
@@ -106,6 +118,28 @@ class HttpError extends Error {
 		message: string
 	) {
 		super(message)
+	}
+}
+
+function readImportSelection(body: Record<string, unknown>): ImportSelection {
+	const { query, subjects } = body
+	if (query !== undefined && (typeof query !== 'string' || query.length > MAX_QUERY_LENGTH)) {
+		throw new HttpError(400, '"query" must be an Anki search.')
+	}
+	if (
+		subjects !== undefined &&
+		(typeof subjects !== 'object' ||
+			subjects === null ||
+			Array.isArray(subjects) ||
+			!Object.entries(subjects).every(
+				([id, subject]) => /^\d+$/.test(id) && typeof subject === 'string' && subject.trim() !== ''
+			))
+	) {
+		throw new HttpError(400, '"subjects" must map note IDs to subject names.')
+	}
+	return {
+		...(query === undefined ? {} : { query }),
+		...(subjects === undefined ? {} : { subjects: subjects as Record<string, string> })
 	}
 }
 
@@ -338,6 +372,27 @@ export class LocalApiServer {
 			case '/metadata': {
 				expectMethod('GET')
 				send(res, 200, await handlers.metadata())
+				return
+			}
+			case '/import/preview': {
+				expectMethod('POST')
+				send(
+					res,
+					200,
+					await handlers.importPreview(readImportSelection(await readJsonBody(req, MAX_VALIDATE_BODY_BYTES)))
+				)
+				return
+			}
+			case '/import/apply': {
+				expectMethod('POST')
+				const selection = readImportSelection(await readJsonBody(req, MAX_VALIDATE_BODY_BYTES))
+				if (selection.query === undefined || selection.query.trim() === '') {
+					throw new HttpError(
+						400,
+						'"query" is required: say which notes to import, even if it is all of them ("deck:*").'
+					)
+				}
+				send(res, 200, await handlers.importApply({ ...selection, query: selection.query }))
 				return
 			}
 			case '/notes/search': {

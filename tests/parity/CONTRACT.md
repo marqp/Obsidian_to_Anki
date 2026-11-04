@@ -119,6 +119,9 @@ structural diff by design and serve as living documentation:
   multi-backtick arrangements. The 2026-09 no-shielding NO-GO on primary
   scans is untouched (this only reorders `search()`, never `scanPattern`).
 
+- **Sized image embeds:** `![[a.png|300]]` renders with `width="300"`. Upstream uses the
+  number as the image's `alt`, which loses the size.
+
 ## Updating the upstream pin
 
 1. `git fetch upstream master`

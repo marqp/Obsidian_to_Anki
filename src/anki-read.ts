@@ -101,7 +101,7 @@ export function fieldText(html: string): string {
 		.trim()
 }
 
-async function inBatches<T>(ids: number[], size: number, read: (batch: number[]) => Promise<T[]>): Promise<T[]> {
+export async function inBatches<T>(ids: number[], size: number, read: (batch: number[]) => Promise<T[]>): Promise<T[]> {
 	const rows: T[] = []
 	for (let i = 0; i < ids.length; i += size) {
 		rows.push(...(await read(ids.slice(i, i + size))))

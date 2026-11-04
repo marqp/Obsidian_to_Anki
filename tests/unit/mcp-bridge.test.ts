@@ -84,7 +84,7 @@ describe('protocol', () => {
 			result: { tools: Array<{ name: string; annotations: { readOnlyHint: boolean }; title: string }> }
 		}
 		const writers = reply.result.tools.filter((t) => !t.annotations.readOnlyHint).map((t) => t.name)
-		expect(writers.sort()).toEqual(['anki_scan_file', 'anki_scan_vault'])
+		expect(writers.sort()).toEqual(['anki_import_apply', 'anki_scan_file', 'anki_scan_vault'])
 		expect(reply.result.tools.every((t) => t.title.length > 0)).toBe(true)
 	})
 
@@ -136,7 +136,9 @@ describe('tool calls', () => {
 		['anki_search_notes', { query: 'tag:x', limit: 5 }, '/notes/search', { query: 'tag:x', limit: 5 }],
 		['anki_get_notes', { ids: [1, 2] }, '/notes/get', { ids: [1, 2] }],
 		['anki_study_overview', { deck: 'D' }, '/study/overview', { deck: 'D' }],
-		['anki_difficult_cards', { minLapses: 8 }, '/study/difficult', { minLapses: 8 }]
+		['anki_difficult_cards', { minLapses: 8 }, '/study/difficult', { minLapses: 8 }],
+		['anki_import_preview', { query: 'deck:A' }, '/import/preview', { query: 'deck:A' }],
+		['anki_import_apply', { query: 'deck:A' }, '/import/apply', { query: 'deck:A' }]
 	])('%s %j posts to its route', async (name, args, route, body) => {
 		const calls: Call[] = []
 		await callTool(handlerWith(fakeFetch(200, { issues: [] }, calls)), name, args)

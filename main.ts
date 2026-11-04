@@ -3,7 +3,9 @@ import * as AnkiConnect from './src/anki'
 import { PluginSettings, StoredPluginData } from './src/interfaces/settings-interface'
 import { DEFAULT_IGNORED_FILE_GLOBS, SettingsTab } from './src/settings'
 import { ANKI_ICON } from './src/constants'
-import { FileHashes, pruneFileHashes } from './src/scan-optimizations'
+import { FileHashes, createFileData, pruneFileHashes } from './src/scan-optimizations'
+import { applyImport, previewImport, type ImportOptions, type ImportResult, type ImportVault } from './src/anki-import'
+import { settingToData } from './src/setting-to-data'
 import { migrateSettings } from './src/ui/settings-migration'
 import { buildDefaults } from './src/defaults-meta'
 import {
@@ -28,6 +30,9 @@ import {
 import type { DryRunSummary } from './src/dry-run'
 import { DryRunModal } from './src/ui/dry-run-modal'
 import { type ScanControl } from './src/files-manager'
+
+const CACHE_WAIT_MS = 100
+const CACHE_WAIT_ATTEMPTS = 50
 
 export default class MyPlugin extends Plugin {
 	declare settings: PluginSettings
@@ -306,6 +311,71 @@ export default class MyPlugin extends Plugin {
 		return (noteId) => fileById.get(noteId)
 	}
 
+	/** Every note ID written in the vault, scanned folder or not, so nothing gets imported twice. */
+	private async idsInVault(): Promise<Set<number>> {
+		const ids = new Set<number>()
+		for (const file of this.app.vault.getMarkdownFiles()) {
+			for (const match of (await this.app.vault.cachedRead(file)).matchAll(/ID: (\d+)/g)) {
+				ids.add(parseInt(match[1], 10))
+			}
+		}
+		return ids
+	}
+
+	private importVault(): ImportVault {
+		const { vault, metadataCache, fileManager } = this.app
+		return {
+			createNote: async (path, text) => {
+				const folder = path.slice(0, path.lastIndexOf('/'))
+				if (folder !== '' && vault.getAbstractFileByPath(folder) === null) {
+					await vault.createFolder(folder)
+				}
+				const file = await vault.create(path, text)
+				// A scan reads embeds from this cache: without them `![[a.png]]` would reach Anki as text.
+				for (let wait = 0; metadataCache.getFileCache(file) === null && wait < CACHE_WAIT_ATTEMPTS; wait++) {
+					await new Promise((resolve) => window.setTimeout(resolve, CACHE_WAIT_MS))
+				}
+			},
+			readAttachment: async (name) => {
+				const file = metadataCache.getFirstLinkpathDest(name, '')
+				return file === null ? null : await vault.readBinary(file)
+			},
+			createAttachment: async (name, data) => {
+				await vault.createBinary(await fileManager.getAvailablePathForAttachment(name), data)
+			}
+		}
+	}
+
+	private async importOptions(subjects?: Record<string, string>): Promise<ImportOptions> {
+		const { Defaults: defaults, Syntax: syntax } = this.settings
+		const data = await settingToData(this.app, this.settings, this.fields_dict)
+		const scanned = defaults['Scan Directories'][0] ?? ''
+		return {
+			folder: `${scanned === '' ? '' : `${scanned}/`}Importados`,
+			defaultDeck: defaults.Deck,
+			beginNote: syntax['Begin Note'],
+			reservedWords: [
+				syntax['Begin Note'],
+				syntax['End Note'],
+				syntax['Target Deck Line'],
+				syntax['File Tags Line'],
+				syntax['Frozen Fields Line'],
+				syntax['Delete Note Line'],
+				'Tags: ',
+				...new Set(
+					Object.values(this.fields_dict)
+						.flat()
+						.map((field) => `${field}:`)
+				)
+			],
+			dataFor: (deck) => createFileData(data, deck, []),
+			pathExists: (path) => this.app.vault.getAbstractFileByPath(path) !== null,
+			...(subjects === undefined
+				? {}
+				: { subjects: new Map(Object.entries(subjects).map(([id, subject]) => [parseInt(id, 10), subject])) })
+		}
+	}
+
 	private apiHandlers(): ApiHandlers {
 		return {
 			status: () => probeAnkiStatus(),
@@ -359,7 +429,27 @@ export default class MyPlugin extends Plugin {
 			searchNotes: (search) => searchNotes(search, this.noteSourceLookup()),
 			getNotes: (ids, raw) => getNotes(ids, raw, this.noteSourceLookup()),
 			studyOverview: (deck, days) => studyOverview(deck, days),
-			difficultCards: (query) => difficultCards(query, this.noteSourceLookup())
+			difficultCards: (query) => difficultCards(query, this.noteSourceLookup()),
+			importPreview: async ({ query, subjects }) =>
+				previewImport(await this.idsInVault(), await this.importOptions(subjects), query),
+			importApply: async ({ query, subjects }): Promise<ImportResult> => {
+				if (this.scanOrchestrator().isScanning) {
+					return {
+						blocked: ['A scan is running. Try again when it ends.'],
+						filesWritten: [],
+						notesWritten: 0,
+						imagesCopied: 0,
+						imagesAlreadyInVault: 0,
+						refused: []
+					}
+				}
+				return await applyImport(
+					await this.idsInVault(),
+					await this.importOptions(subjects),
+					this.importVault(),
+					query
+				)
+			}
 		}
 	}
 

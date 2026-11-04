@@ -73,6 +73,25 @@ function makeHandlers(overrides: Partial<ApiHandlers> = {}): ApiHandlers {
 			decks: []
 		})),
 		difficultCards: vi.fn(async () => ({ total: 0, cards: [] })),
+		importPreview: vi.fn(async () => ({
+			candidates: 0,
+			ready: 0,
+			leftInAnki: {},
+			files: [],
+			imageCount: 0,
+			refused: [],
+			externalImages: 0,
+			cosmeticChanges: { imageWidth: 0, imageAlt: 0, inlineStyle: 0 },
+			structuralErrors: 0
+		})),
+		importApply: vi.fn(async () => ({
+			blocked: [],
+			filesWritten: [],
+			notesWritten: 0,
+			imagesCopied: 0,
+			imagesAlreadyInVault: 0,
+			refused: []
+		})),
 		...overrides
 	}
 }
@@ -299,6 +318,38 @@ describe('LocalApiServer routes', () => {
 		await call(s.port, 'POST', '/notes/get', { body: JSON.stringify({ ids: [1, 2], raw: true }) })
 		expect(handlers.getNotes).toHaveBeenLastCalledWith([1, 2], true)
 	})
+
+	it('serves the import preview by POST only', async () => {
+		const handlers = makeHandlers()
+		const s = await start(handlers)
+
+		const preview = await call(s.port, 'POST', '/import/preview', { body: '{}' })
+		expect(preview.status).toBe(200)
+		expect(preview.body).toMatchObject({ candidates: 0, ready: 0 })
+		expect(handlers.importPreview).toHaveBeenCalledTimes(1)
+		expect((await call(s.port, 'GET', '/import/preview')).status).toBe(405)
+	})
+
+	it('needs a query before writing an import, and passes the selection on', async () => {
+		const handlers = makeHandlers()
+		const s = await start(handlers)
+
+		expect((await call(s.port, 'POST', '/import/apply', { body: '{}' })).status).toBe(400)
+		expect((await call(s.port, 'POST', '/import/apply', { body: '{"query":" "}' })).status).toBe(400)
+		expect(handlers.importApply).not.toHaveBeenCalled()
+
+		const selection = { query: 'deck:A', subjects: { '12': 'Cardio' } }
+		expect((await call(s.port, 'POST', '/import/apply', { body: JSON.stringify(selection) })).status).toBe(200)
+		expect(handlers.importApply).toHaveBeenCalledWith(selection)
+	})
+
+	it.each([[{ query: 7 }], [{ subjects: [] }], [{ subjects: { a: 'x' } }], [{ subjects: { '1': '' } }]])(
+		'rejects the import selection %j',
+		async (body) => {
+			const s = await start()
+			expect((await call(s.port, 'POST', '/import/preview', { body: JSON.stringify(body) })).status).toBe(400)
+		}
+	)
 
 	it('POST /study routes apply their defaults', async () => {
 		const handlers = makeHandlers()

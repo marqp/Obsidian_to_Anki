@@ -59,6 +59,8 @@ claude mcp add obsidian-to-anki --env OBSIDIAN_ANKI_TOKEN=<token> -- node /absol
 | `anki_get_notes` `{ids, raw?}` | no | Read notes by ID, with scheduling state; unknown IDs go in `missing` |
 | `anki_study_overview` `{deck?, days?}` | no | Due, suspended, leeches, reviews per day, counts per deck |
 | `anki_difficult_cards` `{deck?, minLapses?, limit?, includeSuspended?, raw?}` | no | Cards failed most, with text, review counts and `sourceFile` |
+| `anki_import_preview` `{query?, subjects?}` | no | Plans bringing Anki-only notes into the vault, writing nothing. A note that would change on the way back stays in Anki and appears in `refused` |
+| `anki_import_apply` `{query, subjects?}` | files only | Copies the images and writes new files, never overwriting. Anki changes only at the next scan, and from then on removing a block deletes the note |
 | `anki_validate` `{path?, content?}` | no | Check card syntax, including unchanged files and unsaved text; works with Anki closed |
 | `anki_dry_run` `{path?}` | no | Preview changes for changed files, with what differs in each note |
 | `anki_scan_file` `{path}` | **yes** | Sync one file (vault-relative path) |
@@ -95,6 +97,8 @@ Every request needs `Authorization: Bearer <token>` and a loopback `Host` header
 | `POST /notes/get` | `{"ids": […], "raw"?}` | `{notes, missing}`; at most 100 IDs |
 | `POST /study/overview` | `{"deck"?, "days"?}` | counts and reviews per day |
 | `POST /study/difficult` | `{"deck"?, "minLapses"?, "limit"?, "includeSuspended"?, "raw"?}` | `{total, cards}` |
+| `POST /import/preview` | `{"query"?, "subjects"?}` | `{candidates, ready, refused, leftInAnki, files, imageCount, externalImages, cosmeticChanges, structuralErrors}` |
+| `POST /import/apply` | `{"query", "subjects"?}` | `{blocked, filesWritten, notesWritten, imagesCopied, imagesAlreadyInVault, refused}` |
 
 `ScanReport`: `outcome` (`completed`, `nothing-to-sync`, `cancelled`, `aborted`, `busy`,
 `awaiting-confirmation`), `filesChanged`, `filesTotal`, `added`, `updated`, `deleted`,
