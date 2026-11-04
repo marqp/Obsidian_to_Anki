@@ -13,7 +13,7 @@ import { validateFiles } from './validate'
 import type { CachedMetadata } from 'obsidian'
 
 /** Their masks and generated fields have no Markdown form. */
-const LEFT_IN_ANKI = /image occlusion|overlapping/i
+const LEFT_IN_ANKI = /image occlusion enhanced|overlapping/i
 const MAX_NOTES_PER_FILE = 150
 const MIN_NOTES_PER_FILE = 30
 /** Note IDs are creation times, so a long pause separates study sessions. */

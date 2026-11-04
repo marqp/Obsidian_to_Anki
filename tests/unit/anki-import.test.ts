@@ -16,7 +16,11 @@ afterEach(() => {
 })
 
 const settings = createParsedSettings({
-	fields_dict: { Basic: ['Front', 'Back'], Cloze: ['Text', 'Extra'] },
+	fields_dict: {
+		Basic: ['Front', 'Back'],
+		Cloze: ['Text', 'Extra'],
+		'Image Occlusion': ['Occlusion', 'Image', 'Header', 'Back Extra', 'Comments']
+	},
 	curly_cloze: true,
 	highlights_to_cloze: true,
 	add_obs_tags: true
@@ -26,7 +30,22 @@ const options: ImportOptions = {
 	folder: 'Cards/Importados',
 	defaultDeck: 'Med',
 	beginNote: 'START',
-	reservedWords: ['START', 'END', 'TARGET DECK', 'FILE TAGS', 'Tags: ', 'Front:', 'Back:', 'Text:', 'Extra:'],
+	reservedWords: [
+		'START',
+		'END',
+		'TARGET DECK',
+		'FILE TAGS',
+		'Tags: ',
+		'Front:',
+		'Back:',
+		'Text:',
+		'Extra:',
+		'Occlusion:',
+		'Image:',
+		'Header:',
+		'Back Extra:',
+		'Comments:'
+	],
 	dataFor: (deck) => createFileData(settings, deck, [])
 }
 
@@ -69,6 +88,38 @@ describe('buildImportPlan', () => {
 			'TARGET DECK: Med\n\n' +
 				'START\nBasic\nFront: q\nBack: **a**\nTags: Bio\n<!--ID: 1-->\nEND\n\n' +
 				'START\nCloze\nText: O {{c1::x}}\nTags: Bio\n<!--ID: 2-->\nEND\n'
+		)
+	})
+
+	it('writes an Image Occlusion note with its masks untouched', () => {
+		const occlusions = [
+			'{{c1::image-occlusion:rect:left=.0719:top=.2185:width=.1182:height=.0344:angle=344.2:oi=1}}',
+			'{{c2::image-occlusion:polygon:left=.5538:top=.7099:points=.5538,.7263 .5624,.7113 .6239,.77:oi=1}}',
+			'{{c2::image-occlusion:ellipse:left=.1:top=.1:rx=.2:ry=.05:oi=1}}',
+			'{{c3::image-occlusion:text:left=.1:top=.5:text=A_b c:scale=1.2:fs=.04:oi=1}}'
+		]
+		const note: ImportableNote = {
+			noteId: 7,
+			modelName: 'Image Occlusion',
+			tags: ['Anatomia', 'leech'],
+			cards: [8, 9, 10],
+			fields: {
+				Occlusion: { value: occlusions.join('<br>'), order: 0 },
+				Image: { value: '<img src="a.png" width="879">', order: 1 },
+				Header: { value: 'Nervos', order: 2 },
+				'Back Extra': { value: '<b>Nota</b>', order: 3 },
+				Comments: { value: '', order: 4 }
+			}
+		}
+
+		const result = plan([note])
+
+		expect(result.refused).toEqual([])
+		expect(result.structuralErrors).toBe(0)
+		expect(result.files[0].text).toBe(
+			'TARGET DECK: Med\n\nSTART\nImage Occlusion\n' +
+				`Occlusion: ${occlusions.join('\n')}\n` +
+				'Image: ![[a.png|879]]\nHeader: Nervos\nBack Extra: **Nota**\nTags: Anatomia\n<!--ID: 7-->\nEND\n'
 		)
 	})
 
@@ -243,6 +294,28 @@ describe('previewImport', () => {
 		expect(new Set(invoke.mock.calls.map(([action]) => action))).toEqual(
 			new Set(['findNotes', 'notesInfo', 'cardsInfo'])
 		)
+	})
+
+	it('offers a native Image Occlusion note, unlike the legacy add-on', async () => {
+		daemon([
+			{
+				noteId: 5,
+				modelName: 'Image Occlusion',
+				tags: [],
+				cards: [6],
+				fields: {
+					Occlusion: {
+						value: '{{c1::image-occlusion:rect:left=.1:top=.2:width=.3:height=.1:oi=1}}',
+						order: 0
+					},
+					Image: { value: '<img src="a.png">', order: 1 }
+				}
+			}
+		])
+
+		const preview = await previewImport(new Set(), options)
+
+		expect(preview).toMatchObject({ candidates: 1, ready: 1, refused: [], leftInAnki: {}, structuralErrors: 0 })
 	})
 
 	it('copes with nothing to import', async () => {
