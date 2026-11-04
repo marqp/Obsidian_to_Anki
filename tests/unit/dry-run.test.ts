@@ -527,6 +527,37 @@ describe('collectDryRunState: exact diff', () => {
 		expect(summary.changes).toEqual([])
 	})
 
+	it.each([
+		['only in case', ['Imunologia'], ['imunologia'], false],
+		['in the tag itself', ['Imunologia'], ['Cardiologia'], true]
+	])('compares tags that differ %s', async (_label, ankiTags, localTags, changed) => {
+		const { setTransport } = await import('../../src/anki')
+		setTransport({
+			invoke: vi.fn(async (action: string) =>
+				action === 'notesInfo'
+					? [
+							{
+								noteId: 52,
+								modelName: 'Basic',
+								tags: ankiTags,
+								fields: { Front: { order: 0, value: 'q' }, Back: { order: 1, value: 'a' } },
+								cards: [502]
+							}
+						]
+					: [{ cardId: 502, deckName: 'Default', type: 2 }]
+			)
+		})
+		const files = createManagerFiles(
+			createParsedSettings(),
+			[{ id: 52, fields: { Front: 'q', Back: 'a' }, tags: localTags }],
+			[]
+		)
+
+		const summary = await collectDryRunState(files, { hasNoteTypeChanges: false, orphanNoteIds: [] })
+
+		expect(summary.changes.length > 0).toBe(changed)
+	})
+
 	it('shows the start of a new card, without markup', async () => {
 		const { setTransport } = await import('../../src/anki')
 		setTransport({ invoke: vi.fn(async () => []) })
