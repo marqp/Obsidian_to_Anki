@@ -141,9 +141,14 @@ export class FormatConverter {
 				if (AUDIO_EXTS.includes(ext)) {
 					note_text = note_text.replaceAll(embed.original, '[sound:' + basename(embed.link) + ']')
 				} else if (IMAGE_EXTS.includes(ext)) {
+					// `![[a.png|300]]` is Obsidian's size syntax: the number is a width, not a caption.
+					const name = basename(embed.link)
+					const isWidth = /^\d+$/.test(embed.displayText ?? '')
 					note_text = note_text.replaceAll(
 						embed.original,
-						'<img src="' + basename(embed.link) + '" alt="' + embed.displayText + '">'
+						isWidth
+							? `<img src="${name}" alt="${name}" width="${embed.displayText}">`
+							: '<img src="' + name + '" alt="' + embed.displayText + '">'
 					)
 				} else {
 					console.warn('Unsupported extension: ', ext)

@@ -37,6 +37,12 @@ describe('htmlToMarkdown', () => {
 		['image', '<img src="a.png">', '![[a.png]]'],
 		['image width', '<img src="a.png" width="300">', '![[a.png|300]]'],
 		['external image', '<img src="https://x.org/a.png">', '![](https://x.org/a.png)'],
+		[
+			'sized external image',
+			'<img src="https://x.org/a.png?b&amp;c" width="30">',
+			'<img src="https://x.org/a.png?b&amp;c" width="30">'
+		],
+		['width that is not in pixels', '<img src="a.png" width="50%">', '![[a.png]]'],
 		['list', 'x<ul><li>a</li><li>b</li></ul>y', 'x\n\n- a\n- b\n\ny'],
 		['list item wrapping a div', '<ul><li><div>a</div></li></ul>', '- a'],
 		['ordered list', '<ol><li>a</li></ol>', '1. a'],
@@ -87,6 +93,7 @@ describe('round trip through the real renderer', () => {
 		['- a<br>1. b<br>&gt; c<br># d'],
 		['<img src="a.png"><br><img src="b c.jpg" width="300" alt="x">'],
 		['<img src="https://x.org/a_b.png">'],
+		['<img src="https://x.org/a_b.png?c=1&amp;d=2" width="30">'],
 		['veja https://x.org/a_b e www.x.org'],
 		['x \\(a &lt; b\\) y']
 	])('keeps %s', (html) => {
@@ -106,7 +113,7 @@ describe('canonicalHtml', () => {
 		['bold tags', '<b>a</b>', '<strong>a</strong>'],
 		['spaces around a marker', '<b>a </b>b', '<b>a</b> b'],
 		['split markers', '<b>a</b><b>b</b>', '<b>ab</b>'],
-		['image attributes', '<img src="a.png" width="3">', '<img src="a.png" alt="a.png" />'],
+		['image attributes', '<img src="a.png" width="3">', '<img src="a.png" alt="a.png" width="3" />'],
 		['paragraphs and blank lines', 'a<br><br>b', '<p>a</p>\n<p>b</p>'],
 		['divs and breaks', '<div>a</div><div>b</div>', 'a<br />\nb'],
 		['a third blank line', 'a<br><br><br>b', 'a<br><br>b'],
@@ -124,6 +131,7 @@ describe('canonicalHtml', () => {
 		['underline', '<u>a</u>', 'a'],
 		['an image', '<img src="a.png">', ''],
 		['which image', '<img src="a.png">', '<img src="b.png">'],
+		['an image width', '<img src="a.png" width="3">', '<img src="a.png" width="4">'],
 		['a line break', 'a<br>b', 'a b'],
 		['a list', '<ul><li>a</li></ul>', 'a'],
 		['the list kind', '<ul><li>a</li></ul>', '<ol><li>a</li></ol>'],
@@ -141,5 +149,15 @@ describe('protectLineStarts', () => {
 		expect(protectLineStarts(text, ['END', 'Back:', 'Tags: '])).toBe(
 			'&#69;NDOMETRIOSE\n&#66;ack: x\n&#84;ags: y\nnormal\nno END here'
 		)
+	})
+})
+
+describe('sized image embeds', () => {
+	it('renders the number as a width and keeps the name as alt', () => {
+		expect(render('![[a.png|300]]')).toBe('<img src="a.png" alt="a.png" width="300">')
+	})
+
+	it('still treats any other text as a caption', () => {
+		expect(render('![[a.png|um olho]]')).toBe('<img src="a.png" alt="um olho">')
 	})
 })

@@ -158,7 +158,7 @@ describe('buildImportPlan', () => {
 
 		expect(result.images).toEqual(['a.png'])
 		expect(result.externalImages).toBe(1)
-		expect(result.cosmeticChanges).toEqual({ imageWidth: 1, imageAlt: 1, inlineStyle: 1 })
+		expect(result.cosmeticChanges).toEqual({ imageWidth: 0, imageAlt: 1, inlineStyle: 1 })
 	})
 })
 

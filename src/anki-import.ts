@@ -328,7 +328,7 @@ export function buildImportPlan(
 		images: [...new Set(sources.filter((src) => !isExternal(src)))],
 		externalImages: new Set(sources.filter(isExternal)).size,
 		cosmeticChanges: {
-			imageWidth: usesAttribute(/<img\b[^>]*\bwidth=/i),
+			imageWidth: usesAttribute(/<img\b[^>]*\bwidth="?[^\d"]/i),
 			imageAlt: usesAttribute(/<img\b[^>]*\balt="[^"]/i),
 			inlineStyle: usesAttribute(/\bstyle=/i)
 		},

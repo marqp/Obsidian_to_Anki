@@ -186,7 +186,8 @@ function readHtml(html: string): ReadResult {
 				continue
 			}
 			const width = attribute(attributes, 'width')
-			line.runs.push({ kind: 'image', src, ...(width === undefined ? {} : { width }) })
+			const isPixels = width !== undefined && /^\d+$/.test(width)
+			line.runs.push({ kind: 'image', src, ...(isPixels ? { width } : {}) })
 		} else if (tag === 'ul' || tag === 'ol') {
 			listEdge()
 			if (closing) {
@@ -266,7 +267,7 @@ function sameStyles(a: Style[], b: Style[]): boolean {
 /**
  * What a reader sees, in a form two renderings can be compared in: line breaks,
  * list items, styled text and image names. Spacing that only changes the look
- * (a third blank line, non-breaking spaces, image width and alt) does not count.
+ * (a third blank line, non-breaking spaces, image alt) does not count.
  */
 export function canonicalHtml(html: string): string {
 	const { lines } = readHtml(html)
@@ -289,7 +290,7 @@ function canonicalRuns(runs: Run[]): string {
 	const pieces: Array<{ label: string; text: string }> = []
 	for (const run of runs) {
 		if (run.kind === 'image') {
-			pieces.push({ label: '', text: `[image ${run.src}]` })
+			pieces.push({ label: '', text: `[image ${run.src}${run.width === undefined ? '' : ` ${run.width}`}]` })
 			continue
 		}
 		const link = run.href !== undefined && !isSelfLink(run.href, run.text) ? ` ${run.href}` : ''
@@ -360,7 +361,10 @@ function escapeLineStart(line: string): string {
 
 function imageMarkdown(run: ImageRun): string {
 	if (/^[a-z][a-z\d+.-]*:/i.test(run.src)) {
-		return `![](${run.src})`
+		// Obsidian has a size syntax for embeds only, so a sized web image stays as HTML.
+		return run.width === undefined
+			? `![](${run.src})`
+			: `<img src="${run.src.replace(/&/g, '&amp;')}" width="${run.width}">`
 	}
 	return run.width === undefined ? `![[${run.src}]]` : `![[${run.src}|${run.width}]]`
 }
