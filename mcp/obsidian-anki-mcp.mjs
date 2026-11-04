@@ -369,9 +369,11 @@ function trimReport(report) {
 	let trimmed = report
 	const issues = report?.issues
 	if (Array.isArray(issues) && issues.length > MAX_ISSUES) {
+		// Errors first: thousands of warnings must not push them out of the cut.
+		const ranked = [...issues].sort((a, b) => Number(a.severity === 'warning') - Number(b.severity === 'warning'))
 		trimmed = {
 			...trimmed,
-			issues: issues.slice(0, MAX_ISSUES),
+			issues: ranked.slice(0, MAX_ISSUES),
 			issuesOmitted: issues.length - MAX_ISSUES,
 			issuesByKind: countByKind(issues)
 		}

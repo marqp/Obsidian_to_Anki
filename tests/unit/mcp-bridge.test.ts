@@ -204,6 +204,15 @@ describe('tool calls', () => {
 		])
 	})
 
+	it('keeps errors when warnings alone would fill the cut', async () => {
+		const warnings = Array.from({ length: 250 }, () => ({ kind: 'literal-field-label', severity: 'warning' }))
+		const issues = [...warnings, { kind: 'unterminated-block', severity: 'error' }]
+		const result = await callTool(handlerWith(fakeFetch(200, { issues })), 'anki_validate')
+		const body = JSON.parse(result.content[0].text)
+		expect(body.issues[0].severity).toBe('error')
+		expect(body.issues).toHaveLength(200)
+	})
+
 	it('adds a count by kind to a short change list and leaves out the omitted count', async () => {
 		const changes = [{ kind: 'add' }, { kind: 'add' }]
 		const result = await callTool(handlerWith(fakeFetch(200, { details: { changes } })), 'anki_dry_run')
