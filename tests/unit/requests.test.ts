@@ -8,6 +8,7 @@ import {
 	buildNoteUpdates,
 	buildUpdateTags,
 	groupTargetDecks,
+	inAnkiTagOrder,
 	joinedNoteTags,
 	noteTagsFor
 } from '../../src/requests'
@@ -86,7 +87,7 @@ describe('buildNoteUpdates', () => {
 					{
 						action: 'updateNote',
 						version: 6,
-						params: { note: { id: 5, fields: { Front: 'Q', Back: 'A' }, tags: ['t', 'g'] } }
+						params: { note: { id: 5, fields: { Front: 'Q', Back: 'A' }, tags: ['g', 't'] } }
 					}
 				]
 			}
@@ -99,6 +100,22 @@ describe('buildNoteUpdates', () => {
 		const actions = (built.params as { actions: Array<{ action: string }> }).actions
 		expect(actions).toHaveLength(1)
 		expect(actions[0].action).toBe('updateNoteFields')
+	})
+})
+
+describe('inAnkiTagOrder', () => {
+	it('sorts as Anki does, ignoring case, without changing the list it got', () => {
+		const tags = ['Neurologia', 'leech', 'Anatomia', 'ética']
+
+		expect(inAnkiTagOrder(tags)).toEqual(['Anatomia', 'leech', 'Neurologia', 'ética'])
+		expect(tags[0]).toBe('Neurologia')
+	})
+
+	it('keeps a status tag from looking like an edit of the note', () => {
+		const built = buildNoteUpdates([parsed(5, ['Anatomia', 'Neurologia', 'leech'])], true, (p) => p.note.tags)
+		const [action] = (built.params as { actions: Array<{ params: { note: { tags: string[] } } }> }).actions
+
+		expect(action.params.note.tags).toEqual(['Anatomia', 'leech', 'Neurologia'])
 	})
 })
 
