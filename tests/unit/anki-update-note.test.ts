@@ -16,7 +16,7 @@ describe('Phase 4: updateNote capability gate', () => {
 		expect(actions[0]).toEqual({
 			action: 'updateNote',
 			version: 6,
-			params: { note: { id: 55, fields: { Text: 'cloze content' }, tags: ['fileTag', 'noteTag'] } }
+			params: { note: { id: 55, fields: { Text: 'cloze content' }, tags: ['noteTag', 'fileTag'] } }
 		})
 	})
 
@@ -73,14 +73,14 @@ describe('Phase 4: updateNote capability gate', () => {
 			})
 			await manager.requests_1()
 
-			expect(sentTags(mainMultiActions(invokeMock))).toEqual(['fileTag', 'leech', 'marked', 'noteTag'])
+			expect(sentTags(mainMultiActions(invokeMock))).toEqual(['noteTag', 'leech', 'marked', 'fileTag'])
 		})
 
 		it('does not add them to a note Anki has not marked', async () => {
 			const { manager, invokeMock } = createManager({ supportedActions: ['updateNote'] })
 			await manager.requests_1()
 
-			expect(sentTags(mainMultiActions(invokeMock))).toEqual(['fileTag', 'noteTag'])
+			expect(sentTags(mainMultiActions(invokeMock))).toEqual(['noteTag', 'fileTag'])
 		})
 
 		it('keeps them on the legacy path', async () => {

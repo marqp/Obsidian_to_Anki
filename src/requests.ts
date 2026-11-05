@@ -31,16 +31,6 @@ export function joinedNoteTags(noteTags: string[], globalTags: string): string {
 	return noteTags.join(' ') + ' ' + globalTags
 }
 
-/**
- * Anki keeps tags sorted without regard to case, and compares the lists in order
- * before saving: the same tags in another order count as an edit, which changes
- * the note's `mod` and sends it through the next sync for nothing.
- */
-export function inAnkiTagOrder(tags: string[]): string[] {
-	const key = (tag: string): string => tag.toLowerCase()
-	return [...tags].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0))
-}
-
 export function buildCreateDecks(notes: AnkiConnectNote[]): AnkiConnect.AnkiConnectRequest {
 	const actions: AnkiConnect.AnkiConnectRequest[] = []
 	for (const note of notes) {
@@ -77,7 +67,7 @@ export function buildNoteUpdates(
 			continue
 		}
 		if (useUpdateNote) {
-			actions.push(AnkiConnect.updateNote(parsed.identifier, parsed.note.fields, inAnkiTagOrder(tagsFor(parsed))))
+			actions.push(AnkiConnect.updateNote(parsed.identifier, parsed.note.fields, tagsFor(parsed)))
 		} else {
 			actions.push(AnkiConnect.updateNoteFields(parsed.identifier, parsed.note.fields))
 		}
