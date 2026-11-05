@@ -32,8 +32,26 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # A cache entry never changes, so each run saves its own key and the next run
+      # restores the newest one: from this PR if it has one, otherwise from master.
+      - name: Restore incremental results
+        uses: actions/cache/restore@v6
+        with:
+          path: reports/stryker-incremental.json
+          key: stryker-incremental-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: stryker-incremental-
+
+      # Only pull requests reuse results. Nightly and manual runs test everything,
+      # which catches what incremental mode cannot see and refreshes master's cache.
       - name: Run mutation tests
-        run: pnpm run test:mutation
+        run: pnpm run test:mutation ${{ github.event_name != 'pull_request' && '--force' || '' }}
+
+      - name: Save incremental results
+        if: ${{ !cancelled() && hashFiles('reports/stryker-incremental.json') != '' }}
+        uses: actions/cache/save@v6
+        with:
+          path: reports/stryker-incremental.json
+          key: stryker-incremental-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload mutation report
         if: always()

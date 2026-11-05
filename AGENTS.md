@@ -19,8 +19,8 @@ behavior intentionally diverged (orphan deletion, updateNote, dry-run — see RE
   every engine module in `src/` except `settings.ts`, which is Obsidian-UI without a
   DOM in tests), enforced by `pnpm test`.
 - **ESLint 9 flat** (`no-explicit-any: error`) + **Prettier** (`useTabs: true`).
-- **StrykerJS** mutation testing, nightly + `src/**` PRs (`mutation.yml`), break threshold 60. PRs skip
-  static mutants to save time (`ignoreStatic`); the nightly run and local runs test them.
+- **StrykerJS** mutation testing, nightly + `src/**` PRs (`mutation.yml`), break threshold 60. PRs reuse
+  earlier results for unchanged code (`incremental`, cached in the workflow); the nightly run uses `--force`.
 - **esbuild** bundles `main.ts` → `main.js` (`esbuild.config.mjs`, CJS, browser platform, `es2022` target).
 - E2E: **Descoped from automated CI** (legacy WebdriverIO + Docker suite restricted to manual `workflow_dispatch`; core quality enforced by Vitest, Parity harness, and Stryker).
 - **No Python CLI.** The standalone `obsidian_to_anki.py` was removed (decision:
@@ -84,7 +84,7 @@ pnpm test           # vitest + coverage gate (default gate)
 pnpm run test:unit  # vitest without coverage (fast loop)
 pnpm run lint       # 0 errors; the 2 no-non-null-assertion warnings in note.ts are known
 pnpm run format:check
-pnpm run test:mutation  # ~12 min in CI with static mutants, needs the pnpm patch applied
+pnpm run test:mutation  # needs the pnpm patch applied; ~11 min in CI when nothing can be reused; --force tests everything
 pnpm run test:parity  # fork-vs-upstream parse parity (own vitest config + CI job)
 pnpm run test:bench   # engine performance benchmarks
 pnpm run lint:knip   # dead exports/files/deps (also a CI step)

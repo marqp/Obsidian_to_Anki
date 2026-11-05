@@ -28,10 +28,10 @@ export default {
 		'src/ui/settings-migration.ts'
 	],
 	coverageAnalysis: 'perTest',
-	// Static mutants are 7% of the total and about half of the run, since each one
-	// reruns every test. PRs skip them to save that time. They include the parser's
-	// regexes, so the nightly run and local runs keep testing them.
-	ignoreStatic: process.env.GITHUB_EVENT_NAME === 'pull_request',
+	// Reuses the last run's results for code and tests that did not change. It cannot
+	// see changes outside the mutated files, such as helpers or dependencies, so the
+	// nightly run passes --force to test everything and refresh the results.
+	incremental: true,
 	thresholds: {
 		high: 80,
 		low: 70,
