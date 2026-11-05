@@ -27,7 +27,7 @@ files; the full list is in the console as `scan issues: [...]`.
 
 Each entry in `issues` names its file and, when it belongs to one note, its line
 and the start of its text. A dry-run lists the ones the parser finds and notes whose
-type differs from Anki.
+type differs from Anki. With `everyFile` it also lists media problems.
 
 | `kind` | Meaning | Tried again next scan |
 |---|---|---|
@@ -40,6 +40,7 @@ type differs from Anki.
 | `cloze-card-emptied` | A cloze or mask number left the note. Its card stays empty in Anki, keeping its reviews, until `Empty Cards` removes it | No, put the number back to keep the card |
 | `occlusion-masks-replaced` | The Markdown replaces masks that Anki has, listed in the message. If they were adjusted in Anki and you want them back, write them in the block | No |
 | `media-missing` | Embedded file not found in the vault | No |
+| `media-differs` | Only in an `everyFile` dry-run: a cited file differs from the one of that name in Anki, or Anki does not have it. Nothing is sent; [check which side is right](./parity.md#fixing-media-differs) | No |
 | `ankiweb-sync` | Local sync worked, the AnkiWeb sync did not | No |
 | `add-note`, `add-notes`, `add-notes-file` | Anki refused the new note | Yes |
 | `update-note`, `delete-note`, `change-deck`, `update-tags`, `convert-note` | Anki refused the change | Yes |

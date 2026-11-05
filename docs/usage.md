@@ -40,7 +40,8 @@ A dry-run skips files that did not change since the last scan, so an empty resul
 says nothing about them. To compare the whole vault with Anki, for example after
 changing notes in Anki, call `POST /dry-run` with `{"everyFile": true}` or
 `anki_dry_run` with `everyFile` (see the [MCP bridge](../mcp/README.md)). It reads
-every file and writes nothing.
+every file, compares cited media with Anki's copies, and writes nothing. See
+[parity.md](./parity.md).
 
 Delete entries in the JSON carry the file that last held the ID, so UIs can
 group them per file instead of showing a bare ID list. The JSON also carries

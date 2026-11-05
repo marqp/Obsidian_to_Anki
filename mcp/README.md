@@ -63,7 +63,7 @@ claude mcp add obsidian-to-anki --env OBSIDIAN_ANKI_TOKEN=<token> -- node /absol
 | `anki_occlusion_pull` `{noteIds?, apply?}` | files only, with `apply` | Lists Image Occlusion notes whose masks differ between Anki and the Markdown, and with `apply` copies Anki's masks to those blocks. Anki and other fields do not change |
 | `anki_import_apply` `{query, subjects?}` | files only | Copies the images and writes new files, never overwriting. Anki changes only at the next scan, and from then on removing a block deletes the note |
 | `anki_validate` `{path?, content?}` | no | Check card syntax, including unchanged files and unsaved text; works with Anki closed |
-| `anki_dry_run` `{path?, everyFile?}` | no | Preview changes for changed files, with what differs in each note. `everyFile` also compares files that did not change since the last scan |
+| `anki_dry_run` `{path?, everyFile?}` | no | Preview changes for changed files, with what differs in each note. `everyFile` also compares files that did not change since the last scan, and the bytes of cited media ([details](../docs/parity.md)) |
 | `anki_scan_file` `{path}` | **yes** | Sync one file (vault-relative path) |
 | `anki_scan_vault` | **yes** | Sync every changed file |
 
