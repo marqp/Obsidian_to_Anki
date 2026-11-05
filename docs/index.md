@@ -20,5 +20,6 @@
 ## Sync behavior
 
 - [sync.md](./sync.md) — IDs, updating, deleting (explicit `DELETE` + orphan deletion), data file.
+- [parity.md](./parity.md) — check that the vault and Anki match, and fix what differs.
 - [config.md](./config.md) — every setting with default, what it does, when to change it.
 - [troubleshooting.md](./troubleshooting.md) — symptoms first, causes, exact fixes.

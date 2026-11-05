@@ -102,6 +102,7 @@ export interface ScanIssue {
 		| 'tag-list'
 		| 'media'
 		| 'media-missing'
+		| 'media-differs'
 		| 'file-changed'
 		| 'update-note'
 		| 'delete-note'
@@ -134,6 +135,7 @@ export interface ScanIssue {
  */
 export interface VaultPort {
 	read(file: TFile): Promise<string>
+	readBinary(file: TFile): Promise<ArrayBuffer>
 	/** Every Markdown file in the vault, including those outside the scan. */
 	markdownFiles(): TFile[]
 	/** Atomic read-modify-write; `fn` receives the file's current content. */
@@ -150,6 +152,7 @@ export interface VaultPort {
 function vaultPortFromApp(app: App): VaultPort {
 	return {
 		read: (file) => app.vault.read(file),
+		readBinary: (file) => app.vault.readBinary(file),
 		markdownFiles: () => app.vault.getMarkdownFiles(),
 		process: (file, fn) => app.vault.process(file, fn),
 		getCache: (path) => app.metadataCache.getCache(path) ?? {},
@@ -244,6 +247,12 @@ export interface ScanControl {
 	onProgress?: (progress: ScanProgress) => void
 	/** Polled at each yield point; when true the scan stops at the next boundary. */
 	isCancelled?: () => boolean
+	/**
+	 * Reads every file, even those the stored hashes call unchanged. For a dry-run
+	 * that compares the whole vault with Anki: a real scan must not use it, since it
+	 * would rewrite and resend files that did not change.
+	 */
+	everyFile?: boolean
 }
 
 /** Thrown at yield boundaries when ScanControl.isCancelled() returns true. */
@@ -400,7 +409,7 @@ export class FileManager {
 		const candidateFiles: TFile[] = []
 		for (const obFile of this.files) {
 			const cached = this.file_hashes[obFile.path]
-			if (obFile.stat && isStatUnchanged(obFile.stat, cached)) {
+			if (!control.everyFile && obFile.stat && isStatUnchanged(obFile.stat, cached)) {
 				continue
 			}
 			candidateFiles.push(obFile)
@@ -418,7 +427,7 @@ export class FileManager {
 		for (let index = 0; index < readResults.length; index++) {
 			const { obFile, content } = readResults[index]
 
-			if (!isFileUnchanged(obFile.path, content, this.file_hashes)) {
+			if (control.everyFile || !isFileUnchanged(obFile.path, content, this.file_hashes)) {
 				await this.ensureExistingIds()
 				const cache: CachedMetadata = this.vault.getCache(obFile.path)
 				const file = new AllFile(
@@ -678,6 +687,57 @@ export class FileManager {
 		} catch (error) {
 			console.warn('Could not list the media in Anki: ', error)
 			return null
+		}
+	}
+
+	/**
+	 * Compares the files the scanned notes cite with Anki's copies, writing nothing.
+	 * `Added Media` keeps only names, so a changed file or a reused name never reaches
+	 * Anki. Sending it here could overwrite the only good copy, so this only reports.
+	 * It costs one request per file, which is why only an everyFile dry-run calls it.
+	 */
+	async findMediaDifferences(): Promise<ScanIssue[]> {
+		const issues: ScanIssue[] = []
+		const compared = new Set<string>()
+		for (const file of this.ownFiles) {
+			for (const link of file.formatter.detectedMedia) {
+				const dataFile = this.vault.getFirstLinkpathDest(link, file.path)
+				if (!dataFile) {
+					issues.push({ file: file.path, kind: 'media-missing', error: `Couldn't locate media file ${link}` })
+				} else if (!compared.has(dataFile.path)) {
+					compared.add(dataFile.path)
+					const issue = await this.compareMedia(file.path, link, dataFile)
+					if (issue) {
+						issues.push(issue)
+					}
+				}
+			}
+		}
+		return issues
+	}
+
+	private async compareMedia(path: string, link: string, dataFile: TFile): Promise<ScanIssue | null> {
+		try {
+			const name = basename(link)
+			const encoded = await AnkiConnect.invoke<string | false>('retrieveMediaFile', { filename: name })
+			if (encoded === false) {
+				return {
+					file: path,
+					kind: 'media-differs',
+					error: `${name} is in the vault but not in Anki's media folder.`
+				}
+			}
+			const inVault = Buffer.from(await this.vault.readBinary(dataFile))
+			if (Buffer.from(encoded, 'base64').equals(inVault)) {
+				return null
+			}
+			return {
+				file: path,
+				kind: 'media-differs',
+				error: `${name} in the vault differs from the file of that name in Anki, and notes in Anki show Anki's file.`
+			}
+		} catch (error) {
+			return { file: path, kind: 'media', error: `Could not compare ${link}: ${issueMessage(error)}` }
 		}
 	}
 

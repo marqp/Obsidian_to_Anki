@@ -473,6 +473,18 @@ describe('ScanReport', () => {
 		await first
 	})
 
+	it('passes everyFile to a dry-run, even with the progress UI, and never to a real scan', async () => {
+		const seen: Array<boolean | undefined> = []
+		const h = makeHarness({ createProgress: () => ({ control: {}, close: () => undefined }) })
+		h.fake.initialiseFiles = async (control?: ScanControl) => {
+			seen.push(control?.everyFile)
+		}
+		await h.orchestrator.runDryRun({ everyFile: true })
+		await h.orchestrator.runDryRun()
+		await h.orchestrator.scanVault(undefined, { everyFile: true })
+		expect(seen).toEqual([true, undefined, undefined])
+	})
+
 	it('reports awaiting-confirmation when Confirm Before Sync owns the decision', async () => {
 		const h = makeHarness({ shouldConfirmSync: () => true })
 		const report = await h.orchestrator.scanVault()
@@ -491,6 +503,29 @@ describe('ScanReport', () => {
 		const report = await h.orchestrator.runDryRun()
 		expect(report).toMatchObject({ outcome: 'completed', dryRun: true, added: 1, updated: 0, deleted: 0 })
 		expect(report.details?.changes.length).toBeGreaterThan(0)
+	})
+
+	it('compares media only in an everyFile dry-run, and reports what differs', async () => {
+		const h = makeHarness()
+		h.fake.files = [tfile('a.md')]
+		h.fake.ownFiles = createManagerFiles(createParsedSettings(), [], [{ deckName: 'Default', modelName: 'Basic' }])
+		const manager = h.fake as unknown as Record<string, unknown>
+		const differs: ScanIssue = { file: 'a.md', kind: 'media-differs', error: 'img.png differs' }
+		const findMediaDifferences = vi.fn(() => Promise.resolve([differs]))
+		manager['data'] = { allow_note_type_changes: false }
+		manager['orphanFileById'] = () => new Map<number, string>()
+		manager['findMediaDifferences'] = findMediaDifferences
+
+		const plain = await h.orchestrator.runDryRun()
+		expect(findMediaDifferences).not.toHaveBeenCalled()
+		expect(plain.issues).toEqual([])
+
+		const every = await h.orchestrator.runDryRun({ everyFile: true })
+		expect(findMediaDifferences).toHaveBeenCalledTimes(1)
+		expect(every.issues).toEqual([differs])
+
+		await h.orchestrator.scanVault(undefined, { everyFile: true })
+		expect(findMediaDifferences).toHaveBeenCalledTimes(1)
 	})
 
 	it('includes the notes a dry-run found it cannot sync', async () => {

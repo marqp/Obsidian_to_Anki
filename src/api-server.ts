@@ -42,7 +42,7 @@ export interface ApiHandlers {
 	/** null when the path is not a file in the vault. */
 	scanFile(path: string): Promise<ScanReport | null>
 	/** Read-only preview; a path narrows it to one file. null when not found. */
-	dryRun(path?: string): Promise<ScanReport | null>
+	dryRun(path: string | undefined, everyFile: boolean): Promise<ScanReport | null>
 	/**
 	 * Check card syntax of the vault, a file, or text that is not saved. With
 	 * `content`, `path` only labels the result. null when `path` alone names no file.
@@ -349,8 +349,9 @@ export class LocalApiServer {
 			}
 			case '/dry-run': {
 				expectMethod('POST')
-				const path = readPath(await readJsonBody(req), false)
-				const report = await handlers.dryRun(path)
+				const body = await readJsonBody(req)
+				const path = readPath(body, false)
+				const report = await handlers.dryRun(path, readFlag(body, 'everyFile'))
 				if (report === null) {
 					throw new HttpError(404, `Not a file in this vault: ${path}`)
 				}

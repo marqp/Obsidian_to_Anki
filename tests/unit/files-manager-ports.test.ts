@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import { Md5 } from 'ts-md5'
 import * as AnkiConnect from '../../src/anki'
 import { FileManager, ScanCancelledError, type VaultPort } from '../../src/files-manager'
 import { createParsedSettings } from './anki-test-helpers'
@@ -79,6 +80,18 @@ describe('FileManager with injected VaultPort (no Obsidian)', () => {
 
 		expect(vault.reads).toEqual([])
 		expect(manager.ownFiles).toEqual([])
+	})
+
+	it('with everyFile, reads and scans a file whose stat and hash both say unchanged', async () => {
+		const vault = fakeVault({ 'a.md': NOTE })
+		const file = tfile('a.md', { mtime: 111, size: NOTE.length })
+		const hashes = { 'a.md': { hash: Md5.hashStr(NOTE), mtime: 111, size: NOTE.length, noteIds: [] } }
+		const manager = new FileManager({} as never, createParsedSettings(), [file], hashes, [], { vault })
+
+		await manager.initialiseFiles({ everyFile: true })
+
+		expect(vault.reads).toEqual(['a.md'])
+		expect(manager.ownFiles.map((f) => f.path)).toEqual(['a.md'])
 	})
 
 	it('reads and scans changed files, reporting progress and skipping unchanged hashes', async () => {

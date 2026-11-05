@@ -63,7 +63,7 @@ claude mcp add obsidian-to-anki --env OBSIDIAN_ANKI_TOKEN=<token> -- node /absol
 | `anki_occlusion_pull` `{noteIds?, apply?}` | files only, with `apply` | Lists Image Occlusion notes whose masks differ between Anki and the Markdown, and with `apply` copies Anki's masks to those blocks. Anki and other fields do not change |
 | `anki_import_apply` `{query, subjects?}` | files only | Copies the images and writes new files, never overwriting. Anki changes only at the next scan, and from then on removing a block deletes the note |
 | `anki_validate` `{path?, content?}` | no | Check card syntax, including unchanged files and unsaved text; works with Anki closed |
-| `anki_dry_run` `{path?}` | no | Preview changes for changed files, with what differs in each note |
+| `anki_dry_run` `{path?, everyFile?}` | no | Preview changes for changed files, with what differs in each note. `everyFile` also compares files that did not change since the last scan, and the bytes of cited media ([details](../docs/parity.md)) |
 | `anki_scan_file` `{path}` | **yes** | Sync one file (vault-relative path) |
 | `anki_scan_vault` | **yes** | Sync every changed file |
 
@@ -91,7 +91,7 @@ Every request needs `Authorization: Bearer <token>` and a loopback `Host` header
 | `GET /status` | — | `{apiVersion, anki: {status, message, version}, scan: {inProgress, lastReport?}}` |
 | `POST /scan` | — | `ScanReport` |
 | `POST /scan-file` | `{"path": "Notes/a.md"}` | `404` if not a file in the vault |
-| `POST /dry-run` | `{"path"?: "…"}` | read-only `ScanReport` with `details` |
+| `POST /dry-run` | `{"path"?: "…", "everyFile"?: true}` | read-only `ScanReport` with `details` |
 | `POST /validate` | `{"path"?: "…", "content"?: "…"}` | `ValidationReport`; `content` up to 1 MB |
 | `GET /metadata` | — | `{decks, noteTypes, tags, rules}` |
 | `POST /notes/search` | `{"query": "…", "limit"?, "offset"?, "raw"?}` | `{total, offset, limit, notes}`; at most 100 per page |
