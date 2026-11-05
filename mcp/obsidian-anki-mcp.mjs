@@ -142,13 +142,23 @@ export const TOOLS = [
 			'Preview what a sync would add, update, delete or convert in Anki. Read-only: writes nothing to Anki or the vault. Run this before anki_scan_vault or anki_scan_file.',
 		inputSchema: {
 			type: 'object',
-			properties: { path: pathProperty('Limit the preview to one file; omit to preview the whole vault.') },
+			properties: {
+				path: pathProperty('Limit the preview to one file; omit to preview the whole vault.'),
+				everyFile: {
+					type: 'boolean',
+					description:
+						'Also compare files that have not changed since the last scan, instead of skipping them. Slower: use it to check the whole vault against Anki, for example after changing notes in Anki.'
+				}
+			},
 			additionalProperties: false
 		},
 		request: (args) => ({
 			method: 'POST',
 			route: '/dry-run',
-			body: args.path === undefined ? {} : { path: args.path },
+			body: {
+				...(args.path === undefined ? {} : { path: args.path }),
+				...(args.everyFile === undefined ? {} : { everyFile: args.everyFile })
+			},
 			timeoutMs: SCAN_TIMEOUT_MS
 		})
 	},

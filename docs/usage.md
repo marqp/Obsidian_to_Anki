@@ -36,6 +36,12 @@ plus one JSON line per file. Needs Anki running (live `notesInfo`/`cardsInfo`
 for the exact diff) — it is not offline. `would_update` counts notes whose
 fields, tags (order-insensitive), or card decks differ.
 
+A dry-run skips files that did not change since the last scan, so an empty result
+says nothing about them. To compare the whole vault with Anki, for example after
+changing notes in Anki, call `POST /dry-run` with `{"everyFile": true}` or
+`anki_dry_run` with `everyFile` (see the [MCP bridge](../mcp/README.md)). It reads
+every file and writes nothing.
+
 Delete entries in the JSON carry the file that last held the ID, so UIs can
 group them per file instead of showing a bare ID list. The JSON also carries
 per-deck touched-card counters (`decks: [{ deck, cards, new }]`), read live

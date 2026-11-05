@@ -473,6 +473,18 @@ describe('ScanReport', () => {
 		await first
 	})
 
+	it('passes everyFile to a dry-run, even with the progress UI, and never to a real scan', async () => {
+		const seen: Array<boolean | undefined> = []
+		const h = makeHarness({ createProgress: () => ({ control: {}, close: () => undefined }) })
+		h.fake.initialiseFiles = async (control?: ScanControl) => {
+			seen.push(control?.everyFile)
+		}
+		await h.orchestrator.runDryRun({ everyFile: true })
+		await h.orchestrator.runDryRun()
+		await h.orchestrator.scanVault(undefined, { everyFile: true })
+		expect(seen).toEqual([true, undefined, undefined])
+	})
+
 	it('reports awaiting-confirmation when Confirm Before Sync owns the decision', async () => {
 		const h = makeHarness({ shouldConfirmSync: () => true })
 		const report = await h.orchestrator.scanVault()

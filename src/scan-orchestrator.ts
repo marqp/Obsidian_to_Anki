@@ -251,7 +251,10 @@ export class ScanOrchestrator {
 		const { manager, totalFiles } = await this.prepareManager(file)
 		const progress = this.startProgress(control)
 		try {
-			await manager.initialiseFiles(progress.control)
+			// The progress UI brings its own control, so the flag is passed on by hand,
+			// and only to a dry-run: a real scan must keep skipping unchanged files.
+			const everyFile = dryRun && control.everyFile === true ? true : undefined
+			await manager.initialiseFiles({ ...progress.control, everyFile })
 		} catch (error) {
 			if (error instanceof ScanCancelledError) {
 				console.info('[Obsidian_to_Anki] scan cancelled by user.')

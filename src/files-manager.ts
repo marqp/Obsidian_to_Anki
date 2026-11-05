@@ -244,6 +244,12 @@ export interface ScanControl {
 	onProgress?: (progress: ScanProgress) => void
 	/** Polled at each yield point; when true the scan stops at the next boundary. */
 	isCancelled?: () => boolean
+	/**
+	 * Reads every file, even those the stored hashes call unchanged. For a dry-run
+	 * that compares the whole vault with Anki: a real scan must not use it, since it
+	 * would rewrite and resend files that did not change.
+	 */
+	everyFile?: boolean
 }
 
 /** Thrown at yield boundaries when ScanControl.isCancelled() returns true. */
@@ -400,7 +406,7 @@ export class FileManager {
 		const candidateFiles: TFile[] = []
 		for (const obFile of this.files) {
 			const cached = this.file_hashes[obFile.path]
-			if (obFile.stat && isStatUnchanged(obFile.stat, cached)) {
+			if (!control.everyFile && obFile.stat && isStatUnchanged(obFile.stat, cached)) {
 				continue
 			}
 			candidateFiles.push(obFile)
@@ -418,7 +424,7 @@ export class FileManager {
 		for (let index = 0; index < readResults.length; index++) {
 			const { obFile, content } = readResults[index]
 
-			if (!isFileUnchanged(obFile.path, content, this.file_hashes)) {
+			if (control.everyFile || !isFileUnchanged(obFile.path, content, this.file_hashes)) {
 				await this.ensureExistingIds()
 				const cache: CachedMetadata = this.vault.getCache(obFile.path)
 				const file = new AllFile(

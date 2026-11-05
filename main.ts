@@ -224,8 +224,8 @@ export default class MyPlugin extends Plugin {
 	}
 
 	/** Read-only preview of what a sync would do; same guard as a real scan. */
-	async dryRun(file?: TFile | null): Promise<ScanReport> {
-		return await this.scanOrchestrator().runDryRun({}, file)
+	async dryRun(file?: TFile | null, everyFile = false): Promise<ScanReport> {
+		return await this.scanOrchestrator().runDryRun({ everyFile }, file)
 	}
 
 	private scanOrchestrator(): ScanOrchestrator {
@@ -430,12 +430,12 @@ export default class MyPlugin extends Plugin {
 				const file = this.apiFile(path)
 				return file === null ? null : await this.scanVault(file)
 			},
-			dryRun: async (path) => {
+			dryRun: async (path, everyFile) => {
 				if (path === undefined) {
-					return await this.dryRun()
+					return await this.dryRun(undefined, everyFile)
 				}
 				const file = this.apiFile(path)
-				return file === null ? null : await this.dryRun(file)
+				return file === null ? null : await this.dryRun(file, everyFile)
 			},
 			validate: async ({ path, content }) => {
 				const orchestrator = this.scanOrchestrator()

@@ -249,9 +249,18 @@ describe('LocalApiServer routes', () => {
 		const handlers = makeHandlers()
 		const s = await start(handlers)
 		expect((await call(s.port, 'POST', '/dry-run')).status).toBe(200)
-		expect(handlers.dryRun).toHaveBeenLastCalledWith(undefined)
+		expect(handlers.dryRun).toHaveBeenLastCalledWith(undefined, false)
 		await call(s.port, 'POST', '/dry-run', { body: JSON.stringify({ path: 'a.md' }) })
-		expect(handlers.dryRun).toHaveBeenLastCalledWith('a.md')
+		expect(handlers.dryRun).toHaveBeenLastCalledWith('a.md', false)
+	})
+
+	it('POST /dry-run passes everyFile on and refuses a value that is not a boolean', async () => {
+		const handlers = makeHandlers()
+		const s = await start(handlers)
+		await call(s.port, 'POST', '/dry-run', { body: JSON.stringify({ everyFile: true }) })
+		expect(handlers.dryRun).toHaveBeenLastCalledWith(undefined, true)
+		const reply = await call(s.port, 'POST', '/dry-run', { body: JSON.stringify({ everyFile: 'yes' }) })
+		expect(reply.status).toBe(400)
 	})
 
 	it('POST /validate takes a path, unsaved content or nothing, and accepts a whole file', async () => {

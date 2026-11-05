@@ -189,6 +189,15 @@ describe('tool calls', () => {
 		expect(JSON.parse(calls[1].init.body as string)).toEqual({ path: 'x.md' })
 	})
 
+	it('anki_dry_run passes everyFile on, alone or with a path', async () => {
+		const calls: Call[] = []
+		const handle = handlerWith(fakeFetch(200, {}, calls))
+		await callTool(handle, 'anki_dry_run', { everyFile: true })
+		await callTool(handle, 'anki_dry_run', { path: 'x.md', everyFile: true })
+		expect(JSON.parse(calls[0].init.body as string)).toEqual({ everyFile: true })
+		expect(JSON.parse(calls[1].init.body as string)).toEqual({ path: 'x.md', everyFile: true })
+	})
+
 	it('anki_scan_vault posts to /scan and honours a custom URL', async () => {
 		const calls: Call[] = []
 		const env = { OBSIDIAN_ANKI_TOKEN: TOKEN, OBSIDIAN_ANKI_URL: 'http://localhost:9999' }
