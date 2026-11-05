@@ -25,8 +25,9 @@ math never become clozes.
 Media uploads are lazy: files already in `Added Media` that Anki still holds are
 skipped unless forced (`-m` flag on the script, or media cache cleared in settings).
 A file Anki no longer has is sent again the next time a scan reads a note citing it.
-A file that changed under the same name is not sent again; an `everyFile` dry-run
-[reports it](./parity.md#fixing-media-differs).
+A file that changed under the same name is
+[sent again](./parity.md#when-an-image-changes) if Anki still holds what was sent, and
+reported as `media-differs` if not.
 
 ## Audio
 

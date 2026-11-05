@@ -123,6 +123,19 @@ describe('findMediaDifferences', () => {
 		expect(issues.map((issue) => [issue.file, issue.kind])).toEqual([['b.md', 'media-differs']])
 	})
 
+	it('leaves out the files a real scan would send', async () => {
+		const { manager, invoke } = managerFor({
+			citing: { 'a.md': ['planned.png', 'img.png'] },
+			vault: { 'planned.png': 'new', 'img.png': 'new' },
+			anki: { 'planned.png': base64('old'), 'img.png': base64('old') }
+		})
+		const issues = await manager.findMediaDifferences(new Set(['planned.png']))
+		expect(issues.map((issue) => issue.error)).toEqual([
+			"img.png in the vault differs from the file of that name in Anki, and notes in Anki show Anki's file."
+		])
+		expect(invoke).toHaveBeenCalledTimes(1)
+	})
+
 	it('keeps comparing after a read fails, and reports the failure', async () => {
 		const { manager } = managerFor({
 			citing: { 'a.md': ['bad.png', 'img.png'] },

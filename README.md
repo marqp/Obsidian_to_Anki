@@ -138,7 +138,7 @@ Everything above works as in upstream. This fork adds the following.
 - **Whole-vault comparison**: a dry-run skips unchanged files, so an empty result says nothing about them. With `everyFile`, it reads every file and compares fields, tags, decks, note types and the bytes of cited media with Anki, writing nothing. See [parity.md](./docs/parity.md).
 - **Scan reports**: problems come back as structured issues with the file, the line and the start of the note's text, instead of silent skips. See the [list of kinds](./docs/troubleshooting.md).
 
-Images are not resent when their content changes under the same name. The whole-vault comparison reports this as `media-differs`, and [parity.md](./docs/parity.md#fixing-media-differs) explains how to tell which side is right.
+An image edited in the vault reaches Anki on the next whole-vault scan, with no note changing. If Anki's copy also changed, or the plugin has no record of what it sent, nothing is overwritten: the scan reports `media-differs`, and [parity.md](./docs/parity.md#when-an-image-changes) explains how to tell which side is right.
 
 ### Sync behavior
 

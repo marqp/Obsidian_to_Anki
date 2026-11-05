@@ -40,7 +40,7 @@ type differs from Anki. With `everyFile` it also lists media problems.
 | `cloze-card-emptied` | A cloze or mask number left the note. Its card stays empty in Anki, keeping its reviews, until `Empty Cards` removes it | No, put the number back to keep the card |
 | `occlusion-masks-replaced` | The Markdown replaces masks that Anki has, listed in the message. If they were adjusted in Anki and you want them back, write them in the block | No |
 | `media-missing` | Embedded file not found in the vault | No |
-| `media-differs` | Only in an `everyFile` dry-run: a cited file differs from the one of that name in Anki, or Anki does not have it. Nothing is sent; [check which side is right](./parity.md#fixing-media-differs) | No |
+| `media-differs` | A media file differs from the one of that name in Anki, or Anki does not have it, and [the scan can't tell which side is right](./parity.md#when-an-image-changes). Nothing is sent; [check both](./parity.md#fixing-media-differs). A real scan reports this once per change, with the image as `file`; an `everyFile` dry-run reports it every time, with the citing note as `file` | No |
 | `ankiweb-sync` | Local sync worked, the AnkiWeb sync did not | No |
 | `add-note`, `add-notes`, `add-notes-file` | Anki refused the new note | Yes |
 | `update-note`, `delete-note`, `change-deck`, `update-tags`, `convert-note` | Anki refused the change | Yes |

@@ -103,14 +103,18 @@ Every request needs `Authorization: Bearer <token>` and a loopback `Host` header
 
 `ScanReport`: `outcome` (`completed`, `nothing-to-sync`, `cancelled`, `aborted`, `busy`,
 `awaiting-confirmation`), `filesChanged`, `filesTotal`, `added`, `updated`, `deleted`,
-`converted`, `issues[]`. `busy` → HTTP 409, Anki unavailable → 503. After a sync the counts
+`converted`, `resentMedia[]`, `issues[]`. `busy` → HTTP 409, Anki unavailable → 503.
+`resentMedia` names the changed media files sent to Anki, or that a dry-run would send;
+they can arrive with `filesChanged: 0`, because
+[an image can change with no note changing](../docs/parity.md#when-an-image-changes). After a sync the counts
 say what really happened: `updated` only counts notes whose content or tags differed from
 Anki. For a dry-run they say what would happen, and `updated` also counts a note that would
 only change deck (`deckChanged` in `details.changes`). Each entry in `issues` has `file`, `kind` and `error`,
 plus `line`, `snippet` and `noteId` when it belongs to one note. See
 [the list of kinds](../docs/troubleshooting.md).
 
-`nothing-to-sync` only means no file changed since it was last scanned. Use
+`nothing-to-sync` only means no file changed since it was last scanned, and it can still
+carry `media-differs` issues. Use
 `anki_validate` to look for problems in files that did not change.
 
 `ValidationReport`: `filesChecked`, `blocks`, `errors`, `warnings`, `ankiChecked`, `byKind`,

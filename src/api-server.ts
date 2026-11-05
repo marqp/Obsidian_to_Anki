@@ -15,7 +15,7 @@ import type { ScanReport } from './scan-orchestrator'
 import type { ValidationReport } from './validate'
 
 /** Bump when a response shape changes incompatibly (the MCP checks it). */
-export const API_VERSION = 3
+export const API_VERSION = 4
 
 /** Tokens shorter than this are refused: the API can write to the vault. */
 export const MIN_TOKEN_LENGTH = 24
