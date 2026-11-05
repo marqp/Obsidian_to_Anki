@@ -271,7 +271,7 @@ export class ScanOrchestrator {
 			return { ...emptyReport('nothing-to-sync', dryRun), filesTotal: totalFiles }
 		}
 		if (dryRun) {
-			return await this.reportDryRun(manager, totalFiles)
+			return await this.reportDryRun(manager, totalFiles, control.everyFile === true)
 		}
 		return await this.commitManagerResults(manager, totalFiles)
 	}
@@ -515,13 +515,14 @@ export class ScanOrchestrator {
 	 * but collects the diff via collectDryRunState instead of dispatching the
 	 * mutating batch. Never writes files, hashes or media state.
 	 */
-	async reportDryRun(manager: FileManager, totalFiles: number): Promise<ScanReport> {
+	async reportDryRun(manager: FileManager, totalFiles: number, everyFile = false): Promise<ScanReport> {
 		const summary = await collectDryRunState(manager.ownFiles, {
 			hasNoteTypeChanges: manager.data.allow_note_type_changes,
 			orphanNoteIds: manager.orphanNoteIds,
 			orphanFileById: manager.orphanFileById()
 		})
 		summary.filesTotal = totalFiles
+		const mediaIssues = everyFile ? await manager.findMediaDifferences() : []
 		this.emitDryRunPreview(summary)
 		return {
 			...emptyReport('completed', true),
@@ -531,7 +532,7 @@ export class ScanOrchestrator {
 			updated: summary.wouldUpdate,
 			deleted: summary.wouldDelete,
 			converted: summary.wouldConvert,
-			issues: [...manager.ownFiles.flatMap((file) => file.parseIssues), ...summary.issues],
+			issues: [...manager.ownFiles.flatMap((file) => file.parseIssues), ...summary.issues, ...mediaIssues],
 			details: { decks: summary.decks, changes: summary.changes }
 		}
 	}

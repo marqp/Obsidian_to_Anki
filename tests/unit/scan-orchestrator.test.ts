@@ -505,6 +505,29 @@ describe('ScanReport', () => {
 		expect(report.details?.changes.length).toBeGreaterThan(0)
 	})
 
+	it('compares media only in an everyFile dry-run, and reports what differs', async () => {
+		const h = makeHarness()
+		h.fake.files = [tfile('a.md')]
+		h.fake.ownFiles = createManagerFiles(createParsedSettings(), [], [{ deckName: 'Default', modelName: 'Basic' }])
+		const manager = h.fake as unknown as Record<string, unknown>
+		const differs: ScanIssue = { file: 'a.md', kind: 'media-differs', error: 'img.png differs' }
+		const findMediaDifferences = vi.fn(() => Promise.resolve([differs]))
+		manager['data'] = { allow_note_type_changes: false }
+		manager['orphanFileById'] = () => new Map<number, string>()
+		manager['findMediaDifferences'] = findMediaDifferences
+
+		const plain = await h.orchestrator.runDryRun()
+		expect(findMediaDifferences).not.toHaveBeenCalled()
+		expect(plain.issues).toEqual([])
+
+		const every = await h.orchestrator.runDryRun({ everyFile: true })
+		expect(findMediaDifferences).toHaveBeenCalledTimes(1)
+		expect(every.issues).toEqual([differs])
+
+		await h.orchestrator.scanVault(undefined, { everyFile: true })
+		expect(findMediaDifferences).toHaveBeenCalledTimes(1)
+	})
+
 	it('includes the notes a dry-run found it cannot sync', async () => {
 		const h = makeHarness()
 		const data: ParsedSettings = createParsedSettings()
