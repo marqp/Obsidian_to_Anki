@@ -1,6 +1,14 @@
 import { App, TFile, TFolder } from 'obsidian'
 import { settingToData } from './setting-to-data'
-import { FileManager, ScanCancelledError, type ScanControl, type ScanIssue } from './files-manager'
+import {
+	FileManager,
+	NO_MEDIA_PLAN,
+	ScanCancelledError,
+	type MediaPlan,
+	type ScanControl,
+	type ScanIssue
+} from './files-manager'
+import type { MediaRecords } from './media-records'
 import { collectDryRunState, formatDryRunSummary, type DryRunSummary } from './dry-run'
 import { launchAnki, probeAnkiStatus, type AnkiProbe, type LaunchOutcome } from './anki-launch'
 import { obsidianNoticePort, type NoticePort } from './notices'
@@ -15,6 +23,7 @@ export interface ScanState {
 	fieldsDict: Record<string, string[]>
 	fileHashes: FileHashes
 	addedMedia: string[]
+	mediaRecords: MediaRecords
 }
 
 /**
@@ -61,6 +70,8 @@ export interface ScanReport {
 	deleted: number
 	/** Notes whose type was (or, in a dry-run, would be) converted. */
 	converted: number
+	/** Names of changed media files sent to Anki, or that a dry-run would send. */
+	resentMedia: string[]
 	issues: ScanIssue[]
 	/** Dry-run only: per-note changes and per-deck stats. */
 	details?: Pick<DryRunSummary, 'decks' | 'changes'>
@@ -77,6 +88,7 @@ function emptyReport(outcome: ScanOutcome, dryRun: boolean, message?: string): S
 		updated: 0,
 		deleted: 0,
 		converted: 0,
+		resentMedia: [],
 		issues: []
 	}
 }
@@ -90,7 +102,7 @@ export interface ScanEnvironment {
 	notices: NoticePort
 	loadState(): ScanState
 	/** Persist media + hashes after a successful sync (plugin-owned write). */
-	commitScanResults(addedMedia: string[], hashes: FileHashes): void
+	commitScanResults(addedMedia: string[], hashes: FileHashes, mediaRecords: MediaRecords): void
 	probeAnki(): Promise<AnkiProbe>
 	isAutoLaunchEnabled(): boolean
 	launchAnki(enabled: boolean): Promise<LaunchOutcome>
@@ -107,7 +119,7 @@ export interface ScanEnvironment {
 /** Production environment; loadState/commitScanResults stay plugin-owned. */
 export function createScanEnvironment(
 	app: App,
-	state: { loadState(): ScanState; commitScanResults(addedMedia: string[], hashes: FileHashes): void },
+	state: Pick<ScanEnvironment, 'loadState' | 'commitScanResults'>,
 	options: {
 		isAutoLaunchEnabled(): boolean
 		shouldConfirmSync(): boolean
@@ -265,15 +277,64 @@ export class ScanOrchestrator {
 		} finally {
 			progress.close()
 		}
-		if (manager.ownFiles.length === 0) {
-			this.env.notices.notify('No changed files found. Nothing to sync.')
-			console.info('No changed files found. Nothing to sync.')
-			return { ...emptyReport('nothing-to-sync', dryRun), filesTotal: totalFiles }
-		}
+		// Media belongs to the vault, not to one file: scanning a file leaves it alone.
+		const wholeVault = file === undefined || file === null
 		if (dryRun) {
-			return await this.reportDryRun(manager, totalFiles, control.everyFile === true)
+			const media = wholeVault ? await manager.planChangedMedia() : NO_MEDIA_PLAN
+			if (manager.ownFiles.length === 0 && media.resent.length === 0 && media.issues.length === 0) {
+				return this.reportNothingToSync(dryRun, totalFiles)
+			}
+			return await this.reportDryRun(manager, totalFiles, control.everyFile === true, media)
+		}
+		if (wholeVault) {
+			await manager.refreshChangedMedia()
+		}
+		if (manager.ownFiles.length === 0) {
+			return await this.commitMediaOnly(manager, totalFiles)
 		}
 		return await this.commitManagerResults(manager, totalFiles)
+	}
+
+	private reportNothingToSync(dryRun: boolean, totalFiles: number): ScanReport {
+		this.env.notices.notify('No changed files found. Nothing to sync.')
+		console.info('No changed files found. Nothing to sync.')
+		return { ...emptyReport('nothing-to-sync', dryRun), filesTotal: totalFiles }
+	}
+
+	/**
+	 * Tail of a scan where no note file changed. Only a resend gives AnkiWeb
+	 * something new; a record alone is the plugin's own bookkeeping.
+	 */
+	private async commitMediaOnly(manager: FileManager, totalFiles: number): Promise<ScanReport> {
+		const resent = manager.resentMedia
+		if (resent.length > 0) {
+			await manager.syncToAnkiWeb()
+		}
+		if (manager.mediaRecordsChanged) {
+			this.env.commitScanResults(Array.from(manager.added_media_set), {}, manager.mediaRecords)
+		}
+		const issues = manager.scanIssues
+		if (resent.length === 0 && issues.length === 0) {
+			return this.reportNothingToSync(false, totalFiles)
+		}
+		this.notifyMediaResults(resent, issues)
+		return {
+			...emptyReport(resent.length > 0 ? 'completed' : 'nothing-to-sync', false),
+			filesTotal: totalFiles,
+			resentMedia: [...resent],
+			issues: [...issues]
+		}
+	}
+
+	private notifyMediaResults(resent: string[], issues: ScanIssue[]): void {
+		if (resent.length > 0) {
+			console.info(`[Obsidian_to_Anki] resent changed media: ${resent.join(', ')}`)
+			this.env.notices.notify(`Sent ${resent.length} changed media file(s) to Anki.`)
+		}
+		const issuesNotice = formatScanIssues(issues)
+		if (issuesNotice !== null) {
+			this.env.notices.notify(issuesNotice)
+		}
 	}
 
 	/**
@@ -468,6 +529,7 @@ export class ScanOrchestrator {
 				state.addedMedia
 			)
 		}
+		manager.mediaRecords = { ...state.mediaRecords }
 		return { manager, totalFiles: manager.files.length }
 	}
 
@@ -493,11 +555,8 @@ export class ScanOrchestrator {
 			`[Obsidian_to_Anki] scan complete: files_changed=${manager.ownFiles.length}/${totalFiles} added=${added} updated=${updated} deleted=${deleted}${issues.length > 0 ? ` failed=${issues.length}` : ''}`
 		)
 		this.env.notices.notify(formatScanNotice(manager.ownFiles.length, totalFiles, added, updated, deleted))
-		const issuesNotice = formatScanIssues(issues)
-		if (issuesNotice !== null) {
-			this.env.notices.notify(issuesNotice)
-		}
-		this.env.commitScanResults(Array.from(manager.added_media_set), manager.getHashes())
+		this.notifyMediaResults(manager.resentMedia, issues)
+		this.env.commitScanResults(Array.from(manager.added_media_set), manager.getHashes(), manager.mediaRecords)
 		return {
 			...emptyReport('completed', false),
 			filesChanged: manager.ownFiles.length,
@@ -506,6 +565,7 @@ export class ScanOrchestrator {
 			updated,
 			deleted,
 			converted: manager.convertedCount,
+			resentMedia: [...manager.resentMedia],
 			issues: [...issues]
 		}
 	}
@@ -515,14 +575,20 @@ export class ScanOrchestrator {
 	 * but collects the diff via collectDryRunState instead of dispatching the
 	 * mutating batch. Never writes files, hashes or media state.
 	 */
-	async reportDryRun(manager: FileManager, totalFiles: number, everyFile = false): Promise<ScanReport> {
+	async reportDryRun(
+		manager: FileManager,
+		totalFiles: number,
+		everyFile = false,
+		media: MediaPlan = NO_MEDIA_PLAN
+	): Promise<ScanReport> {
 		const summary = await collectDryRunState(manager.ownFiles, {
 			hasNoteTypeChanges: manager.data.allow_note_type_changes,
 			orphanNoteIds: manager.orphanNoteIds,
 			orphanFileById: manager.orphanFileById()
 		})
 		summary.filesTotal = totalFiles
-		const mediaIssues = everyFile ? await manager.findMediaDifferences() : []
+		// The full comparison covers what the plan reports, and names the note files.
+		const mediaIssues = everyFile ? await manager.findMediaDifferences(media.paths) : media.issues
 		this.emitDryRunPreview(summary)
 		return {
 			...emptyReport('completed', true),
@@ -532,6 +598,7 @@ export class ScanOrchestrator {
 			updated: summary.wouldUpdate,
 			deleted: summary.wouldDelete,
 			converted: summary.wouldConvert,
+			resentMedia: media.resent,
 			issues: [...manager.ownFiles.flatMap((file) => file.parseIssues), ...summary.issues, ...mediaIssues],
 			details: { decks: summary.decks, changes: summary.changes }
 		}

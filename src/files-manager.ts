@@ -20,6 +20,7 @@ import {
 	VAULT_SCAN_YIELD_INTERVAL,
 	yieldToEventLoop
 } from './scan-optimizations'
+import { hashBytes, MEDIA_CHECKS_PER_SCAN, type MediaRecord, type MediaRecords } from './media-records'
 
 /** Re-exported from src/notices.ts for existing importers. */
 export type { NoticePort } from './notices'
@@ -171,6 +172,39 @@ function issueMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error)
 }
 
+function mediaDiffersMessage(name: string, inAnki: boolean): string {
+	return inAnki
+		? `${name} in the vault differs from the file of that name in Anki, and notes in Anki show Anki's file.`
+		: `${name} is in the vault but not in Anki's media folder.`
+}
+
+/** A media link a scan should compare with Anki. */
+interface MediaCandidate {
+	link: string
+	dataFile: TFile
+	/** Absent when the link has no record, or its recorded file is gone. */
+	record?: MediaRecord
+}
+
+type MediaDecision =
+	/** Anki already holds the vault's bytes, or nothing about them changed. */
+	| { action: 'keep'; hash: string }
+	/** The vault changed and Anki still holds what was sent. */
+	| { action: 'send'; hash: string }
+	/** Either side could be the right one: only a person can decide. */
+	| { action: 'report'; inAnki: boolean }
+
+/** What a real scan would do with the changed media, computed without writing. */
+export interface MediaPlan {
+	/** Names that would be sent. */
+	resent: string[]
+	/** Vault paths of those files, which a media comparison should not report. */
+	paths: ReadonlySet<string>
+	issues: ScanIssue[]
+}
+
+export const NO_MEDIA_PLAN: MediaPlan = { resent: [], paths: new Set(), issues: [] }
+
 /**
  * Failures a later scan can repair by trying again, so the file must stay
  * "changed". The rest (a note Anki can never accept as written, a missing
@@ -289,7 +323,15 @@ export class FileManager {
 	 * (file, link) pairs in upload order, aligned positionally with the
 	 * media sub-batch results so per-item failures attribute correctly.
 	 */
-	private mediaUploads: Array<{ file: string; link: string }> = []
+	private mediaUploads: Array<{ file: string; link: string; dataFile: TFile }> = []
+	/** Media records to commit; the orchestrator seeds them from data.json. */
+	mediaRecords: MediaRecords = {}
+	/** Whether mediaRecords differs from what was seeded. */
+	mediaRecordsChanged = false
+	/** Names of the changed files refreshChangedMedia sent to Anki. */
+	resentMedia: string[] = []
+	/** Problems from refreshChangedMedia, which runs before requests_1 resets scanIssues. */
+	private mediaIssues: ScanIssue[] = []
 	private readonly vault: VaultPort
 	private readonly notifier: NoticePort
 
@@ -578,7 +620,7 @@ export class FileManager {
 
 	async requests_1() {
 		const requests: AnkiConnect.AnkiConnectRequest[] = []
-		this.scanIssues = this.ownFiles.flatMap((file) => file.parseIssues)
+		this.scanIssues = [...this.ownFiles.flatMap((file) => file.parseIssues), ...this.mediaIssues]
 		this.mediaUploads = []
 		this.changedNoteIds = new Set()
 		this.failedUpdateIds = new Set()
@@ -658,7 +700,7 @@ export class FileManager {
 					this.added_media_set.add(mediaLink)
 					inAnki?.add(mediaKey(mediaLink))
 					const realPath = this.vault.getFullPath(dataFile.path)
-					this.mediaUploads.push({ file: file.path, link: mediaLink })
+					this.mediaUploads.push({ file: file.path, link: mediaLink, dataFile })
 					temp.push(AnkiConnect.storeMediaFileByPath(basename(mediaLink), realPath))
 				}
 			}
@@ -691,14 +733,134 @@ export class FileManager {
 	}
 
 	/**
-	 * Compares the files the scanned notes cite with Anki's copies, writing nothing.
-	 * `Added Media` keeps only names, so a changed file or a reused name never reaches
-	 * Anki. Sending it here could overwrite the only good copy, so this only reports.
-	 * It costs one request per file, which is why only an everyFile dry-run calls it.
+	 * Sends the media files that changed in the vault while Anki kept what was sent,
+	 * so an image edit reaches Anki with no note changing. Anything else that differs
+	 * is reported once and never sent: Anki's copy could be the only good one.
+	 * A file with no record gets one when Anki holds the same bytes, which is how
+	 * files sent before records existed become eligible, a few per scan.
 	 */
-	async findMediaDifferences(): Promise<ScanIssue[]> {
+	async refreshChangedMedia(): Promise<void> {
+		this.resentMedia = []
+		this.mediaIssues = []
+		for (const candidate of this.staleMedia().slice(0, MEDIA_CHECKS_PER_SCAN)) {
+			try {
+				await this.applyMediaDecision(candidate, await this.decideMedia(candidate))
+			} catch (error) {
+				// Filed under the image, not a note file: no note has to be retried for this.
+				this.mediaIssues.push({
+					file: candidate.dataFile.path,
+					kind: 'media',
+					error: `Could not compare ${candidate.link}: ${issueMessage(error)}`
+				})
+			}
+		}
+		this.scanIssues = [...this.mediaIssues]
+	}
+
+	/** What refreshChangedMedia would do with the sent files that changed. Writes nothing. */
+	async planChangedMedia(): Promise<MediaPlan> {
+		const resent: string[] = []
+		const paths = new Set<string>()
 		const issues: ScanIssue[] = []
-		const compared = new Set<string>()
+		const sent = this.staleMedia().filter((candidate) => typeof candidate.record?.hash === 'string')
+		for (const candidate of sent.slice(0, MEDIA_CHECKS_PER_SCAN)) {
+			const { link, dataFile } = candidate
+			try {
+				const decision = await this.decideMedia(candidate)
+				if (decision.action === 'send') {
+					resent.push(basename(link))
+					paths.add(dataFile.path)
+				} else if (decision.action === 'report') {
+					issues.push(this.mediaDiffersIssue(link, dataFile, decision.inAnki))
+				}
+			} catch (error) {
+				issues.push({
+					file: dataFile.path,
+					kind: 'media',
+					error: `Could not compare ${link}: ${issueMessage(error)}`
+				})
+			}
+		}
+		return { resent, paths, issues }
+	}
+
+	/**
+	 * The links worth comparing with Anki, sent files first, so files with no
+	 * record yet can't delay a changed one. A record whose stat still matches
+	 * needs no read: this runs on every scan and only looks at cached stats.
+	 */
+	private staleMedia(): MediaCandidate[] {
+		const sent: MediaCandidate[] = []
+		const unrecorded: MediaCandidate[] = []
+		for (const link of new Set([...this.added_media_set, ...Object.keys(this.mediaRecords)])) {
+			const known = this.mediaRecords[link]
+			const atRecordedPath = known ? this.vault.getFirstLinkpathDest(known.path, '') : null
+			if (atRecordedPath && known) {
+				if (atRecordedPath.stat.mtime !== known.mtime || atRecordedPath.stat.size !== known.size) {
+					sent.push({ link, dataFile: atRecordedPath, record: known })
+				}
+				continue
+			}
+			// Moved or never recorded: only a byte match can tie this file to what Anki holds.
+			const dataFile = this.vault.getFirstLinkpathDest(link, '')
+			if (dataFile) {
+				unrecorded.push({ link, dataFile })
+			}
+		}
+		return [...sent, ...unrecorded]
+	}
+
+	private async decideMedia({ link, dataFile, record }: MediaCandidate): Promise<MediaDecision> {
+		const hash = hashBytes(await this.vault.readBinary(dataFile))
+		const sentHash = record?.hash ?? null
+		if (hash === sentHash) {
+			return { action: 'keep', hash }
+		}
+		const encoded = await AnkiConnect.invoke<string | false>('retrieveMediaFile', { filename: basename(link) })
+		if (encoded === false) {
+			return { action: 'report', inAnki: false }
+		}
+		const ankiHash = hashBytes(Buffer.from(encoded, 'base64'))
+		if (ankiHash === hash) {
+			return { action: 'keep', hash }
+		}
+		return ankiHash === sentHash ? { action: 'send', hash } : { action: 'report', inAnki: true }
+	}
+
+	private async applyMediaDecision(candidate: MediaCandidate, decision: MediaDecision): Promise<void> {
+		const { link, dataFile } = candidate
+		if (decision.action === 'report') {
+			this.mediaIssues.push(this.mediaDiffersIssue(link, dataFile, decision.inAnki))
+			// The stat is kept, so this reports once per change instead of on every scan.
+			this.recordMedia(link, dataFile, null)
+			return
+		}
+		if (decision.action === 'send') {
+			const request = AnkiConnect.storeMediaFileByPath(basename(link), this.vault.getFullPath(dataFile.path))
+			await AnkiConnect.invoke(request.action, request.params)
+			this.resentMedia.push(basename(link))
+		}
+		this.recordMedia(link, dataFile, decision.hash)
+	}
+
+	private mediaDiffersIssue(link: string, dataFile: TFile, inAnki: boolean): ScanIssue {
+		return { file: dataFile.path, kind: 'media-differs', error: mediaDiffersMessage(basename(link), inAnki) }
+	}
+
+	private recordMedia(link: string, dataFile: TFile, hash: string | null): void {
+		this.mediaRecords[link] = { path: dataFile.path, hash, mtime: dataFile.stat.mtime, size: dataFile.stat.size }
+		this.mediaRecordsChanged = true
+	}
+
+	/**
+	 * Compares the files the scanned notes cite with Anki's copies, writing nothing.
+	 * Costs one request per file, which is why only an everyFile dry-run calls it.
+	 * `skip` holds the vault paths a real scan would send, which aren't differences
+	 * for anyone to decide.
+	 */
+	async findMediaDifferences(skip: ReadonlySet<string> = new Set()): Promise<ScanIssue[]> {
+		const issues: ScanIssue[] = []
+		const compared = new Set<string>(skip)
 		for (const file of this.ownFiles) {
 			for (const link of file.formatter.detectedMedia) {
 				const dataFile = this.vault.getFirstLinkpathDest(link, file.path)
@@ -721,21 +883,13 @@ export class FileManager {
 			const name = basename(link)
 			const encoded = await AnkiConnect.invoke<string | false>('retrieveMediaFile', { filename: name })
 			if (encoded === false) {
-				return {
-					file: path,
-					kind: 'media-differs',
-					error: `${name} is in the vault but not in Anki's media folder.`
-				}
+				return { file: path, kind: 'media-differs', error: mediaDiffersMessage(name, false) }
 			}
 			const inVault = Buffer.from(await this.vault.readBinary(dataFile))
 			if (Buffer.from(encoded, 'base64').equals(inVault)) {
 				return null
 			}
-			return {
-				file: path,
-				kind: 'media-differs',
-				error: `${name} in the vault differs from the file of that name in Anki, and notes in Anki show Anki's file.`
-			}
+			return { file: path, kind: 'media-differs', error: mediaDiffersMessage(name, true) }
 		} catch (error) {
 			return { file: path, kind: 'media', error: `Could not compare ${link}: ${issueMessage(error)}` }
 		}
@@ -776,6 +930,8 @@ export class FileManager {
 					kind: 'media',
 					error: issueMessage(item.error)
 				})
+			} else if (item && this.mediaUploads[i]) {
+				await this.recordUpload(this.mediaUploads[i])
 			}
 		}
 		this.readUpdateResults(batch.updates)
@@ -918,6 +1074,18 @@ export class FileManager {
 			// Separate line from the machine-readable `scan complete:` summary
 			// (owned by main.ts) so agent scraping never breaks.
 			console.info('[Obsidian_to_Anki] scan issues: ' + JSON.stringify(this.scanIssues))
+		}
+	}
+
+	/**
+	 * Remembers what an upload sent. A failed read only leaves the file without a
+	 * record, which a later scan repairs by comparing it with Anki.
+	 */
+	private async recordUpload({ link, dataFile }: { link: string; dataFile: TFile }): Promise<void> {
+		try {
+			this.recordMedia(link, dataFile, hashBytes(await this.vault.readBinary(dataFile)))
+		} catch (error) {
+			console.warn(`Could not record the upload of ${link}: `, error)
 		}
 	}
 
@@ -1149,17 +1317,23 @@ export class FileManager {
 				}
 			})
 		}
-		if (this.data.sync_to_ankiweb) {
-			console.info('Triggering AnkiWeb sync...')
-			try {
-				await AnkiConnect.invoke('sync')
-			} catch (e) {
-				// A local scan succeeded; a failed cloud sync must not fail it.
-				console.warn('AnkiWeb sync failed:', e)
-				this.notifier.notify('Sync to Anki completed, but AnkiWeb sync failed. Check console for details.')
-				this.scanIssues.push({ file: '', kind: 'ankiweb-sync', error: issueMessage(e) })
-			}
-		}
+		await this.syncToAnkiWeb()
 		console.info('All done!')
+	}
+
+	/** Runs the cloud sync if the user wants it; a failure never fails the scan. */
+	async syncToAnkiWeb(): Promise<void> {
+		if (!this.data.sync_to_ankiweb) {
+			return
+		}
+		console.info('Triggering AnkiWeb sync...')
+		try {
+			await AnkiConnect.invoke('sync')
+		} catch (e) {
+			// A local scan succeeded; a failed cloud sync must not fail it.
+			console.warn('AnkiWeb sync failed:', e)
+			this.notifier.notify('Sync to Anki completed, but AnkiWeb sync failed. Check console for details.')
+			this.scanIssues.push({ file: '', kind: 'ankiweb-sync', error: issueMessage(e) })
+		}
 	}
 }

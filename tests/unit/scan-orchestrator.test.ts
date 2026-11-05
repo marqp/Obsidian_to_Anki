@@ -12,7 +12,15 @@ import {
 	type ScanState
 } from '../../src/scan-orchestrator'
 import type { DryRunSummary } from '../../src/dry-run'
-import { ScanCancelledError, type FileManager, type ScanControl, type ScanIssue } from '../../src/files-manager'
+import {
+	NO_MEDIA_PLAN,
+	ScanCancelledError,
+	type FileManager,
+	type MediaPlan,
+	type ScanControl,
+	type ScanIssue
+} from '../../src/files-manager'
+import type { MediaRecords } from '../../src/media-records'
 import type { ParsedSettings, PluginSettings } from '../../src/interfaces/settings-interface'
 import type { FileHashes } from '../../src/scan-optimizations'
 import type { AllFile } from '../../src/file'
@@ -70,6 +78,12 @@ interface FakeManager {
 	scanIssues: ScanIssue[]
 	orphanNoteIds: number[]
 	added_media_set: Set<string>
+	mediaRecords: MediaRecords
+	mediaRecordsChanged: boolean
+	resentMedia: string[]
+	refreshChangedMedia: () => Promise<void>
+	planChangedMedia: () => Promise<MediaPlan>
+	syncToAnkiWeb: () => Promise<void>
 	initialiseFiles: (control?: ScanControl) => Promise<void>
 	requests_1: () => Promise<void>
 	getHashes: () => FileHashes
@@ -82,7 +96,7 @@ interface Harness {
 	orchestrator: ScanOrchestrator
 	notices: string[]
 	infos: string[]
-	committed: Array<{ media: string[]; hashes: FileHashes }>
+	committed: Array<{ media: string[]; hashes: FileHashes; records: MediaRecords }>
 	createdWith: TFile[][]
 	fake: FakeManager
 	settings: PluginSettings
@@ -96,8 +110,8 @@ function makeHarness(overrides: Partial<ScanEnvironment> = {}, scanDirs: string[
 		infos.push(args.map(String).join(' '))
 	})
 	const settings = makePluginSettings(scanDirs)
-	const state: ScanState = { settings, fieldsDict: {}, fileHashes: {}, addedMedia: [] }
-	const committed: Array<{ media: string[]; hashes: FileHashes }> = []
+	const state: ScanState = { settings, fieldsDict: {}, fileHashes: {}, addedMedia: [], mediaRecords: {} }
+	const committed: Harness['committed'] = []
 	const createdWith: TFile[][] = []
 	const fake: FakeManager = {
 		files: [],
@@ -105,6 +119,12 @@ function makeHarness(overrides: Partial<ScanEnvironment> = {}, scanDirs: string[
 		scanIssues: [],
 		orphanNoteIds: [],
 		added_media_set: new Set<string>(),
+		mediaRecords: {},
+		mediaRecordsChanged: false,
+		resentMedia: [],
+		refreshChangedMedia: () => Promise.resolve(),
+		planChangedMedia: () => Promise.resolve(NO_MEDIA_PLAN),
+		syncToAnkiWeb: () => Promise.resolve(),
 		initialiseFiles: () => Promise.resolve(),
 		requests_1: () => Promise.resolve(),
 		getHashes: () => ({}),
@@ -117,7 +137,7 @@ function makeHarness(overrides: Partial<ScanEnvironment> = {}, scanDirs: string[
 		app: new App(),
 		notices: { notify: (message) => notices.push(message) },
 		loadState: () => state,
-		commitScanResults: (media, hashes) => committed.push({ media, hashes }),
+		commitScanResults: (media, hashes, records) => committed.push({ media, hashes, records }),
 		probeAnki: () => Promise.resolve({ status: 'ready', message: 'ok' }),
 		isAutoLaunchEnabled: () => false,
 		shouldConfirmSync: () => false,
@@ -337,7 +357,175 @@ describe('ScanOrchestrator pipeline', () => {
 			)
 		).toBe(true)
 		expect(h.notices).toContain('Scan complete: +1 ~1 -0 (1/3 files)')
-		expect(h.committed).toEqual([{ media: [], hashes: { 'a.md': { hash: 'h', mtime: 1, size: 1, noteIds: [] } } }])
+		expect(h.committed).toEqual([
+			{ media: [], hashes: { 'a.md': { hash: 'h', mtime: 1, size: 1, noteIds: [] } }, records: {} }
+		])
+	})
+})
+
+describe('changed media', () => {
+	const record = { path: 'img.png', hash: 'h', mtime: 1, size: 1 }
+
+	function withMediaRefresh(resent: string[], issues: ScanIssue[] = [], recordsChanged = true) {
+		const h = makeHarness()
+		const refresh = vi.fn(async () => {
+			h.fake.resentMedia = resent
+			h.fake.scanIssues = issues
+			h.fake.mediaRecordsChanged = recordsChanged
+			h.fake.mediaRecords = { 'img.png': record }
+		})
+		const sync = vi.fn(() => Promise.resolve())
+		h.fake.refreshChangedMedia = refresh
+		h.fake.syncToAnkiWeb = sync
+		return { h, refresh, sync }
+	}
+
+	it('sends, commits and syncs when only an image changed', async () => {
+		const { h, sync } = withMediaRefresh(['img.png'])
+		h.fake.files = [tfile('a.md')]
+
+		const report = await h.orchestrator.scanVault()
+
+		expect(sync).toHaveBeenCalledTimes(1)
+		expect(h.committed).toEqual([{ media: [], hashes: {}, records: { 'img.png': record } }])
+		expect(report.outcome).toBe('completed')
+		expect(report.resentMedia).toEqual(['img.png'])
+		expect(report.filesChanged).toBe(0)
+		expect(h.notices).toContain('Sent 1 changed media file(s) to Anki.')
+		expect(h.notices).not.toContain('No changed files found. Nothing to sync.')
+	})
+
+	it('saves new records without syncing when nothing was sent', async () => {
+		const { h, sync } = withMediaRefresh([])
+
+		const report = await h.orchestrator.scanVault()
+
+		expect(sync).not.toHaveBeenCalled()
+		expect(h.committed).toHaveLength(1)
+		expect(report.outcome).toBe('nothing-to-sync')
+		expect(h.notices).toContain('No changed files found. Nothing to sync.')
+	})
+
+	it('commits nothing when no record changed', async () => {
+		const { h, sync } = withMediaRefresh([], [], false)
+
+		await h.orchestrator.scanVault()
+
+		expect(sync).not.toHaveBeenCalled()
+		expect(h.committed).toEqual([])
+	})
+
+	it('reports a difference found while no note changed, without syncing', async () => {
+		const differs: ScanIssue = { file: 'img.png', kind: 'media-differs', error: 'img.png differs' }
+		const { h, sync } = withMediaRefresh([], [differs])
+
+		const report = await h.orchestrator.scanVault()
+
+		expect(sync).not.toHaveBeenCalled()
+		expect(report.outcome).toBe('nothing-to-sync')
+		expect(report.issues).toEqual([differs])
+		expect(h.notices.some((notice) => notice.includes('img.png differs'))).toBe(true)
+	})
+
+	it('reports what it sent alongside the notes of a normal scan', async () => {
+		const { h, sync } = withMediaRefresh(['img.png'])
+		h.fake.files = [tfile('a.md')]
+		h.fake.ownFiles = createManagerFiles(createParsedSettings(), [], [])
+
+		const report = await h.orchestrator.scanVault()
+
+		// requests_2 runs the sync on this path, after the send.
+		expect(sync).not.toHaveBeenCalled()
+		expect(report.filesChanged).toBe(1)
+		expect(report.resentMedia).toEqual(['img.png'])
+		expect(h.committed[0].records).toEqual({ 'img.png': record })
+	})
+
+	it('seeds the manager with a copy of the stored records', async () => {
+		const h = makeHarness()
+		h.state.mediaRecords = { 'img.png': record }
+		await h.orchestrator.scanVault()
+		expect(h.fake.mediaRecords).toEqual({ 'img.png': record })
+		expect(h.fake.mediaRecords).not.toBe(h.state.mediaRecords)
+	})
+
+	it('leaves media alone when scanning one file', async () => {
+		const { h, refresh } = withMediaRefresh(['img.png'])
+		const plan = vi.fn(() => Promise.resolve(NO_MEDIA_PLAN))
+		h.fake.planChangedMedia = plan
+
+		await h.orchestrator.scanVault(tfile('note.md'))
+		await h.orchestrator.runDryRun({}, tfile('note.md'))
+
+		expect(refresh).not.toHaveBeenCalled()
+		expect(plan).not.toHaveBeenCalled()
+	})
+
+	it('does not send from the confirmation path, whose modal lists no media', async () => {
+		const { h, refresh } = withMediaRefresh(['img.png'])
+		h.settings.Defaults['Confirm Before Sync'] = true
+
+		await h.orchestrator.runPreviewSync()
+
+		expect(refresh).not.toHaveBeenCalled()
+	})
+
+	it('a dry-run writes nothing and says what it would send, even with no note changed', async () => {
+		const { h, refresh } = withMediaRefresh([])
+		const manager = h.fake as unknown as Record<string, unknown>
+		manager['data'] = { allow_note_type_changes: false }
+		manager['orphanFileById'] = () => new Map<number, string>()
+		h.fake.planChangedMedia = () =>
+			Promise.resolve({ resent: ['img.png'], paths: new Set(['img.png']), issues: [] })
+
+		const report = await h.orchestrator.runDryRun()
+
+		expect(refresh).not.toHaveBeenCalled()
+		expect(h.committed).toEqual([])
+		expect(report.outcome).toBe('completed')
+		expect(report.dryRun).toBe(true)
+		expect(report.resentMedia).toEqual(['img.png'])
+	})
+
+	it('a dry-run with nothing planned stays nothing-to-sync', async () => {
+		const h = makeHarness()
+		const report = await h.orchestrator.runDryRun()
+		expect(report.outcome).toBe('nothing-to-sync')
+		expect(report.resentMedia).toEqual([])
+	})
+
+	it('a dry-run shows the conflicts the plan found', async () => {
+		const differs: ScanIssue = { file: 'img.png', kind: 'media-differs', error: 'img.png differs' }
+		const h = makeHarness()
+		const manager = h.fake as unknown as Record<string, unknown>
+		manager['data'] = { allow_note_type_changes: false }
+		manager['orphanFileById'] = () => new Map<number, string>()
+		h.fake.planChangedMedia = () => Promise.resolve({ resent: [], paths: new Set(), issues: [differs] })
+
+		const report = await h.orchestrator.runDryRun()
+
+		expect(report.issues).toEqual([differs])
+	})
+
+	it('an everyFile dry-run skips planned files and lets the full comparison report', async () => {
+		const planned: ScanIssue = { file: 'img.png', kind: 'media-differs', error: 'from the plan' }
+		const compared: ScanIssue = { file: 'a.md', kind: 'media-differs', error: 'from the comparison' }
+		const h = makeHarness()
+		h.fake.files = [tfile('a.md')]
+		h.fake.ownFiles = createManagerFiles(createParsedSettings(), [], [])
+		const paths = new Set(['sent.png'])
+		h.fake.planChangedMedia = () => Promise.resolve({ resent: ['sent.png'], paths, issues: [planned] })
+		const manager = h.fake as unknown as Record<string, unknown>
+		const findMediaDifferences = vi.fn(() => Promise.resolve([compared]))
+		manager['data'] = { allow_note_type_changes: false }
+		manager['orphanFileById'] = () => new Map<number, string>()
+		manager['findMediaDifferences'] = findMediaDifferences
+
+		const report = await h.orchestrator.runDryRun({ everyFile: true })
+
+		expect(findMediaDifferences).toHaveBeenCalledWith(paths)
+		expect(report.issues).toEqual([compared])
+		expect(report.resentMedia).toEqual(['sent.png'])
 	})
 })
 

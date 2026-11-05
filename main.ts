@@ -4,6 +4,7 @@ import { PluginSettings, StoredPluginData } from './src/interfaces/settings-inte
 import { DEFAULT_IGNORED_FILE_GLOBS, SettingsTab } from './src/settings'
 import { ANKI_ICON } from './src/constants'
 import { FileHashes, createFileData, pruneFileHashes } from './src/scan-optimizations'
+import type { MediaRecords } from './src/media-records'
 import { applyImport, previewImport, type ImportOptions, type ImportResult, type ImportVault } from './src/anki-import'
 import { settingToData } from './src/setting-to-data'
 import { migrateSettings } from './src/ui/settings-migration'
@@ -41,6 +42,7 @@ export default class MyPlugin extends Plugin {
 	note_types: Array<string> = []
 	fields_dict: Record<string, string[]> = {}
 	added_media: string[] = []
+	media_records: MediaRecords = {}
 	file_hashes: FileHashes = {}
 	schedule_id?: number
 	private apiServer?: LocalApiServer
@@ -167,6 +169,7 @@ export default class MyPlugin extends Plugin {
 		this.saveData({
 			settings: this.settings,
 			'Added Media': this.added_media,
+			'Media Records': this.media_records,
 			'File Hashes': this.file_hashes,
 			fields_dict: this.fields_dict
 		})
@@ -238,10 +241,12 @@ export default class MyPlugin extends Plugin {
 							settings: this.settings,
 							fieldsDict: this.fields_dict,
 							fileHashes: this.file_hashes,
-							addedMedia: this.added_media
+							addedMedia: this.added_media,
+							mediaRecords: this.media_records
 						}),
-						commitScanResults: (addedMedia, hashes) => {
+						commitScanResults: (addedMedia, hashes, mediaRecords) => {
 							this.added_media = addedMedia
+							this.media_records = mediaRecords
 							for (const [key, entry] of Object.entries(hashes)) {
 								this.file_hashes[key] = entry
 							}
@@ -590,6 +595,7 @@ export default class MyPlugin extends Plugin {
 			}
 		}
 		this.added_media = await this.loadAddedMedia(snapshot)
+		this.media_records = snapshot?.['Media Records'] ?? {}
 		this.file_hashes = await this.loadFileHashes(snapshot)
 		this.syncTransportKey()
 

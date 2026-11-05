@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { TFile, type App } from 'obsidian'
 import * as AnkiConnect from '../../src/anki'
 import { FileManager } from '../../src/files-manager'
+import { hashBytes } from '../../src/media-records'
 import { createParsedSettings } from './anki-test-helpers'
 import { clearNotices, createdNotices } from '../mocks/obsidian'
 import type { AllFile } from '../../src/file'
@@ -9,6 +10,10 @@ import type { AllFile } from '../../src/file'
 afterEach(() => {
 	vi.restoreAllMocks()
 })
+
+function encoded(text: string): ArrayBuffer {
+	return new TextEncoder().encode(text).buffer as ArrayBuffer
+}
 
 /** Minimal ownFile: only the surfaces requests_1/parse_requests_1 touch. */
 function scannedFile(path: string, media: string[]): AllFile {
@@ -38,10 +43,12 @@ describe('requests_1 media batch', () => {
 		dest: (link: string) => TFile | null,
 		mediaResult: unknown[],
 		preseeded: string[] = [],
-		listMedia: () => string[] = () => preseeded
+		listMedia: () => string[] = () => preseeded,
+		readBinary: () => Promise<ArrayBuffer> = async () => encoded('bytes')
 	) {
 		const vault = {
 			read: async () => '',
+			readBinary,
 			process: vi.fn(),
 			getCache: () => ({}),
 			getFirstLinkpathDest: (link: string) => dest(link),
@@ -120,6 +127,46 @@ describe('requests_1 media batch', () => {
 		// Only the upload that worked stays marked, so the failed one is queued again.
 		expect(manager.added_media_set.has('img.png')).toBe(true)
 		expect(manager.added_media_set.has('snd.mp3')).toBe(false)
+	})
+
+	it('records what an upload sent, and only if it worked', async () => {
+		const { manager } = mediaManager(
+			[{ path: 'a.md', media: ['sent.png', 'failed.png'] }],
+			(link) => {
+				const file = locatedFile(`attachments/${link}`)
+				file.stat = { ctime: 0, mtime: 7, size: 5 }
+				return file
+			},
+			[{ error: null }, { error: 'disk full' }]
+		)
+		vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+		await manager.requests_1()
+
+		expect(manager.mediaRecords).toEqual({
+			'sent.png': { path: 'attachments/sent.png', hash: hashBytes(encoded('bytes')), mtime: 7, size: 5 }
+		})
+		expect(manager.mediaRecordsChanged).toBe(true)
+	})
+
+	it('still sends when the file cannot be read to record it', async () => {
+		const { manager, invokeMock } = mediaManager(
+			[{ path: 'a.md', media: ['img.png'] }],
+			(link) => locatedFile(link),
+			[{ error: null }],
+			[],
+			() => [],
+			async () => {
+				throw new Error('disk error')
+			}
+		)
+		vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+		await manager.requests_1()
+
+		expect(uploadedFilenames(invokeMock)).toEqual(['img.png'])
+		expect(manager.mediaRecords).toEqual({})
+		expect(manager.scanIssues).toEqual([])
 	})
 
 	it('attributes a stray result with no matching upload to an empty file', async () => {

@@ -21,7 +21,7 @@ const VALIDATE_TIMEOUT_MS = 2 * 60_000
 const READ_TIMEOUT_MS = 60_000
 const MAX_PAGE = 100
 /** The plugin API this bridge was written for. */
-export const EXPECTED_API_VERSION = 3
+export const EXPECTED_API_VERSION = 4
 /** A dry-run on a big vault can list thousands of notes; keep replies readable. */
 const MAX_CHANGES = 200
 /** Validating a whole vault can flag thousands of lines; counts say the rest. */
@@ -87,6 +87,7 @@ const scanReportSchema = {
 		updated: { type: 'number' },
 		deleted: { type: 'number' },
 		converted: { type: 'number' },
+		resentMedia: { type: 'array', items: { type: 'string' } },
 		issues: issueListSchema,
 		issuesOmitted: { type: 'number' },
 		issuesByKind: { type: 'object' },

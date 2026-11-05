@@ -1,6 +1,7 @@
 import { FIELDS_DICT } from './field-interface'
 import { AnkiConnectNote } from './note-interface'
 import type { FileHashes } from '../scan-optimizations'
+import type { MediaRecords } from '../media-records'
 
 export interface PluginSettings {
 	CUSTOM_REGEXPS: Record<string, string>
@@ -50,6 +51,8 @@ export interface PluginSettings {
 export interface StoredPluginData {
 	settings: PluginSettings
 	'Added Media': string[]
+	/** Absent in a data.json saved before records existed. */
+	'Media Records'?: MediaRecords
 	'File Hashes': FileHashes
 	fields_dict: Record<string, string[]>
 }
