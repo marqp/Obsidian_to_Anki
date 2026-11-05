@@ -6,7 +6,11 @@ import { escapeRegex } from './constants'
 type ValidationKind =
 	| Extract<
 			ScanIssue['kind'],
-			'cloze-without-deletions' | 'unknown-note-type' | 'stale-note-id' | 'duplicate-note-id'
+			| 'cloze-without-deletions'
+			| 'occlusion-image-missing'
+			| 'unknown-note-type'
+			| 'stale-note-id'
+			| 'duplicate-note-id'
 	  >
 	| 'unterminated-block'
 	| 'end-marker-collision'
@@ -143,6 +147,7 @@ function parseWithRealScanner(input: ValidationInput, existingIds: ReadonlySet<n
 
 const PARSER_KINDS: ReadonlySet<string> = new Set([
 	'cloze-without-deletions',
+	'occlusion-image-missing',
 	'unknown-note-type',
 	'stale-note-id',
 	'duplicate-note-id'

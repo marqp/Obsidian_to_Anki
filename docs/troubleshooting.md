@@ -32,6 +32,7 @@ type differs from Anki.
 | `kind` | Meaning | Tried again next scan |
 |---|---|---|
 | `cloze-without-deletions` | Cloze note with no deletion, or Image Occlusion note without an image, without a mask or with a mask Anki could not draw; it was not sent | No, fix the note |
+| `occlusion-image-missing` | Image Occlusion note whose image is not in the vault. A new note is not created, and a note with an ID keeps what it has in Anki | Yes, so adding the image is enough |
 | `unknown-note-type` | Note type not in the plugin's table; it was not sent | No, fix the note or refresh the table |
 | `stale-note-id` | The ID no longer exists in Anki; the block was not synced | No, remove the ID line to recreate it |
 | `duplicate-note-id` | Two blocks in one file share an ID and overwrite one note | No, remove one ID line |

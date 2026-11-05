@@ -802,9 +802,27 @@ describe('ScanOrchestrator.validate', () => {
 			...createParsedSettings(),
 			loadExistingIds: async () => []
 		}
+		;(h.fake as unknown as Record<string, unknown>)['mediaExistsFrom'] = () => () => true
 		const report = await h.orchestrator.validate({ inline: { path: 'draft.md', text: clean } })
 
 		expect(report).toMatchObject({ filesChecked: 1, blocks: 1, errors: 0, ankiChecked: false })
+	})
+
+	it('reports an occlusion in unsaved text whose image is not in the vault', async () => {
+		const h = makeHarness({ probeAnki: async () => ({ status: 'closed', message: 'closed' }) })
+		const manager = h.fake as unknown as Record<string, unknown>
+		manager['data'] = {
+			...createParsedSettings({ fields_dict: { 'Image Occlusion': ['Occlusion', 'Image'] } }),
+			loadExistingIds: async () => []
+		}
+		manager['mediaExistsFrom'] = () => () => false
+		const text =
+			'START\nImage Occlusion\nOcclusion: {{c1::image-occlusion:rect:left=.1:top=.2:width=.3:height=.1}}\nImage: ![[a.png]]\nEND\n'
+
+		const report = await h.orchestrator.validate({ inline: { path: 'draft.md', text } })
+
+		expect(report.byKind).toEqual({ 'occlusion-image-missing': 1 })
+		expect(report.errors).toBe(1)
 	})
 
 	it('reads every file a scan would see, changed or not', async () => {
