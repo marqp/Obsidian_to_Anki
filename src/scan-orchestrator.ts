@@ -373,7 +373,15 @@ export class ScanOrchestrator {
 	async validate(target?: { file?: TFile; inline?: { path: string; text: string } }): Promise<ValidationReport> {
 		const { manager } = await this.prepareManager(target?.file)
 		const inputs = target?.inline
-			? [{ ...target.inline, data: createFileData(manager.data, manager.data.template.deckName, []) }]
+			? [
+					{
+						...target.inline,
+						data: {
+							...createFileData(manager.data, manager.data.template.deckName, []),
+							mediaExists: manager.mediaExistsFrom(target.inline.path)
+						}
+					}
+				]
 			: await manager.validationInputs()
 		return validateFiles(inputs, {
 			beginNote: this.env.loadState().settings.Syntax['Begin Note'],

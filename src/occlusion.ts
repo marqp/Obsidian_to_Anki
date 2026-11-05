@@ -6,6 +6,7 @@
 
 const MASK_REGEXP = /{{c(\d+)::image-occlusion:([\s\S]+?)}}/g
 const IMAGE_REGEXP = /<img\b|!\[\[/
+const EMBED_REGEXP = /!\[\[([^\]|#]+)/g
 /** Masks drawn by hand can pass the edge of the image by a hair. */
 const EDGE_TOLERANCE = 0.01
 /**
@@ -115,6 +116,11 @@ export function occlusionProblem(fields: string[]): string | undefined {
 		}
 	}
 	return undefined
+}
+
+/** The links of the `![[...]]` embeds in a note's Markdown, without size or heading. */
+export function embeddedLinks(text: string): string[] {
+	return Array.from(text.matchAll(EMBED_REGEXP), (match) => match[1].trim())
 }
 
 function canonicalValue(value: string): string {

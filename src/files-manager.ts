@@ -113,6 +113,7 @@ export interface ScanIssue {
 		| 'occlusion-masks-replaced'
 		| 'ankiweb-sync'
 		| 'cloze-without-deletions'
+		| 'occlusion-image-missing'
 		| 'unknown-note-type'
 		| 'stale-note-id'
 		| 'duplicate-note-id'
@@ -183,7 +184,9 @@ const RETRYABLE_ISSUES: ReadonlySet<ScanIssue['kind']> = new Set<ScanIssue['kind
 	'delete-note',
 	'change-deck',
 	'update-tags',
-	'convert-note'
+	'convert-note',
+	// The fix is outside the file: adding the image changes nothing a hash would see.
+	'occlusion-image-missing'
 ])
 
 /** Every error inside one `multi` result, however deeply its batches nest. */
@@ -373,11 +376,19 @@ export class FileManager {
 
 	dataToFileData(file: TFile): FileData {
 		const folder_path_list: TFolder[] = this.getFolderPathList(file)
-		return createFileData(
-			this.data,
-			this.getDefaultDeck(file, folder_path_list),
-			this.getDefaultTags(file, folder_path_list)
-		)
+		return {
+			...createFileData(
+				this.data,
+				this.getDefaultDeck(file, folder_path_list),
+				this.getDefaultTags(file, folder_path_list)
+			),
+			mediaExists: this.mediaExistsFrom(file.path)
+		}
+	}
+
+	/** Resolves links as the media step of a scan does, from this file's location. */
+	mediaExistsFrom(path: string): (link: string) => boolean {
+		return (link) => this.vault.getFirstLinkpathDest(link, path) !== null
 	}
 
 	async initialiseFiles(control: ScanControl = {}) {

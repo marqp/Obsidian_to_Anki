@@ -227,6 +227,58 @@ describe('AllFile.parseIssues: notes the scan cannot sync are reported', () => {
 				})
 			])
 		})
+
+		describe('with the vault to ask', () => {
+			const inVault = (...links: string[]): FileData => ({
+				...occlusionData(),
+				mediaExists: (link) => links.includes(link)
+			})
+
+			it('sends a new note whose image is in the vault', () => {
+				const file = scan(block([`Occlusion: ${MASK}`, 'Image: ![[pasta/a.png|879]]']), inVault('pasta/a.png'))
+
+				expect(file.parseIssues).toEqual([])
+				expect(file.notes_to_add).toHaveLength(1)
+			})
+
+			it('does not create a note whose image is not there, and names it', () => {
+				const file = scan(block([`Occlusion: ${MASK}`, 'Image: ![[a.png]]']), inVault())
+
+				expect(file.notes_to_add).toEqual([])
+				expect(file.parseIssues).toEqual([
+					expect.objectContaining({
+						kind: 'occlusion-image-missing',
+						line: 1,
+						error: expect.stringContaining('a.png')
+					})
+				])
+			})
+
+			it('leaves a note with an ID as it is in Anki, and still counts it as present', () => {
+				const data = { ...inVault(), EXISTING_IDS: new Set([1234]) }
+				const file = scan(block([`Occlusion: ${MASK}`, 'Image: ![[a.png]]', '<!--ID: 1234-->']), data)
+
+				expect(file.notes_to_edit).toEqual([])
+				expect(file.getNoteIdsInFile()).toEqual([1234])
+				expect(file.parseIssues).toEqual([
+					expect.objectContaining({ kind: 'occlusion-image-missing', noteId: 1234 })
+				])
+			})
+
+			it('reports the mask first when the block has both problems', () => {
+				const file = scan(block(['Occlusion: {{c1::just text}}', 'Image: ![[a.png]]']), inVault())
+
+				expect(file.parseIssues).toEqual([expect.objectContaining({ kind: 'cloze-without-deletions' })])
+			})
+
+			it('checks only occlusions', () => {
+				const data = { ...inVault(), fields_dict: { Basic: ['Front', 'Back'] } }
+				const file = scan('START\nBasic\nFront: q ![[a.png]]\nBack: a\nEND\n', data)
+
+				expect(file.parseIssues).toEqual([])
+				expect(file.notes_to_add).toHaveLength(1)
+			})
+		})
 	})
 
 	it('names the existing note when a Cloze block with an ID lost its deletions', () => {

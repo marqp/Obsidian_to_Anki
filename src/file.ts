@@ -19,7 +19,7 @@ import { Md5 } from 'ts-md5'
 import * as AnkiConnect from './anki'
 import * as c from './constants'
 import { FormatConverter } from './format'
-import { occlusionProblem } from './occlusion'
+import { embeddedLinks, occlusionProblem } from './occlusion'
 import type { ScanIssue } from './files-manager'
 import {
 	buildAddNotes,
@@ -520,6 +520,37 @@ export class AllFile extends AbstractFile {
 		})
 	}
 
+	/**
+	 * An occlusion with no image has nothing to draw on, so it is not sent: a new
+	 * note is not created, and a note with an ID keeps what it has in Anki. Its ID
+	 * stays in the text, so it does not count as removed.
+	 */
+	private refuseMissingImage(parsed: AnkiConnectNoteAndID, noteText: string, position: number): boolean {
+		const { mediaExists } = this.data
+		if (
+			mediaExists === undefined ||
+			!isImageOcclusion(parsed.note.modelName) ||
+			parsed.identifier === CLOZE_ERROR ||
+			parsed.identifier === NOTE_TYPE_ERROR
+		) {
+			return false
+		}
+		const missing = embeddedLinks(noteText).filter((link) => !mediaExists(link))
+		if (missing.length === 0) {
+			return false
+		}
+		// This issue names them, so the media step need not report them again.
+		missing.forEach((link) => this.formatter.detectedMedia.delete(link))
+		this.addParseIssue(
+			'occlusion-image-missing',
+			position,
+			noteText,
+			`Image Occlusion note was not sent to Anki: not in the vault: ${missing.join(', ')}. The next scan tries again.`,
+			existingIdIn(noteText)
+		)
+		return true
+	}
+
 	scanPattern(
 		pattern: RegExp,
 		createNote: (text: string) => AbstractNote,
@@ -538,6 +569,9 @@ export class AllFile extends AbstractFile {
 				this.data,
 				this.data.add_context ? this.getContextAtIndex(note_match.index) : ''
 			)
+			if (this.refuseMissingImage(parsed, note, note_match.index)) {
+				continue
+			}
 			this.resolveParsed(parsed, {
 				onNew: () => {
 					parsed.note.tags.push(...this.global_tags.split(TAG_SEP))

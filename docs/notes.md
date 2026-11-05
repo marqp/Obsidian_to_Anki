@@ -86,6 +86,8 @@ END
 - Shapes are `rect` (`left`, `top`, `width`, `height`), `ellipse` (`left`, `top`, `rx`,
   `ry`) and `polygon` (`points=x,y x,y x,y`). A note with a mask Anki could not draw is
   not sent.
+- A note whose image is not in the vault is not sent either. `anki_validate` and
+  `anki_dry_run` report it as `occlusion-image-missing`, and the scan tries again.
 - Removing a number leaves its card empty in Anki, with its reviews, until
   `Empty Cards` removes it. The scan reports it as `cloze-card-emptied`.
 

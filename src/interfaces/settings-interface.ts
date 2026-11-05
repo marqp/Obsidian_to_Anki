@@ -68,6 +68,8 @@ export interface FileData {
 	 * pays for a whole-collection findNotes. Without it EXISTING_IDS is final.
 	 */
 	loadExistingIds?: () => Promise<readonly number[]>
+	/** Whether a link resolves to a file in the vault. Without it, links are not checked. */
+	mediaExists?: (link: string) => boolean
 	vault_name: string
 
 	FROZEN_REGEXP: RegExp
