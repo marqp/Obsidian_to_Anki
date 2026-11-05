@@ -31,12 +31,13 @@ type differs from Anki.
 
 | `kind` | Meaning | Tried again next scan |
 |---|---|---|
-| `cloze-without-deletions` | Cloze note with no deletion, or Image Occlusion note without an image or mask; it was not sent | No, fix the note |
+| `cloze-without-deletions` | Cloze note with no deletion, or Image Occlusion note without an image, without a mask or with a mask Anki could not draw; it was not sent | No, fix the note |
 | `unknown-note-type` | Note type not in the plugin's table; it was not sent | No, fix the note or refresh the table |
 | `stale-note-id` | The ID no longer exists in Anki; the block was not synced | No, remove the ID line to recreate it |
 | `duplicate-note-id` | Two blocks in one file share an ID and overwrite one note | No, remove one ID line |
 | `note-type-mismatch` | Type differs from Anki and cannot be converted | No, enable `Allow Note Type Changes` |
 | `cloze-card-emptied` | A cloze or mask number left the note. Its card stays empty in Anki, keeping its reviews, until `Empty Cards` removes it | No, put the number back to keep the card |
+| `occlusion-masks-replaced` | The Markdown replaces masks that Anki has, listed in the message. If they were adjusted in Anki and you want them back, write them in the block | No |
 | `media-missing` | Embedded file not found in the vault | No |
 | `ankiweb-sync` | Local sync worked, the AnkiWeb sync did not | No |
 | `add-note`, `add-notes`, `add-notes-file` | Anki refused the new note | Yes |

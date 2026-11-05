@@ -112,6 +112,11 @@ export async function inBatches<T>(ids: number[], size: number, read: (batch: nu
 	return rows
 }
 
+/** These notes, or every native Image Occlusion note when none are named. */
+export async function readOcclusionNotes(noteIds?: number[]): Promise<RawNote[]> {
+	return readNotes(noteIds ?? (await AnkiConnect.invoke<number[]>('findNotes', { query: 'note:"Image Occlusion"' })))
+}
+
 function readNotes(ids: number[]): Promise<RawNote[]> {
 	return inBatches(ids, NOTES_INFO_BATCH_SIZE, (notes) => AnkiConnect.invoke<RawNote[]>('notesInfo', { notes }))
 }

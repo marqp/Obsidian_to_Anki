@@ -84,7 +84,12 @@ describe('protocol', () => {
 			result: { tools: Array<{ name: string; annotations: { readOnlyHint: boolean }; title: string }> }
 		}
 		const writers = reply.result.tools.filter((t) => !t.annotations.readOnlyHint).map((t) => t.name)
-		expect(writers.sort()).toEqual(['anki_import_apply', 'anki_scan_file', 'anki_scan_vault'])
+		expect(writers.sort()).toEqual([
+			'anki_import_apply',
+			'anki_occlusion_pull',
+			'anki_scan_file',
+			'anki_scan_vault'
+		])
 		expect(reply.result.tools.every((t) => t.title.length > 0)).toBe(true)
 	})
 
@@ -138,7 +143,8 @@ describe('tool calls', () => {
 		['anki_study_overview', { deck: 'D' }, '/study/overview', { deck: 'D' }],
 		['anki_difficult_cards', { minLapses: 8 }, '/study/difficult', { minLapses: 8 }],
 		['anki_import_preview', { query: 'deck:A' }, '/import/preview', { query: 'deck:A' }],
-		['anki_import_apply', { query: 'deck:A' }, '/import/apply', { query: 'deck:A' }]
+		['anki_import_apply', { query: 'deck:A' }, '/import/apply', { query: 'deck:A' }],
+		['anki_occlusion_pull', { noteIds: [1], apply: true }, '/occlusion/pull', { noteIds: [1], apply: true }]
 	])('%s %j posts to its route', async (name, args, route, body) => {
 		const calls: Call[] = []
 		await callTool(handlerWith(fakeFetch(200, { issues: [] }, calls)), name, args)

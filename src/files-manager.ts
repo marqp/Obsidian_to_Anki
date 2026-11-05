@@ -4,7 +4,7 @@ import { AnkiConnectNoteAndID } from './interfaces/note-interface'
 import { App, TFile, TFolder, TAbstractFile, CachedMetadata, FileSystemAdapter } from 'obsidian'
 import { obsidianNoticePort, type NoticePort } from './notices'
 import { AllFile } from './file'
-import { clozeCardsEmptied, isContentMismatch, noteTypeMismatch } from './dry-run'
+import { clozeCardsEmptied, isContentMismatch, noteTypeMismatch, occlusionMasksReplaced } from './dry-run'
 import { ANKI_STATUS_TAGS } from './requests'
 import type { ValidationInput } from './validate'
 import * as AnkiConnect from './anki'
@@ -110,6 +110,7 @@ export interface ScanIssue {
 		| 'convert-note'
 		| 'note-type-mismatch'
 		| 'cloze-card-emptied'
+		| 'occlusion-masks-replaced'
 		| 'ankiweb-sync'
 		| 'cloze-without-deletions'
 		| 'unknown-note-type'
@@ -802,6 +803,10 @@ export class FileManager {
 				const emptied = clozeCardsEmptied(file, noteToEdit, note_response)
 				if (emptied) {
 					this.scanIssues.push(emptied)
+				}
+				const replaced = occlusionMasksReplaced(file, noteToEdit, note_response)
+				if (replaced) {
+					this.scanIssues.push(replaced)
 				}
 				this.detectModelChange(file, noteToEdit, note_response.modelName)
 			}

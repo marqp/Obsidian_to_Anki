@@ -46,6 +46,17 @@ Text with ==masked term==, or {{c1::masked term}}
 Extra: optional context
 END
 
+START
+Image Occlusion
+Occlusion: {{c1::image-occlusion:rect:left=.1:top=.2:width=.3:height=.05:oi=1}}
+{{c2::image-occlusion:rect:left=.5:top=.6:width=.2:height=.05:oi=1}}
+Image: ![[picture.png]]
+Header: optional question
+Back Extra: optional context
+END
+
+An Image Occlusion note makes one card per number cN. Positions are fractions of the image, from 0 to 1, and oi=1 hides all the masks while asking one. The image must be in the vault. Changing or removing a cN changes that card; removing it leaves the card empty. A mask adjusted in Anki's editor is lost when its file next syncs, unless anki_occlusion_pull copies it to the file first.
+
 The first line is the note type; call anki_get_metadata for the types and their fields, tags, decks and syntax settings. A label that is not a field of the type stays as literal text, so a Basic card must not use "Extra:". A Cloze card with no deletion is not sent. TARGET DECK and FILE TAGS lines at the top of a file set its deck and tags.
 
 The plugin stamps <!--ID: 123--> before END. Never write or copy one: two blocks with one ID overwrite the same note, and removing the line creates a new card without its review history. To delete a card, replace its block with DELETE and its ID on the next line, or remove the block.
@@ -60,6 +71,7 @@ const IMPORT_SELECTION = {
 		additionalProperties: { type: 'string' }
 	}
 }
+const WRITES_FILE = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 const WRITES_VAULT = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
 
@@ -360,6 +372,37 @@ export const TOOLS = [
 			required: ['candidates', 'ready', 'refused', 'files', 'structuralErrors']
 		},
 		request: (args) => ({ method: 'POST', route: '/import/preview', body: args, timeoutMs: SCAN_TIMEOUT_MS })
+	},
+	{
+		name: 'anki_occlusion_pull',
+		title: 'Copy Image Occlusion masks from Anki to the Markdown',
+		description:
+			"Lists the Image Occlusion notes whose masks differ between Anki and the vault. With `apply` and `noteIds`, rewrites the mask field of those blocks with Anki's masks, so an adjustment made in Anki's editor survives the next scan. Changes nothing in Anki and no other field. A difference can also be an edit made in the Markdown, and applying would undo it: show the list and ask the user before applying. Then run anki_dry_run and anki_scan_file.",
+		inputSchema: {
+			type: 'object',
+			properties: {
+				noteIds: {
+					type: 'array',
+					items: { type: 'number' },
+					description: 'Up to 100 note IDs. Omit to compare every Image Occlusion note. Required with `apply`.'
+				},
+				apply: { type: 'boolean', description: 'Write the listed notes to the Markdown (default false).' }
+			},
+			additionalProperties: false
+		},
+		annotations: WRITES_FILE,
+		outputSchema: {
+			type: 'object',
+			properties: {
+				blocked: { type: 'array', items: { type: 'string' } },
+				differences: { type: 'array', items: { type: 'object' } },
+				notInVault: { type: 'array', items: { type: 'number' } },
+				pulled: { type: 'array', items: { type: 'number' } },
+				problems: { type: 'array', items: { type: 'object' } }
+			},
+			required: ['blocked', 'differences', 'notInVault', 'pulled', 'problems']
+		},
+		request: (args) => ({ method: 'POST', route: '/occlusion/pull', body: args, timeoutMs: SCAN_TIMEOUT_MS })
 	},
 	{
 		name: 'anki_import_apply',

@@ -23,11 +23,13 @@ import {
 	collectionMetadata,
 	difficultCards,
 	getNotes,
+	readOcclusionNotes,
 	searchNotes,
 	studyOverview,
 	type SourceLookup
 } from './src/anki-read'
 import type { DryRunSummary } from './src/dry-run'
+import { pullOcclusions, type PullDependencies } from './src/occlusion-pull'
 import { DryRunModal } from './src/ui/dry-run-modal'
 import { type ScanControl } from './src/files-manager'
 
@@ -346,6 +348,63 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
+	/** Line starts the block parser reads as structure. */
+	private reservedWords(): string[] {
+		const { Syntax: syntax } = this.settings
+		return [
+			syntax['Begin Note'],
+			syntax['End Note'],
+			syntax['Target Deck Line'],
+			syntax['File Tags Line'],
+			syntax['Frozen Fields Line'],
+			syntax['Delete Note Line'],
+			'Tags: ',
+			...new Set(
+				Object.values(this.fields_dict)
+					.flat()
+					.map((field) => `${field}:`)
+			)
+		]
+	}
+
+	private async pullDependencies(): Promise<PullDependencies> {
+		const { vault, metadataCache } = this.app
+		const { Defaults: defaults, Syntax: syntax } = this.settings
+		const data = await settingToData(this.app, this.settings, this.fields_dict)
+		const fileAt = (path: string): TFile | null => this.apiFile(path)
+		return {
+			isScanning: () => this.scanOrchestrator().isScanning,
+			readNotes: readOcclusionNotes,
+			sourceOf: this.noteSourceLookup(),
+			read: async (path) => {
+				const file = fileAt(path)
+				return file === null ? null : await vault.read(file)
+			},
+			cache: (path) => {
+				const file = fileAt(path)
+				return (file === null ? null : metadataCache.getFileCache(file)) ?? {}
+			},
+			process: async (path, edit) => {
+				const file = fileAt(path)
+				if (file !== null) {
+					await vault.process(file, edit)
+				}
+			},
+			data: createFileData(data, defaults.Deck, []),
+			syntax: {
+				beginNote: syntax['Begin Note'],
+				endNote: syntax['End Note'],
+				reservedWords: this.reservedWords(),
+				otherLabels: [
+					'Tags: ',
+					...(this.fields_dict['Image Occlusion'] ?? [])
+						.filter((field) => field !== 'Occlusion')
+						.map((field) => `${field}:`)
+				]
+			}
+		}
+	}
+
 	private async importOptions(subjects?: Record<string, string>): Promise<ImportOptions> {
 		const { Defaults: defaults, Syntax: syntax } = this.settings
 		const data = await settingToData(this.app, this.settings, this.fields_dict)
@@ -354,20 +413,7 @@ export default class MyPlugin extends Plugin {
 			folder: `${scanned === '' ? '' : `${scanned}/`}Importados`,
 			defaultDeck: defaults.Deck,
 			beginNote: syntax['Begin Note'],
-			reservedWords: [
-				syntax['Begin Note'],
-				syntax['End Note'],
-				syntax['Target Deck Line'],
-				syntax['File Tags Line'],
-				syntax['Frozen Fields Line'],
-				syntax['Delete Note Line'],
-				'Tags: ',
-				...new Set(
-					Object.values(this.fields_dict)
-						.flat()
-						.map((field) => `${field}:`)
-				)
-			],
+			reservedWords: this.reservedWords(),
 			dataFor: (deck) => createFileData(data, deck, []),
 			pathExists: (path) => this.app.vault.getAbstractFileByPath(path) !== null,
 			...(subjects === undefined
@@ -449,7 +495,8 @@ export default class MyPlugin extends Plugin {
 					this.importVault(),
 					query
 				)
-			}
+			},
+			occlusionPull: async (request) => pullOcclusions(request, await this.pullDependencies())
 		}
 	}
 

@@ -64,6 +64,43 @@ Unnumbered clozes auto-number from 1 in order. Styles mix freely.
 
 Blocks without any cloze syntax on a Cloze type are skipped with a warning, not added.
 
+## Image Occlusion
+
+Anki's native `Image Occlusion` notes keep their masks as text, so a block can hold them:
+
+```
+START
+Image Occlusion
+Occlusion: {{c1::image-occlusion:rect:left=.1:top=.2:width=.3:height=.05:oi=1}}
+{{c2::image-occlusion:rect:left=.5:top=.6:width=.2:height=.05:oi=1}}
+{{c2::image-occlusion:rect:left=.5:top=.8:width=.2:height=.05:oi=1}}
+Image: ![[picture.png]]
+Header: Optional question
+Back Extra: Optional context
+END
+```
+
+- Each number `cN` makes one card. Masks sharing a number are asked together.
+- Positions are fractions of the image, from 0 to 1. `oi=1` hides every mask while
+  asking one; without it, only the mask being asked is hidden.
+- Shapes are `rect` (`left`, `top`, `width`, `height`), `ellipse` (`left`, `top`, `rx`,
+  `ry`) and `polygon` (`points=x,y x,y x,y`). A note with a mask Anki could not draw is
+  not sent.
+- Removing a number leaves its card empty in Anki, with its reviews, until
+  `Empty Cards` removes it. The scan reports it as `cloze-card-emptied`.
+
+The Markdown owns the masks, so one adjusted in Anki's editor is replaced the next time
+its file syncs, and the scan reports it as `occlusion-masks-replaced`. To keep it, copy
+it to the file first with `POST /occlusion/pull` or the MCP tool `anki_occlusion_pull`:
+without `apply` they list the notes whose masks differ, and with `apply` and `noteIds`
+they rewrite the `Occlusion` field of those blocks. A difference can also be an edit made
+in the file, so look at the list before applying. Nothing changes in Anki until the next
+scan, and other fields are left as they are.
+
+Saving in Anki's editor rounds every mask and can reorder them. The list ignores
+differences up to .005, so it names only the masks that really moved. Applying copies the
+whole field, so the block's other mask lines change slightly too. Their cards do not.
+
 ## Frozen fields
 
 Append shared content to every note of a type in the file:
