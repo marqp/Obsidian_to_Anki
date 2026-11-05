@@ -639,6 +639,12 @@ describe('collectDryRunState: exact diff', () => {
 				])
 			})
 
+			it('stays quiet when Anki only rounded the masks while saving', async () => {
+				const issues = await replaced({ Occlusion: mask('.1') }, { Occlusion: `${mask('.1004')}<br>` })
+
+				expect(issues).toEqual([])
+			})
+
 			it('stays quiet when the Markdown only adds masks', async () => {
 				const issues = await replaced(
 					{ Occlusion: `${mask('.1')}<br />\n${mask('.5', 2)}` },

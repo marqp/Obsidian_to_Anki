@@ -6,7 +6,7 @@
 import { AllFile } from './file'
 import { canonicalHtml, htmlToMarkdown, protectLineStarts } from './html-to-markdown'
 import type { FileData } from './interfaces/settings-interface'
-import { canonicalMasks } from './occlusion'
+import { canonicalMasks, maskDifferences } from './occlusion'
 import type { CachedMetadata } from 'obsidian'
 
 const NOTE_TYPE = 'Image Occlusion'
@@ -74,10 +74,10 @@ function differencesInFile(
 		if (note === undefined || parsed.note.modelName !== NOTE_TYPE) {
 			continue
 		}
-		const inAnki = canonicalMasks(note.fields[MASK_FIELD]?.value ?? '')
-		const inMarkdown = canonicalMasks(parsed.note.fields[MASK_FIELD] ?? '')
-		const onlyInAnki = inAnki.filter((mask) => !inMarkdown.includes(mask))
-		const onlyInMarkdown = inMarkdown.filter((mask) => !inAnki.includes(mask))
+		const { onlyInFirst: onlyInAnki, onlyInSecond: onlyInMarkdown } = maskDifferences(
+			note.fields[MASK_FIELD]?.value ?? '',
+			parsed.note.fields[MASK_FIELD] ?? ''
+		)
 		if (onlyInAnki.length === 0 && onlyInMarkdown.length === 0) {
 			continue
 		}

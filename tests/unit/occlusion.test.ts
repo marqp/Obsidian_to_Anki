@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { canonicalMasks, occlusionProblem } from '../../src/occlusion'
+import { canonicalMasks, maskDifferences, occlusionProblem } from '../../src/occlusion'
 
 const IMAGE = '<img src="a.png">'
 const rect = (body: string, card = 1): string => `{{c${card}::image-occlusion:rect:${body}}}`
@@ -81,5 +81,64 @@ describe('canonicalMasks', () => {
 
 	it('reads nothing from text without masks', () => {
 		expect(canonicalMasks('{{c1::text}} and <br>')).toEqual([])
+	})
+})
+
+describe('maskDifferences', () => {
+	const none = { onlyInFirst: [], onlyInSecond: [] }
+
+	it('ignores what saving in the editor does to masks nobody moved', () => {
+		const file = `${rect('left=.0795:top=.0048:width=.1869:height=.0275')}\n${rect('left=.7611:top=.7878:width=.2153:height=.0231', 2)}`
+		const saved = `${rect('left=.7616:top=.7878:width=.2157:height=.0231', 2)}<br>${rect('left=.0792:top=.0054:width=.187:height=.0271')}<br>`
+
+		expect(maskDifferences(saved, file)).toEqual(none)
+	})
+
+	it('names only the mask that moved', () => {
+		const file = `${rect('left=.02:top=.06:width=.28:height=.0275')}\n${rect('left=.5:top=.5:width=.1:height=.1', 2)}`
+		const saved = `${rect('left=.2529:top=.0515:width=.2797:height=.0271')}<br>${rect('left=.5004:top=.5:width=.1:height=.1', 2)}`
+
+		expect(maskDifferences(saved, file)).toEqual({
+			onlyInFirst: ['c1:rect:height=0.0271:left=0.2529:top=0.0515:width=0.2797'],
+			onlyInSecond: ['c1:rect:height=0.0275:left=0.02:top=0.06:width=0.28']
+		})
+	})
+
+	it('pairs the masks of one card one to one', () => {
+		const one = rect('left=.1:top=.1:width=.1:height=.1')
+		const other = rect('left=.5:top=.5:width=.1:height=.1')
+		const moved = rect('left=.7:top=.5:width=.1:height=.1')
+
+		expect(maskDifferences(`${one}${moved}`, `${one}${other}`)).toEqual({
+			onlyInFirst: ['c1:rect:height=0.1:left=0.7:top=0.5:width=0.1'],
+			onlyInSecond: ['c1:rect:height=0.1:left=0.5:top=0.5:width=0.1']
+		})
+	})
+
+	it('reads polygon points with the same tolerance', () => {
+		const polygon = (points: string): string => `{{c1::image-occlusion:polygon:points=${points}}}`
+
+		expect(maskDifferences(polygon('.1,.2 .3,.2 .3,.4'), polygon('.101,.2 .3,.199 .3,.4'))).toEqual(none)
+		expect(maskDifferences(polygon('.1,.2 .3,.2 .3,.4'), polygon('.2,.2 .3,.2 .3,.4')).onlyInFirst).toHaveLength(1)
+		expect(
+			maskDifferences(polygon('.1,.2 .3,.2 .3,.4'), polygon('.1,.2 .3,.2 .3,.4 .1,.4')).onlyInFirst
+		).toHaveLength(1)
+	})
+
+	it.each([
+		['a move past the rounding', rect('left=.106:top=.2:width=.3:height=.1')],
+		['another card', rect('left=.1:top=.2:width=.3:height=.1', 2)],
+		['another mode', rect('left=.1:top=.2:width=.3:height=.1:oi=1')],
+		['another shape', '{{c1::image-occlusion:ellipse:left=.1:top=.2:width=.3:height=.1}}'],
+		['another text', '{{c1::image-occlusion:text:left=.1:top=.2:width=.3:height=b}}']
+	])('tells apart %s', (_case, other) => {
+		expect(maskDifferences(other, rect('left=.1:top=.2:width=.3:height=.1')).onlyInFirst).toHaveLength(1)
+	})
+
+	it('compares text values that are not numbers', () => {
+		const text = '{{c1::image-occlusion:text:left=.1:top=.2:text=nome}}'
+
+		expect(maskDifferences(text, text)).toEqual(none)
+		expect(maskDifferences(text, text.replace('nome', 'outro')).onlyInFirst).toHaveLength(1)
 	})
 })

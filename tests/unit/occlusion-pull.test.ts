@@ -114,6 +114,33 @@ describe('pullOcclusions', () => {
 		)
 	})
 
+	it("takes a note saved in Anki's editor: masks reordered and rounded, with a final break", async () => {
+		const file = (card: number, left: string): string =>
+			`{{c${card}::image-occlusion:rect:left=${left}:top=.2:width=.3:height=.1:oi=1}}`
+		const { vault, dependencies } = setup({ 'a.md': block(1, [file(1, '.1'), file(2, '.5')]) }, [
+			anki(1, `${file(2, '.5004')}<br>${file(1, '.7')}<br>`)
+		])
+
+		const result = await pullOcclusions({ noteIds: [1], apply: true }, dependencies)
+
+		expect(result.differences[0].onlyInAnki).toEqual(['c1:rect:height=0.1:left=0.7:oi=1:top=0.2:width=0.3'])
+		expect(result.pulled).toEqual([1])
+		expect(vault['a.md']).toBe(block(1, [file(2, '.5004'), file(1, '.7')]))
+	})
+
+	it('leaves a note alone when saving in the editor only rounded its masks', async () => {
+		const { process, dependencies } = setup({ 'a.md': block(1, [mask(1, '.1')]) }, [
+			anki(1, `${mask(1, '.1004')}<br>`)
+		])
+
+		const result = await pullOcclusions({ noteIds: [1], apply: true }, dependencies)
+
+		expect(result.differences).toEqual([])
+		expect(result.pulled).toEqual([])
+		expect(result.notInVault).toEqual([])
+		expect(process).not.toHaveBeenCalled()
+	})
+
 	it('reports other fields that differ, and does not pull them', async () => {
 		const original = block(1, [mask(1)], ['Image: <img src="a.png">', 'Header: old'])
 		const { vault, dependencies } = setup({ 'a.md': original }, [anki(1, mask(1, '.7'), { Header: 'new' })])

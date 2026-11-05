@@ -3,7 +3,7 @@ import type { AllFile } from './file'
 import type { ScanIssue } from './files-manager'
 import type { AnkiConnectNote, AnkiConnectNoteAndID } from './interfaces/note-interface'
 import { hasClozeCards, isImageOcclusion } from './note'
-import { canonicalMasks } from './occlusion'
+import { maskDifferences } from './occlusion'
 import { ANKI_STATUS_TAGS } from './requests'
 
 /** One pending change discovered by a dry run, machine-readable. */
@@ -313,8 +313,7 @@ export function occlusionMasksReplaced(
 	if (parsed.identifier == null || !isImageOcclusion(anki.modelName) || markdown === undefined) {
 		return undefined
 	}
-	const kept = canonicalMasks(markdown)
-	const dropped = canonicalMasks(anki.fields['Occlusion']?.value ?? '').filter((mask) => !kept.includes(mask))
+	const dropped = maskDifferences(anki.fields['Occlusion']?.value ?? '', markdown).onlyInFirst
 	if (dropped.length === 0) {
 		return undefined
 	}

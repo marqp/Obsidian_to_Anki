@@ -8,6 +8,12 @@ const MASK_REGEXP = /{{c(\d+)::image-occlusion:([\s\S]+?)}}/g
 const IMAGE_REGEXP = /<img\b|!\[\[/
 /** Masks drawn by hand can pass the edge of the image by a hair. */
 const EDGE_TOLERANCE = 0.01
+/**
+ * Saving in Anki's editor snaps every mask, moved or not: up to .0008 on a
+ * 1074x1334 image. A smaller image snaps further, so this leaves room. A real
+ * move of less than this cannot be told apart and stays unreported.
+ */
+const SAME_PLACE_TOLERANCE = 0.005
 
 const REQUIRED_PROPERTIES: Record<string, string[]> = {
 	rect: ['left', 'top', 'width', 'height'],
@@ -133,5 +139,57 @@ function canonicalMask(mask: Mask): string {
 
 /** Each mask once, however its numbers are spelled or ordered, so `.1` and `0.1` compare equal. */
 export function canonicalMasks(field: string): string[] {
-	return [...new Set(masksIn(field).map(canonicalMask))].sort()
+	return uniqueMasks(field).map(canonicalMask).sort()
+}
+
+function uniqueMasks(field: string): Mask[] {
+	return [...new Map(masksIn(field).map((mask) => [canonicalMask(mask), mask])).values()]
+}
+
+function closeValues(name: string, first: string, second: string): boolean {
+	if (first === second) {
+		return true
+	}
+	if (name === 'points') {
+		const a = polygonPoints(first)
+		const b = polygonPoints(second)
+		return (
+			a.length === b.length &&
+			a.every(
+				(point, index) =>
+					point.length === b[index].length &&
+					point.every((value, axis) => Math.abs(value - b[index][axis]) <= SAME_PLACE_TOLERANCE)
+			)
+		)
+	}
+	return (
+		first.trim() !== '' && second.trim() !== '' && Math.abs(Number(first) - Number(second)) <= SAME_PLACE_TOLERANCE
+	)
+}
+
+function samePlace(first: Mask, second: Mask): boolean {
+	return (
+		first.card === second.card &&
+		first.shape === second.shape &&
+		first.properties.size === second.properties.size &&
+		[...first.properties].every(
+			([name, value]) =>
+				second.properties.has(name) && closeValues(name, value, second.properties.get(name) as string)
+		)
+	)
+}
+
+/** Masks of each field with no counterpart in the other, ignoring the rounding of Anki's editor. */
+export function maskDifferences(first: string, second: string): { onlyInFirst: string[]; onlyInSecond: string[] } {
+	const unmatched = uniqueMasks(second)
+	const onlyInFirst: Mask[] = []
+	for (const mask of uniqueMasks(first)) {
+		const index = unmatched.findIndex((other) => samePlace(mask, other))
+		if (index === -1) {
+			onlyInFirst.push(mask)
+		} else {
+			unmatched.splice(index, 1)
+		}
+	}
+	return { onlyInFirst: onlyInFirst.map(canonicalMask).sort(), onlyInSecond: unmatched.map(canonicalMask).sort() }
 }

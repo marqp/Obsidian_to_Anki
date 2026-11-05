@@ -97,6 +97,10 @@ they rewrite the `Occlusion` field of those blocks. A difference can also be an 
 in the file, so look at the list before applying. Nothing changes in Anki until the next
 scan, and other fields are left as they are.
 
+Saving in Anki's editor rounds every mask and can reorder them. The list ignores
+differences up to .005, so it names only the masks that really moved. Applying copies the
+whole field, so the block's other mask lines change slightly too. Their cards do not.
+
 ## Frozen fields
 
 Append shared content to every note of a type in the file:
