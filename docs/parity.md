@@ -10,7 +10,7 @@ nothing about them. To compare the whole vault with Anki, run a dry-run with
 Add `path` to check one file. Both need the [Local API](./usage.md) turned on.
 
 The vault and Anki match when the report shows `added`, `updated` and `deleted` at
-0 and `issues` is empty.
+0, and both `resentMedia` and `issues` are empty.
 
 ## What it compares
 
@@ -20,9 +20,9 @@ The vault and Anki match when the report shows `added`, `updated` and `deleted` 
 | Fields and note type | `updated`, or a `note-type-mismatch` issue |
 | Tags | `updated`; tags that differ only in case count as equal, as they do in Anki |
 | Decks | `updated`, when a card sits in another deck |
-| Media | The bytes of each cited file against Anki's copy: `media-differs` or `media-missing` |
+| Media | The bytes of each cited file against Anki's copy: `resentMedia`, `media-differs` or `media-missing` |
 
-Comparing media takes one request per file, so only `everyFile` does it.
+Comparing every cited file takes one request per file, so only `everyFile` does it.
 
 ## What stays outside the Markdown
 
@@ -35,12 +35,37 @@ Sync goes one way: Markdown owns the cards. An edit made to a note in Anki stays
 there until a scan processes its file, and then the scan overwrites it. The dry-run
 shows such a note as `updated`. To keep the edit, copy it to the Markdown first.
 
+## When an image changes
+
+A whole-vault scan keeps a hash of what it last sent for each media file. Editing an
+image is enough for the next scan to act, with no note changing:
+
+| What the scan finds | What it does |
+|---|---|
+| The vault changed, and Anki still holds what was sent | Sends the file; `resentMedia` names it |
+| Anki already holds the vault's bytes | Updates its record |
+| Anki also changed, or no longer has the file | Reports `media-differs` and sends nothing |
+| No record of what was sent, and the bytes differ | Reports `media-differs` and sends nothing |
+
+- **Notes and cards stay as they are.** Only the file changes, and Anki moves its old
+  copy to its media trash. With `Sync to AnkiWeb` on, the scan then syncs.
+- **A wrong image saved in the vault also goes to Anki**, because the vault is the
+  source of truth. Replacing it with the right image and scanning sends that one too.
+- **Files sent before records existed** get one when a scan finds Anki holds the same
+  bytes, up to 100 files per scan, so they are covered after a few scans.
+- **`media-differs` appears once per change** in a real scan, as a notice and in the
+  report. An `everyFile` dry-run shows it for as long as the files differ.
+- **Scanning one file leaves media alone.** So does a scan you confirm through
+  `Confirm Before Sync`, as its window does not list media. Scheduled and API scans
+  of the whole vault still send.
+
+A dry-run lists in `resentMedia` what a scan would send, and writes nothing.
+
 ## Fixing `media-differs`
 
-`Added Media` records only names. If a file changes, or a name is reused for another
-image, Anki keeps its old file and cards keep showing it. The plugin reports this and
-sends nothing, because either side can be the wrong one, so **look at both images
-first**. Anki's copy is in the `collection.media` folder of your profile.
+Either side can be the wrong one here, for instance when a name was reused for another
+image, so **look at both images first**. Anki's copy is in the `collection.media`
+folder of your profile. Until you decide, cards keep showing Anki's file.
 
 **The vault's file is right.** Remove Anki's copy with `deleteMediaFile` or from the
 folder, then scan any change to a file citing it. A scan sends a cited file that Anki
