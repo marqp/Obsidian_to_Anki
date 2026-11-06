@@ -329,6 +329,8 @@ export interface ScanControl {
 	 * would rewrite and resend files that did not change.
 	 */
 	everyFile?: boolean
+	/** Dry-run only: add the text Anki holds and the text the scan would write to each update. */
+	includeDiff?: boolean
 }
 
 /** Thrown at yield boundaries when ScanControl.isCancelled() returns true. */

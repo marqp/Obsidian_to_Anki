@@ -330,6 +330,39 @@ describe('ScanOrchestrator pipeline', () => {
 		expect(h.committed).toEqual([])
 	})
 
+	it('a dry-run asked for the diff adds it to each update', async () => {
+		AnkiConnect.setTransport({
+			invoke: async (action: string) =>
+				action === 'notesInfo'
+					? [
+							{
+								noteId: 51,
+								modelName: 'Basic',
+								tags: [],
+								fields: { Front: { order: 0, value: 'q' }, Back: { order: 1, value: 'old' } },
+								cards: [501]
+							}
+						]
+					: [{ cardId: 501, deckName: 'Default', type: 2 }]
+		})
+		const h = makeHarness()
+		h.fake.ownFiles = createManagerFiles(
+			createParsedSettings(),
+			[{ id: 51, fields: { Front: 'q', Back: 'new' }, tags: [] }],
+			[]
+		)
+		const manager = h.fake as unknown as Record<string, unknown>
+		manager['data'] = { allow_note_type_changes: false }
+		manager['orphanNoteIds'] = []
+		manager['orphanFileById'] = () => new Map<number, string>()
+
+		const plain = await h.orchestrator.runDryRun()
+		const withDiff = await h.orchestrator.runDryRun({ includeDiff: true })
+
+		expect(plain.details?.changes[0].diff).toBeUndefined()
+		expect(withDiff.details?.changes[0].diff).toEqual({ fields: { Back: { anki: 'old', markdown: 'new' } } })
+	})
+
 	it('dry-run previews without mutating or persisting', async () => {
 		const h = makeHarness()
 		const data: ParsedSettings = createParsedSettings()

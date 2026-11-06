@@ -499,6 +499,98 @@ describe('collectDryRunState: exact diff', () => {
 		])
 	})
 
+	describe('includeDiff', () => {
+		async function updateWithDiff(ankiTags: string[], ankiBack: string, includeDiff?: boolean) {
+			const { setTransport } = await import('../../src/anki')
+			setTransport({
+				invoke: vi.fn(async (action: string) =>
+					action === 'notesInfo'
+						? [
+								{
+									noteId: 51,
+									modelName: 'Basic',
+									tags: ankiTags,
+									fields: { Front: { order: 0, value: 'q' }, Back: { order: 1, value: ankiBack } },
+									cards: [501]
+								}
+							]
+						: [{ cardId: 501, deckName: 'Default', type: 2 }]
+				)
+			})
+			const files = createManagerFiles(
+				createParsedSettings(),
+				[{ id: 51, fields: { Front: 'q', Back: 'new' }, tags: ['new'] }],
+				[]
+			)
+			const summary = await collectDryRunState(files, {
+				hasNoteTypeChanges: false,
+				orphanNoteIds: [],
+				...(includeDiff === undefined ? {} : { includeDiff })
+			})
+			return summary.changes[0]
+		}
+
+		it('adds the text of each differing field and both tag lists, keeping status tags', async () => {
+			const change = await updateWithDiff(['old', 'leech'], 'old')
+
+			expect(change.diff).toBeUndefined()
+			expect((await updateWithDiff(['old', 'leech'], 'old', true)).diff).toEqual({
+				fields: { Back: { anki: 'old', markdown: 'new' } },
+				tags: { anki: ['old', 'leech'], markdown: ['new', 'leech'] }
+			})
+		})
+
+		it('leaves the tags out when only fields differ', async () => {
+			const change = await updateWithDiff(['new'], 'old', true)
+
+			expect(change.tagsChanged).toBeUndefined()
+			expect(change.diff).toEqual({ fields: { Back: { anki: 'old', markdown: 'new' } } })
+		})
+
+		it('shows a field or tags Anki lacks as empty', async () => {
+			const { setTransport } = await import('../../src/anki')
+			setTransport({
+				invoke: vi.fn(async (action: string) =>
+					action === 'notesInfo'
+						? [
+								{
+									noteId: 51,
+									modelName: 'Basic',
+									fields: { Front: { order: 0, value: 'q' } },
+									cards: [501]
+								}
+							]
+						: [{ cardId: 501, deckName: 'Default', type: 2 }]
+				)
+			})
+			const files = createManagerFiles(
+				createParsedSettings(),
+				[{ id: 51, fields: { Front: 'q', Back: 'new' }, tags: ['new'] }],
+				[]
+			)
+
+			const summary = await collectDryRunState(files, {
+				hasNoteTypeChanges: false,
+				orphanNoteIds: [],
+				includeDiff: true
+			})
+
+			expect(summary.changes[0].diff).toEqual({
+				fields: { Back: { anki: '', markdown: 'new' } },
+				tags: { anki: [], markdown: ['new'] }
+			})
+		})
+
+		it('cuts long values at 2000 characters', async () => {
+			const change = await updateWithDiff(['new'], 'x'.repeat(2001), true)
+
+			expect(change.diff?.fields['Back'].anki).toBe('x'.repeat(2000) + '…')
+			expect((await updateWithDiff(['new'], 'y'.repeat(2000), true)).diff?.fields['Back'].anki).toBe(
+				'y'.repeat(2000)
+			)
+		})
+	})
+
 	it('does not report tags Anki set while you study as a change', async () => {
 		const { setTransport } = await import('../../src/anki')
 		setTransport({

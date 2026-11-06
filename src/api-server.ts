@@ -46,8 +46,11 @@ export interface ApiHandlers {
 	scanFolder(path: string): Promise<ScanReport | null>
 	/** Several files in one scan; the paths that are not Markdown files of the vault, when any is not. */
 	scanFiles(paths: string[]): Promise<ScanReport | { missing: string[] }>
-	/** Read-only preview; a path narrows it to one file. null when not found. */
-	dryRun(path: string | undefined, everyFile: boolean): Promise<ScanReport | null>
+	/**
+	 * Read-only preview; a path narrows it to one file. `includeDiff` adds the text
+	 * Anki holds and the text the scan would write to each update. null when not found.
+	 */
+	dryRun(path: string | undefined, everyFile: boolean, includeDiff: boolean): Promise<ScanReport | null>
 	/**
 	 * Check card syntax of the vault, a file, or text that is not saved. With
 	 * `content`, `path` only labels the result. null when `path` alone names no file.
@@ -388,7 +391,7 @@ export class LocalApiServer {
 				expectMethod('POST')
 				const body = await readJsonBody(req)
 				const path = readPath(body, false)
-				const report = await handlers.dryRun(path, readFlag(body, 'everyFile'))
+				const report = await handlers.dryRun(path, readFlag(body, 'everyFile'), readFlag(body, 'includeDiff'))
 				if (report === null) {
 					throw new HttpError(404, `Not a file in this vault: ${path}`)
 				}

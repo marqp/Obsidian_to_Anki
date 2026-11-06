@@ -149,6 +149,11 @@ export const TOOLS = [
 					type: 'boolean',
 					description:
 						'Also compare files that have not changed since the last scan, instead of skipping them. Slower: use it to check the whole vault against Anki, for example after changing notes in Anki.'
+				},
+				includeDiff: {
+					type: 'boolean',
+					description:
+						'Add to each update a `diff` with the HTML Anki holds and the HTML the sync would write, for every field that differs (each value cut at 2000 characters), and both tag lists when the tags differ.'
 				}
 			},
 			additionalProperties: false
@@ -158,7 +163,8 @@ export const TOOLS = [
 			route: '/dry-run',
 			body: {
 				...(args.path === undefined ? {} : { path: args.path }),
-				...(args.everyFile === undefined ? {} : { everyFile: args.everyFile })
+				...(args.everyFile === undefined ? {} : { everyFile: args.everyFile }),
+				...(args.includeDiff === undefined ? {} : { includeDiff: args.includeDiff })
 			},
 			timeoutMs: SCAN_TIMEOUT_MS
 		})

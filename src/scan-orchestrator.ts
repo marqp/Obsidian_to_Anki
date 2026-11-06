@@ -292,7 +292,7 @@ export class ScanOrchestrator {
 			if (manager.ownFiles.length === 0 && media.resent.length === 0 && media.issues.length === 0) {
 				return this.reportNothingToSync(dryRun, totalFiles)
 			}
-			return await this.reportDryRun(manager, totalFiles, control.everyFile === true, media)
+			return await this.reportDryRun(manager, totalFiles, control.everyFile === true, media, control.includeDiff)
 		}
 		if (wholeVault) {
 			await manager.refreshChangedMedia()
@@ -589,12 +589,14 @@ export class ScanOrchestrator {
 		manager: FileManager,
 		totalFiles: number,
 		everyFile = false,
-		media: MediaPlan = NO_MEDIA_PLAN
+		media: MediaPlan = NO_MEDIA_PLAN,
+		includeDiff = false
 	): Promise<ScanReport> {
 		const summary = await collectDryRunState(manager.ownFiles, {
 			hasNoteTypeChanges: manager.data.allow_note_type_changes,
 			orphanNoteIds: manager.orphanNoteIds,
-			orphanFileById: manager.orphanFileById()
+			orphanFileById: manager.orphanFileById(),
+			includeDiff
 		})
 		summary.filesTotal = totalFiles
 		// The full comparison covers what the plan reports, and names the note files.

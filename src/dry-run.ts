@@ -21,6 +21,8 @@ export interface DryRunChange {
 	tagsChanged?: boolean
 	/** Update entries: a card is in another deck in Anki. */
 	deckChanged?: boolean
+	/** Update entries, when asked for: what Anki holds and what the scan would write. */
+	diff?: NoteDiff
 	/** 1-based line of the block; absent when the block is gone (orphan delete). */
 	line?: number
 	/** Add entries: the start of the new card, to recognise it. */
@@ -28,6 +30,17 @@ export interface DryRunChange {
 	/** Delete entries only: an explicit DELETE line, or a block gone from the Markdown. */
 	deleteReason?: 'delete-line' | 'orphan'
 }
+
+/**
+ * The text behind an update. Field values are HTML as Anki stores them, cut to
+ * DIFF_VALUE_LENGTH characters; `tags` appears only when the tags differ.
+ */
+export interface NoteDiff {
+	fields: Record<string, { anki: string; markdown: string }>
+	tags?: { anki: string[]; markdown: string[] }
+}
+
+const DIFF_VALUE_LENGTH = 2000
 
 /** Aggregated dry-run result: one console one-liner + one JSON blob. */
 export interface DryRunSummary {
@@ -111,14 +124,20 @@ async function fetchCardsInfo(cardIds: number[]): Promise<AnkiCardInfo[]> {
  */
 export async function collectDryRunState(
 	files: AllFile[],
-	options: { hasNoteTypeChanges: boolean; orphanNoteIds: number[]; orphanFileById?: Map<number, string> }
+	options: {
+		hasNoteTypeChanges: boolean
+		orphanNoteIds: number[]
+		orphanFileById?: Map<number, string>
+		/** Add the before and after text to each update. */
+		includeDiff?: boolean
+	}
 ): Promise<DryRunSummary> {
 	const changes: DryRunChange[] = []
 	const issues: ScanIssue[] = []
 	let wouldAdd = 0
 	let wouldUpdate = 0
 	let wouldConvert = 0
-	const { hasNoteTypeChanges, orphanNoteIds, orphanFileById } = options
+	const { hasNoteTypeChanges, orphanNoteIds, orphanFileById, includeDiff = false } = options
 
 	const editIds: number[] = []
 	for (const file of files) {
@@ -200,7 +219,8 @@ export async function collectDryRunState(
 			if (replaced) {
 				issues.push(replaced)
 			}
-			const difference = diffNote(parsed.note, file.noteTagsFor(parsed), anki)
+			const localTags = file.noteTagsFor(parsed)
+			const difference = diffNote(parsed.note, localTags, anki)
 			const deckChanged = isDeckMismatch(targets, anki, deckByCardId)
 			if (difference.fields.length > 0 || difference.tagsChanged || deckChanged) {
 				if (!updatedNoteIds.has(parsed.identifier)) {
@@ -217,7 +237,8 @@ export async function collectDryRunState(
 					fields: difference.fields,
 					...(difference.tagsChanged ? { tagsChanged: true } : {}),
 					...(deckChanged ? { deckChanged: true } : {}),
-					...(line === undefined ? {} : { line })
+					...(line === undefined ? {} : { line }),
+					...(includeDiff ? { diff: noteDiff(parsed.note, localTags, anki, difference) } : {})
 				})
 			}
 		}
@@ -365,6 +386,30 @@ function diffNote(
 	const tagsChanged =
 		wantedTags.length !== ankiTags.length || wantedTags.some((tag, index) => tag !== ankiTags[index])
 	return { fields, tagsChanged }
+}
+
+function clip(value: string): string {
+	return value.length > DIFF_VALUE_LENGTH ? value.slice(0, DIFF_VALUE_LENGTH) + '…' : value
+}
+
+/** The text of the fields and tags that diffNote found different. */
+function noteDiff(
+	local: AnkiConnectNote,
+	localTags: string[],
+	anki: AnkiNoteInfo,
+	difference: { fields: string[]; tagsChanged: boolean }
+): NoteDiff {
+	const fields: NoteDiff['fields'] = {}
+	for (const field of difference.fields) {
+		fields[field] = { anki: clip(anki.fields[field]?.value ?? ''), markdown: clip(local.fields[field]) }
+	}
+	if (!difference.tagsChanged) {
+		return { fields }
+	}
+	const ankiTags = anki.tags ?? []
+	// A scan keeps the status tags Anki sets during study, so they stay on the Markdown side.
+	const kept = ankiTags.filter((tag) => ANKI_STATUS_TAGS.includes(normalizeText(tag).toLowerCase()))
+	return { fields, tags: { anki: ankiTags, markdown: [...localTags, ...kept] } }
 }
 
 export function isContentMismatch(local: AnkiConnectNote, localTags: string[], anki: AnkiNoteInfo): boolean {

@@ -306,17 +306,26 @@ describe('LocalApiServer routes', () => {
 		const handlers = makeHandlers()
 		const s = await start(handlers)
 		expect((await call(s.port, 'POST', '/dry-run')).status).toBe(200)
-		expect(handlers.dryRun).toHaveBeenLastCalledWith(undefined, false)
+		expect(handlers.dryRun).toHaveBeenLastCalledWith(undefined, false, false)
 		await call(s.port, 'POST', '/dry-run', { body: JSON.stringify({ path: 'a.md' }) })
-		expect(handlers.dryRun).toHaveBeenLastCalledWith('a.md', false)
+		expect(handlers.dryRun).toHaveBeenLastCalledWith('a.md', false, false)
 	})
 
 	it('POST /dry-run passes everyFile on and refuses a value that is not a boolean', async () => {
 		const handlers = makeHandlers()
 		const s = await start(handlers)
 		await call(s.port, 'POST', '/dry-run', { body: JSON.stringify({ everyFile: true }) })
-		expect(handlers.dryRun).toHaveBeenLastCalledWith(undefined, true)
+		expect(handlers.dryRun).toHaveBeenLastCalledWith(undefined, true, false)
 		const reply = await call(s.port, 'POST', '/dry-run', { body: JSON.stringify({ everyFile: 'yes' }) })
+		expect(reply.status).toBe(400)
+	})
+
+	it('POST /dry-run passes includeDiff on and refuses a value that is not a boolean', async () => {
+		const handlers = makeHandlers()
+		const s = await start(handlers)
+		await call(s.port, 'POST', '/dry-run', { body: JSON.stringify({ path: 'a.md', includeDiff: true }) })
+		expect(handlers.dryRun).toHaveBeenLastCalledWith('a.md', false, true)
+		const reply = await call(s.port, 'POST', '/dry-run', { body: JSON.stringify({ includeDiff: 1 }) })
 		expect(reply.status).toBe(400)
 	})
 
