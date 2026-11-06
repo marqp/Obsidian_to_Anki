@@ -12,6 +12,14 @@ Settings open under `Obsidian_to_Anki settings (marqp fork)` with four tabs:
 The active tab is kept in memory only — switching vaults or reopening settings
 starts on General, and settings are never written on read.
 
+When `data.json` changes on disk from outside Obsidian (a sync service, or an
+edit by hand or by an agent), Obsidian 1.5.7 and later tell the plugin, and it
+applies the new settings without a reload. The scan state in that file (file
+hashes, media records) is not taken from it: the plugin keeps its own and
+writes it back at the next save. The schedule and the local API restart only if
+their settings changed. An open settings tab still shows the old values until
+it is reopened.
+
 ## Defaults
 
 | Setting | Default | Effect |

@@ -154,3 +154,119 @@ describe('Local API scan handlers', () => {
 		expect(scanVault).not.toHaveBeenCalled()
 	})
 })
+
+describe('onExternalSettingsChange', () => {
+	async function loaded() {
+		AnkiConnect.setTransport({ invoke: async () => [] })
+		const plugin = makePlugin()
+		plugin.settings = await plugin.getDefaultSettings()
+		plugin.settings.Defaults['Scheduling Interval'] = 5
+		plugin.file_hashes = { 'a.md': { hash: 'h', mtime: 1, size: 1, noteIds: [1] } }
+		plugin.media_records = { 'img.png': { hash: 'x' } } as never
+		plugin.added_media = ['img.png']
+		const startSchedule = vi.spyOn(plugin, 'startSchedule').mockImplementation(() => undefined)
+		const restartApiServer = vi.spyOn(plugin, 'restartApiServer').mockResolvedValue(undefined)
+		return { plugin, startSchedule, restartApiServer }
+	}
+
+	function onDisk(plugin: MyPlugin, change: (stored: StoredPluginData) => void): StoredPluginData {
+		const stored = JSON.parse(
+			JSON.stringify({
+				settings: plugin.settings,
+				fields_dict: { Basic: ['Front', 'Back'] },
+				'File Hashes': {},
+				'Media Records': {},
+				'Added Media': []
+			})
+		) as StoredPluginData
+		change(stored)
+		vi.spyOn(plugin, 'loadData').mockResolvedValue(stored)
+		return stored
+	}
+
+	it('applies the settings from the file and keeps the scan state in memory', async () => {
+		const { plugin, startSchedule, restartApiServer } = await loaded()
+		const hashes = plugin.file_hashes
+		onDisk(plugin, (stored) => {
+			stored.settings.Defaults.Deck = 'Synced'
+			stored.settings.CUSTOM_REGEXPS = { Basic: '', Cloze: '' }
+		})
+
+		await plugin.onExternalSettingsChange()
+
+		expect(plugin.settings.Defaults.Deck).toBe('Synced')
+		expect(plugin.note_types).toEqual(['Basic', 'Cloze'])
+		expect(plugin.fields_dict).toEqual({ Basic: ['Front', 'Back'] })
+		expect(plugin.file_hashes).toBe(hashes)
+		expect(plugin.file_hashes['a.md']?.noteIds).toEqual([1])
+		expect(plugin.added_media).toEqual(['img.png'])
+		expect(plugin.media_records).toEqual({ 'img.png': { hash: 'x' } })
+		expect(startSchedule).not.toHaveBeenCalled()
+		expect(restartApiServer).not.toHaveBeenCalled()
+		expect(plugin.saveData).not.toHaveBeenCalled()
+	})
+
+	it('restarts the schedule when its interval changed', async () => {
+		const { plugin, startSchedule, restartApiServer } = await loaded()
+		onDisk(plugin, (stored) => {
+			stored.settings.Defaults['Scheduling Interval'] = 10
+		})
+
+		await plugin.onExternalSettingsChange()
+
+		expect(startSchedule).toHaveBeenCalledOnce()
+		expect(restartApiServer).not.toHaveBeenCalled()
+	})
+
+	it.each([
+		['Local API', true],
+		['Local API Port', 28000],
+		['Local API Token', 'another-token-of-enough-length-000']
+	] as const)('restarts the local API when %s changed', async (key, value) => {
+		const { plugin, startSchedule, restartApiServer } = await loaded()
+		onDisk(plugin, (stored) => {
+			;(stored.settings.Defaults as Record<string, unknown>)[key] = value
+		})
+
+		await plugin.onExternalSettingsChange()
+
+		expect(restartApiServer).toHaveBeenCalledOnce()
+		expect(startSchedule).not.toHaveBeenCalled()
+	})
+
+	it('keeps the fields dictionary when the file has none', async () => {
+		const { plugin } = await loaded()
+		plugin.fields_dict = { Cloze: ['Text', 'Extra'] }
+		onDisk(plugin, (stored) => {
+			delete (stored as Partial<StoredPluginData>).fields_dict
+		})
+
+		await plugin.onExternalSettingsChange()
+
+		expect(plugin.fields_dict).toEqual({ Cloze: ['Text', 'Extra'] })
+	})
+
+	it.each([null, {}, { settings: null }])('ignores a file without settings: %j', async (stored) => {
+		const { plugin, startSchedule, restartApiServer } = await loaded()
+		const settings = plugin.settings
+		vi.spyOn(plugin, 'loadData').mockResolvedValue(stored)
+
+		await plugin.onExternalSettingsChange()
+
+		expect(plugin.settings).toBe(settings)
+		expect(plugin.file_hashes['a.md']?.noteIds).toEqual([1])
+		expect(startSchedule).not.toHaveBeenCalled()
+		expect(restartApiServer).not.toHaveBeenCalled()
+	})
+
+	it('migrates settings written by an older version', async () => {
+		const { plugin } = await loaded()
+		onDisk(plugin, (stored) => {
+			delete (stored.settings.Defaults as Partial<Record<string, unknown>>)['Confirm Before Sync']
+		})
+
+		await plugin.onExternalSettingsChange()
+
+		expect(plugin.settings.Defaults['Confirm Before Sync']).toBe(false)
+	})
+})

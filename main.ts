@@ -168,6 +168,35 @@ export default class MyPlugin extends Plugin {
 		return current_data.fields_dict ?? {}
 	}
 
+	/**
+	 * Obsidian calls this when data.json changes on disk from outside the app:
+	 * a sync service, or a person or agent editing the file. The settings and
+	 * the fields dictionary are taken from the file and applied; the scan
+	 * state (file hashes, media records, added media) stays as it is in
+	 * memory, because a scan may be running and the next save writes it back.
+	 * The schedule and the local API restart only when their settings changed,
+	 * so a request in progress is not cut off for nothing.
+	 */
+	async onExternalSettingsChange(): Promise<void> {
+		const snapshot = (await this.loadData()) as StoredPluginData | null
+		if (snapshot == null || typeof snapshot.settings !== 'object' || snapshot.settings === null) {
+			return
+		}
+		const before = this.settings.Defaults
+		this.settings = migrateSettings(snapshot.settings).settings
+		this.fields_dict = snapshot.fields_dict ?? this.fields_dict
+		this.note_types = Object.keys(this.settings.CUSTOM_REGEXPS)
+		this.syncTransportKey()
+		const after = this.settings.Defaults
+		if (after['Scheduling Interval'] !== before['Scheduling Interval']) {
+			this.startSchedule()
+		}
+		const apiKeys = ['Local API', 'Local API Port', 'Local API Token'] as const
+		if (apiKeys.some((key) => after[key] !== before[key])) {
+			await this.restartApiServer()
+		}
+	}
+
 	async saveAllData(): Promise<void> {
 		this.syncTransportKey()
 		this.saveData({
