@@ -122,7 +122,7 @@ export function findFirstNoteId(content: string): number | null {
 export function isStatUnchanged(
 	stat: { mtime: number; size: number } | undefined,
 	cachedEntry: string | FileHashEntry | undefined
-): boolean {
+): cachedEntry is FileHashEntry {
 	if (!stat || !cachedEntry || typeof cachedEntry === 'string') {
 		return false
 	}

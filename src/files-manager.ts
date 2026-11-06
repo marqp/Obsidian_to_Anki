@@ -552,15 +552,23 @@ export class FileManager {
 	 * place only when that file is scanned. Deleting would lose the card's review
 	 * history, so anything about to be deleted is first looked for in the rest of
 	 * the vault. Scans that delete nothing read no extra file.
+	 *
+	 * A file whose mtime and size still match its record has not changed since
+	 * that record was written, so its stored IDs, which computeOrphanNoteIds
+	 * already counted, are its IDs: only the other files are read.
 	 */
 	private async withoutIdsElsewhere(orphanIds: number[], scanned: AllFile[]): Promise<number[]> {
 		if (orphanIds.length === 0) {
 			return orphanIds
 		}
 		const scannedPaths = new Set(scanned.map((file) => file.path))
-		const others = this.vault.markdownFiles().filter((file) => !scannedPaths.has(file.path))
+		const toRead = this.vault.markdownFiles().filter((obFile) => {
+			const entry = this.file_hashes[obFile.path]
+			const recordHolds = isStatUnchanged(obFile.stat, entry) && Array.isArray(entry.noteIds)
+			return !scannedPaths.has(obFile.path) && !recordHolds
+		})
 		const found = new Set<number>()
-		await mapConcurrent(others, 8, async (obFile) => {
+		await mapConcurrent(toRead, 8, async (obFile) => {
 			const content = await this.vault.read(obFile)
 			const file = new AllFile(
 				content,
