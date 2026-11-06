@@ -1,4 +1,4 @@
-import { Md5 } from 'ts-md5'
+import { createHash } from 'crypto'
 import type { FileData, ParsedSettings } from './interfaces/settings-interface'
 
 /** How long a scan may hold Obsidian's thread before it lets a frame be drawn. */
@@ -30,8 +30,12 @@ export function pruneFileHashes(hashes: FileHashes, pathExists: (path: string) =
 	return removed
 }
 
+/**
+ * MD5 of the text's UTF-8 bytes, in hex: the value stored in `File Hashes`.
+ * Records written by the old ts-md5 hash match it, so no file is rescanned.
+ */
 export function getFileContentHash(content: string): string {
-	return Md5.hashStr(content) as string
+	return createHash('md5').update(content, 'utf8').digest('hex')
 }
 
 export function getStoredHash(entry: string | FileHashEntry | undefined): string | undefined {

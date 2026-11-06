@@ -15,7 +15,7 @@ import {
 	ID_REGEXP_STR,
 	TAG_REGEXP_STR
 } from './note'
-import { Md5 } from 'ts-md5'
+import { getFileContentHash } from './scan-optimizations'
 import * as AnkiConnect from './anki'
 import * as c from './constants'
 import { FormatConverter } from './format'
@@ -260,7 +260,7 @@ abstract class AbstractFile {
 	}
 
 	getHash(): string {
-		return Md5.hashStr(this.file) as string
+		return getFileContentHash(this.file)
 	}
 
 	/**

@@ -206,3 +206,17 @@ test('createYielder defaults to a frame on the real clock', async () => {
 	await new Promise((resolve) => setTimeout(resolve, 20))
 	assert.equal(await yieldIfDue(), true)
 })
+
+test('getFileContentHash matches the ts-md5 hashes stored by earlier versions', () => {
+	const samples = [
+		'',
+		'START\nBasic\nFront: q\nBack: a\nEND\n',
+		'Clínica Médica: ação, coração, órgãos',
+		'Emoji 🫀🧠 and CJK 心臓 ',
+		'\r\nWindows line ends\r\n',
+		'x'.repeat(100_000)
+	]
+	for (const sample of samples) {
+		assert.equal(getFileContentHash(sample), Md5.hashStr(sample))
+	}
+})

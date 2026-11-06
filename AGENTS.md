@@ -71,8 +71,11 @@ obsidian "vault=My Vault" command id="obsidian-to-anki-plugin:anki-scan-vault"
 - Opt-in "Auto-launch Anki" fires one detached spawn (resolved per-platform in
   `resolveAnkiLaunchTarget`), waits 2s, re-probes once, then aborts with "run the scan again".
   Default off; desktop-only (`isDesktopOnly: true` — no mobile plans).
-- `child_process`/`fs` are the only Node natives allowed, and only in `src/anki-launch.ts`
-  (kept in Rollup `external`); everything else must stay renderer-safe.
+- `child_process`/`fs` stay in `src/anki-launch.ts`. Besides them the engine uses only `path`
+  and `crypto` (hashes in `scan-optimizations.ts`, `media-records.ts`), plus `http` in the opt-in
+  `api-server.ts`. All are Node builtins, external in `esbuild.config.mjs` and available in
+  Obsidian's desktop renderer; add no other. `ts-md5` is a devDependency only because the
+  parity harness builds the pinned upstream, which imports it.
 
 ## Commands
 
