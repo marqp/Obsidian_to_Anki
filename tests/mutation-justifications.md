@@ -41,6 +41,31 @@ ideas for the rest.
    assertion (`toContain('mytag')`) was too loose — membership survived
    inside a mangled slice.
 
+## Open backlog (scope extended 2026-11-06)
+
+`src/anki-import.ts`, `anki-read.ts`, `html-to-markdown.ts`, `media-records.ts`,
+`occlusion.ts`, `occlusion-pull.ts`, `validate.ts`, `api-server.ts` and
+`progress-notice.ts` were in neither the coverage gate nor `mutate`, or (the last
+two) only in the coverage gate. All nine now are. Line coverage was already ~97%,
+so the gate passed at once; the first mutation run left these survivors, none yet
+killed or justified one by one:
+
+| Module | Score | Survived | NoCoverage |
+|---|---|---|---|
+| `html-to-markdown.ts` | 71.15 | 205 | 29 |
+| `anki-import.ts` | 80.72 | 64 | 16 |
+| `api-server.ts` | 83.06 | 77 | 7 |
+| `occlusion.ts` | 81.36 | 51 | 1 |
+| `validate.ts` | 75.95 | 37 | 1 |
+| `occlusion-pull.ts` | 84.75 | 30 | 4 |
+| `anki-read.ts` | 85.65 | 22 | 9 |
+| `progress-notice.ts` | 70.97 | 9 | 0 |
+| `media-records.ts` | 100 | 0 | 0 |
+
+Most are `ConditionalExpression`, `StringLiteral` (user-facing messages no test
+pins) and `Regex` (the HTML-to-Markdown rules). Work through one module per
+commit, starting with `html-to-markdown.ts`, and shrink this table as you go.
+
 ## Accepted survivors (keep, do not "fix")
 
 ### perTest-mapping misses (hand-verified red, Stryker reports Survived)

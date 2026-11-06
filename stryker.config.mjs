@@ -25,7 +25,16 @@ export default {
 		'src/scan-optimizations.ts',
 		'src/scan-orchestrator.ts',
 		'src/setting-to-data.ts',
-		'src/ui/settings-migration.ts'
+		'src/ui/settings-migration.ts',
+		'src/anki-import.ts',
+		'src/anki-read.ts',
+		'src/html-to-markdown.ts',
+		'src/media-records.ts',
+		'src/occlusion.ts',
+		'src/occlusion-pull.ts',
+		'src/validate.ts',
+		'src/api-server.ts',
+		'src/progress-notice.ts'
 	],
 	coverageAnalysis: 'perTest',
 	// Reuses the last run's results for code and tests that did not change. It cannot
