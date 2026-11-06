@@ -188,7 +188,7 @@ export const TOOLS = [
 			required: ['errors', 'warnings', 'issues']
 		},
 		description:
-			'Check flashcard syntax: Cloze without deletions, unknown note types, blocks missing END, IDs reused across blocks or missing from Anki, and labels such as "Extra:" that are not fields of the note type. Read-only. Unlike anki_dry_run it checks files that have not changed, works with Anki closed (IDs are then not checked against Anki), and accepts unsaved text in `content`.',
+			'Check flashcard syntax: Cloze without deletions, unknown note types, blocks missing END, IDs reused across blocks or missing from Anki, labels such as "Extra:" that are not fields of the note type, and Basic blocks with no "Back:" line, whose answer went to the front. Read-only. Unlike anki_dry_run it checks files that have not changed, works with Anki closed (IDs are then not checked against Anki), and accepts unsaved text in `content`.',
 		inputSchema: {
 			type: 'object',
 			properties: {

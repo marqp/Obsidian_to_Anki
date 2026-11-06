@@ -42,6 +42,26 @@ describe('validateFiles', () => {
 		expect(report.issues[0]).toMatchObject({ severity: 'warning', line: 5, snippet: 'Extra: context' })
 	})
 
+	it('warns about a Basic block with no "Back:" line, whose answer went to the front', () => {
+		const report = check([input('# H\n\nSTART\nBasic\nFront: q\nthe answer\nEND\n')])
+
+		expect(report).toMatchObject({ errors: 0, warnings: 1, byKind: { 'missing-back-label': 1 } })
+		expect(report.issues[0]).toMatchObject({
+			kind: 'missing-back-label',
+			severity: 'warning',
+			line: 3,
+			snippet: 'Basic Front: q the answer',
+			message:
+				'No line starts with "Back:", so the whole block went to Front and the card has no answer. Start the answer with "Back:".'
+		})
+	})
+
+	it('does not ask for "Back:" in note types without a Back field, or where the word is not a label', () => {
+		expect(kinds([input('START\nCloze\nThe ==term==\nmore text\nEND\n')])).toEqual([])
+		expect(kinds([input('START\nBasic\nFront: q\nnot Back: here\nEND\n')])).toEqual(['missing-back-label'])
+		expect(kinds([input('START\nBasic\nFront: q\nBack:\nEND\n')])).toEqual([])
+	})
+
 	it('finds a block with no end marker at the end of a file', () => {
 		const report = check([input('START\nBasic\nFront: q\nBack: a\n')])
 
