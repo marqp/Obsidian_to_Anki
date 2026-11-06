@@ -48,12 +48,14 @@ interface notesInfoResponse {
 }
 
 interface Requests1Result {
+	// AnkiConnect answers a failed action with result null, so the whole batch
+	// and each file's entry can be null.
 	0: {
 		error: string | null
 		result: Array<{
-			result: addNoteResponse[]
+			result: addNoteResponse[] | null
 			error: string | null
-		}>
+		}> | null
 	}
 	1: {
 		error: string | null
@@ -936,12 +938,12 @@ export class FileManager {
 		}
 		this.readUpdateResults(batch.updates)
 		const undeletedFiles = this.readDeleteResults(batch.deletes)
-		let note_ids_array_by_file: Requests1Result[0]['result']
+		let note_ids_array_by_file: NonNullable<Requests1Result[0]['result']>
 		try {
-			note_ids_array_by_file = AnkiConnect.parse(batch.addedIds)
+			note_ids_array_by_file = AnkiConnect.parse(batch.addedIds) ?? []
 		} catch (error) {
 			console.error('Error: ', error)
-			note_ids_array_by_file = batch.addedIds.result
+			note_ids_array_by_file = batch.addedIds.result ?? []
 			this.scanIssues.push({ file: '', kind: 'add-notes', error: issueMessage(error) })
 		}
 		// Per-file fault isolation: one file's malformed notesInfo must not
@@ -969,10 +971,10 @@ export class FileManager {
 			const file = this.ownFiles[i]
 			let file_response: addNoteResponse[]
 			try {
-				file_response = AnkiConnect.parse(note_ids_array_by_file[i])
+				file_response = AnkiConnect.parse(note_ids_array_by_file[i]) ?? []
 			} catch (error) {
 				console.error('Error: ', error)
-				file_response = note_ids_array_by_file[i].result
+				file_response = note_ids_array_by_file[i].result ?? []
 				this.scanIssues.push({ file: file.path, kind: 'add-notes-file', error: issueMessage(error) })
 			}
 			file.note_ids = []

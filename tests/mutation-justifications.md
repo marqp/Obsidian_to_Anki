@@ -119,6 +119,12 @@ scratch copy, run only the suspect file, confirm red, restore):
   iteration reads `undefined` and the `item &&` guard skips it — equivalent
   under the guard, which exists for daemons returning ragged entries (the
   stray-entry test pins the `?? ''` fallback instead).
+- `src/files-manager.ts` `parse_requests_1` batch-level `?? []` (both the
+  parsed and the failed-batch fallback) → `["Stryker was here"]`: the stray
+  entry is read as the first file's response, has no `error` or `result`,
+  and the per-file `?? []` turns it into an empty list — the same file with
+  no IDs that `[]` leaves. The null cases themselves are pinned by the four
+  "survives …" tests in `scan-issues.test.ts` (red without the fallbacks).
 - `src/dry-run.ts` deck-sort comparator (`<=`/`>=`/branch variants): deck
   names are map keys, hence distinct — same strict-weak-ordering argument
   as the view comparator above; a 3-deck unsorted fixture pins the order.
