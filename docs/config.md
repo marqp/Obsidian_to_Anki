@@ -16,7 +16,7 @@ starts on General, and settings are never written on read.
 
 | Setting | Default | Effect |
 |---|---|---|
-| `Scan Directories` | _(empty = whole vault)_ | One path per line; subfolders included |
+| `Scan Directories` | _(empty = whole vault)_ | One path per line; subfolders included; only their `.md` files are read |
 | `Tag` | `Obsidian_to_Anki` | Added to every card |
 | `Deck` | `Default` | Fallback when no `TARGET DECK` / folder deck applies |
 | `Scheduling Interval` | `0` (off) | Auto-scan every N minutes while Obsidian runs |

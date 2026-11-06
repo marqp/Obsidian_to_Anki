@@ -12,7 +12,7 @@ import { buildDefaults } from './src/defaults-meta'
 import {
 	ScanOrchestrator,
 	createScanEnvironment,
-	getAllTFilesInFolder,
+	markdownFilesIn,
 	type PreviewCallbacks,
 	type ScanReport,
 	type ScanTarget
@@ -453,7 +453,7 @@ export default class MyPlugin extends Plugin {
 				if (folder === null) {
 					return null
 				}
-				return await this.scanVault(getAllTFilesInFolder(folder).filter((file) => file.extension === 'md'))
+				return await this.scanVault(markdownFilesIn(folder))
 			},
 			scanFiles: async (paths) => {
 				const files = paths.map((path) => this.apiFile(path))

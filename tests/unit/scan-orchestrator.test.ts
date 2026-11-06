@@ -69,6 +69,7 @@ function makePluginSettings(scanDirs: string[] = []): PluginSettings {
 function tfile(path: string): TFile {
 	const file = new TFile()
 	file.path = path
+	file.extension = path.slice(path.lastIndexOf('.') + 1)
 	return file
 }
 
@@ -291,7 +292,7 @@ describe('ScanOrchestrator pipeline', () => {
 		const inner = tfile('notes/a.md')
 		const folder = new TFolder()
 		folder.path = 'notes'
-		folder.children = [inner]
+		folder.children = [inner, tfile('notes/heart.png'), tfile('notes/slides.pdf')]
 		const app = new App()
 		app.vault.getAbstractFileByPath = (path: string) => (path === 'notes' ? folder : null)
 		const h2 = makeHarness({ app }, ['notes', 'missing'])

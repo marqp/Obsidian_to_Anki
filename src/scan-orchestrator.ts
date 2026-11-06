@@ -199,6 +199,11 @@ export function getAllTFilesInFolder(tfolder: TFolder): TFile[] {
 	return allTFiles
 }
 
+/** The Markdown files of a folder and its subfolders: the images and PDFs beside them hold no cards. */
+export function markdownFilesIn(folder: TFolder): TFile[] {
+	return getAllTFilesInFolder(folder).filter((file) => file.extension === 'md')
+}
+
 /**
  * Scan pipeline extracted from the plugin class (Wave 3): connection probe,
  * file discovery, FileManager passes, dry-run preview, and the mutating sync.
@@ -519,7 +524,7 @@ export class ScanOrchestrator {
 				const scanDir = this.env.app.vault.getAbstractFileByPath(dirPath)
 				if (scanDir instanceof TFolder) {
 					console.info('Using custom scan directory: ' + scanDir.path)
-					markdownFiles.push(...getAllTFilesInFolder(scanDir))
+					markdownFiles.push(...markdownFilesIn(scanDir))
 				} else {
 					notices.notify('Error: incorrect path for scan directory ' + dirPath)
 				}
