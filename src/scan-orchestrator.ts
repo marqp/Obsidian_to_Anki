@@ -1,14 +1,8 @@
 import { App, TFile, TFolder } from 'obsidian'
 import { settingToData } from './setting-to-data'
-import {
-	FileManager,
-	NO_MEDIA_PLAN,
-	ScanCancelledError,
-	type MediaPlan,
-	type ScanControl,
-	type ScanIssue
-} from './files-manager'
+import { FileManager, ScanCancelledError, type ScanControl, type ScanIssue } from './files-manager'
 import type { MediaRecords } from './media-records'
+import { NO_MEDIA_PLAN, type MediaPlan } from './media-sync'
 import { collectDryRunState, formatDryRunSummary, type DryRunSummary } from './dry-run'
 import { launchAnki, probeAnkiStatus, type AnkiProbe, type LaunchOutcome } from './anki-launch'
 import { obsidianNoticePort, type NoticePort } from './notices'

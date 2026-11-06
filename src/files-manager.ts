@@ -20,7 +20,18 @@ import {
 	FRAME_BUDGET_MS,
 	createYielder
 } from './scan-optimizations'
-import { hashBytes, MEDIA_CHECKS_PER_SCAN, type MediaRecord, type MediaRecords } from './media-records'
+import { hashBytes, MEDIA_CHECKS_PER_SCAN, type MediaRecords } from './media-records'
+import {
+	compareFailedIssue,
+	compareMedia,
+	decideMedia,
+	mediaDiffersIssue,
+	planChangedMedia,
+	staleMedia,
+	type MediaCandidate,
+	type MediaDecision,
+	type MediaPlan
+} from './media-sync'
 
 /** Re-exported from src/notices.ts for existing importers. */
 export type { NoticePort } from './notices'
@@ -173,39 +184,6 @@ function mediaKey(link: string): string {
 function issueMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error)
 }
-
-function mediaDiffersMessage(name: string, inAnki: boolean): string {
-	return inAnki
-		? `${name} in the vault differs from the file of that name in Anki, and notes in Anki show Anki's file.`
-		: `${name} is in the vault but not in Anki's media folder.`
-}
-
-/** A media link a scan should compare with Anki. */
-interface MediaCandidate {
-	link: string
-	dataFile: TFile
-	/** Absent when the link has no record, or its recorded file is gone. */
-	record?: MediaRecord
-}
-
-type MediaDecision =
-	/** Anki already holds the vault's bytes, or nothing about them changed. */
-	| { action: 'keep'; hash: string }
-	/** The vault changed and Anki still holds what was sent. */
-	| { action: 'send'; hash: string }
-	/** Either side could be the right one: only a person can decide. */
-	| { action: 'report'; inAnki: boolean }
-
-/** What a real scan would do with the changed media, computed without writing. */
-export interface MediaPlan {
-	/** Names that would be sent. */
-	resent: string[]
-	/** Vault paths of those files, which a media comparison should not report. */
-	paths: ReadonlySet<string>
-	issues: ScanIssue[]
-}
-
-export const NO_MEDIA_PLAN: MediaPlan = { resent: [], paths: new Set(), issues: [] }
 
 /**
  * Failures a later scan can repair by trying again, so the file must stay
@@ -900,16 +878,13 @@ export class FileManager {
 	async refreshChangedMedia(): Promise<void> {
 		this.resentMedia = []
 		this.mediaIssues = []
-		for (const candidate of this.staleMedia().slice(0, MEDIA_CHECKS_PER_SCAN)) {
+		const candidates = staleMedia(this.vault, this.added_media_set, this.mediaRecords)
+		for (const candidate of candidates.slice(0, MEDIA_CHECKS_PER_SCAN)) {
 			try {
-				await this.applyMediaDecision(candidate, await this.decideMedia(candidate))
+				await this.applyMediaDecision(candidate, await decideMedia(this.vault, candidate))
 			} catch (error) {
 				// Filed under the image, not a note file: no note has to be retried for this.
-				this.mediaIssues.push({
-					file: candidate.dataFile.path,
-					kind: 'media',
-					error: `Could not compare ${candidate.link}: ${issueMessage(error)}`
-				})
+				this.mediaIssues.push(compareFailedIssue(candidate.dataFile.path, candidate.link, error))
 			}
 		}
 		this.scanIssues = [...this.mediaIssues]
@@ -917,78 +892,13 @@ export class FileManager {
 
 	/** What refreshChangedMedia would do with the sent files that changed. Writes nothing. */
 	async planChangedMedia(): Promise<MediaPlan> {
-		const resent: string[] = []
-		const paths = new Set<string>()
-		const issues: ScanIssue[] = []
-		const sent = this.staleMedia().filter((candidate) => typeof candidate.record?.hash === 'string')
-		for (const candidate of sent.slice(0, MEDIA_CHECKS_PER_SCAN)) {
-			const { link, dataFile } = candidate
-			try {
-				const decision = await this.decideMedia(candidate)
-				if (decision.action === 'send') {
-					resent.push(basename(link))
-					paths.add(dataFile.path)
-				} else if (decision.action === 'report') {
-					issues.push(this.mediaDiffersIssue(link, dataFile, decision.inAnki))
-				}
-			} catch (error) {
-				issues.push({
-					file: dataFile.path,
-					kind: 'media',
-					error: `Could not compare ${link}: ${issueMessage(error)}`
-				})
-			}
-		}
-		return { resent, paths, issues }
-	}
-
-	/**
-	 * The links worth comparing with Anki, sent files first, so files with no
-	 * record yet can't delay a changed one. A record whose stat still matches
-	 * needs no read: this runs on every scan and only looks at cached stats.
-	 */
-	private staleMedia(): MediaCandidate[] {
-		const sent: MediaCandidate[] = []
-		const unrecorded: MediaCandidate[] = []
-		for (const link of new Set([...this.added_media_set, ...Object.keys(this.mediaRecords)])) {
-			const known = this.mediaRecords[link]
-			const atRecordedPath = known ? this.vault.getFirstLinkpathDest(known.path, '') : null
-			if (atRecordedPath && known) {
-				if (atRecordedPath.stat.mtime !== known.mtime || atRecordedPath.stat.size !== known.size) {
-					sent.push({ link, dataFile: atRecordedPath, record: known })
-				}
-				continue
-			}
-			// Moved or never recorded: only a byte match can tie this file to what Anki holds.
-			const dataFile = this.vault.getFirstLinkpathDest(link, '')
-			if (dataFile) {
-				unrecorded.push({ link, dataFile })
-			}
-		}
-		return [...sent, ...unrecorded]
-	}
-
-	private async decideMedia({ link, dataFile, record }: MediaCandidate): Promise<MediaDecision> {
-		const hash = hashBytes(await this.vault.readBinary(dataFile))
-		const sentHash = record?.hash ?? null
-		if (hash === sentHash) {
-			return { action: 'keep', hash }
-		}
-		const encoded = await AnkiConnect.invoke<string | false>('retrieveMediaFile', { filename: basename(link) })
-		if (encoded === false) {
-			return { action: 'report', inAnki: false }
-		}
-		const ankiHash = hashBytes(Buffer.from(encoded, 'base64'))
-		if (ankiHash === hash) {
-			return { action: 'keep', hash }
-		}
-		return ankiHash === sentHash ? { action: 'send', hash } : { action: 'report', inAnki: true }
+		return await planChangedMedia(this.vault, this.added_media_set, this.mediaRecords)
 	}
 
 	private async applyMediaDecision(candidate: MediaCandidate, decision: MediaDecision): Promise<void> {
 		const { link, dataFile } = candidate
 		if (decision.action === 'report') {
-			this.mediaIssues.push(this.mediaDiffersIssue(link, dataFile, decision.inAnki))
+			this.mediaIssues.push(mediaDiffersIssue(link, dataFile, decision.inAnki))
 			// The stat is kept, so this reports once per change instead of on every scan.
 			this.recordMedia(link, dataFile, null)
 			return
@@ -999,10 +909,6 @@ export class FileManager {
 			this.resentMedia.push(basename(link))
 		}
 		this.recordMedia(link, dataFile, decision.hash)
-	}
-
-	private mediaDiffersIssue(link: string, dataFile: TFile, inAnki: boolean): ScanIssue {
-		return { file: dataFile.path, kind: 'media-differs', error: mediaDiffersMessage(basename(link), inAnki) }
 	}
 
 	private recordMedia(link: string, dataFile: TFile, hash: string | null): void {
@@ -1026,7 +932,7 @@ export class FileManager {
 					issues.push({ file: file.path, kind: 'media-missing', error: `Couldn't locate media file ${link}` })
 				} else if (!compared.has(dataFile.path)) {
 					compared.add(dataFile.path)
-					const issue = await this.compareMedia(file.path, link, dataFile)
+					const issue = await compareMedia(this.vault, file.path, link, dataFile)
 					if (issue) {
 						issues.push(issue)
 					}
@@ -1034,23 +940,6 @@ export class FileManager {
 			}
 		}
 		return issues
-	}
-
-	private async compareMedia(path: string, link: string, dataFile: TFile): Promise<ScanIssue | null> {
-		try {
-			const name = basename(link)
-			const encoded = await AnkiConnect.invoke<string | false>('retrieveMediaFile', { filename: name })
-			if (encoded === false) {
-				return { file: path, kind: 'media-differs', error: mediaDiffersMessage(name, false) }
-			}
-			const inVault = Buffer.from(await this.vault.readBinary(dataFile))
-			if (Buffer.from(encoded, 'base64').equals(inVault)) {
-				return null
-			}
-			return { file: path, kind: 'media-differs', error: mediaDiffersMessage(name, true) }
-		} catch (error) {
-			return { file: path, kind: 'media', error: `Could not compare ${link}: ${issueMessage(error)}` }
-		}
 	}
 
 	async parse_requests_1() {

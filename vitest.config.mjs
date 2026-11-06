@@ -41,6 +41,7 @@ export default defineConfig({
 				'src/anki-read.ts',
 				'src/html-to-markdown.ts',
 				'src/media-records.ts',
+				'src/media-sync.ts',
 				'src/occlusion.ts',
 				'src/occlusion-pull.ts',
 				'src/validate.ts'

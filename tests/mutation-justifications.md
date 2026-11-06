@@ -62,6 +62,12 @@ killed or justified one by one:
 | `progress-notice.ts` | 70.97 | 9 | 0 |
 | `media-records.ts` | 100 | 0 | 0 |
 
+`src/media-sync.ts` came out of `files-manager.ts` later, as a pure move. Its 8
+survivors (score 93.44) are the ones that code had in `files-manager.ts`, on the
+same expressions: the `MEDIA_CHECKS_PER_SCAN` slice, the `'report'` check in the
+plan, the `''` source paths of `getFirstLinkpathDest`, the size half of the stat
+comparison and both `keep` results.
+
 Most are `ConditionalExpression`, `StringLiteral` (user-facing messages no test
 pins) and `Regex` (the HTML-to-Markdown rules). Work through one module per
 commit, starting with `html-to-markdown.ts`, and shrink this table as you go.

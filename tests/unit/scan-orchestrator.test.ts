@@ -13,14 +13,8 @@ import {
 	type ScanState
 } from '../../src/scan-orchestrator'
 import type { DryRunSummary } from '../../src/dry-run'
-import {
-	NO_MEDIA_PLAN,
-	ScanCancelledError,
-	type FileManager,
-	type MediaPlan,
-	type ScanControl,
-	type ScanIssue
-} from '../../src/files-manager'
+import { ScanCancelledError, type FileManager, type ScanControl, type ScanIssue } from '../../src/files-manager'
+import { NO_MEDIA_PLAN, type MediaPlan } from '../../src/media-sync'
 import type { MediaRecords } from '../../src/media-records'
 import type { ParsedSettings, PluginSettings } from '../../src/interfaces/settings-interface'
 import type { FileHashes } from '../../src/scan-optimizations'
