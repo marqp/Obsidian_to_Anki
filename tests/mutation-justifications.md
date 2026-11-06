@@ -105,11 +105,15 @@ scratch copy, run only the suspect file, confirm red, restore):
 
 ### Equivalent mutants (unobservable, keep)
 
-- `src/file.ts` `search()` no-ID path `onUnknownId`/`onEdit: () => undefined`
-  + `if (!consumed) pop`: `search_id == false` forces `identifier == null`,
-  so `resolveParsed` always takes the first branch and returns `true`. No
-  test can reach them without breaking the `RegexNote(id=false→null)`
-  contract (comment at `file.ts:557-559` is correct).
+- `src/file.ts` `search()` no-ID path `onUnknownId`/`onEdit: () => undefined`:
+  `search_id == false` forces `identifier == null`, so `resolveParsed` never
+  reaches those branches. Its `if (!consumed) pop` is reachable (a Cloze with
+  no deletion) and killed by `custom-regexp-id.test.ts`.
+- `src/file.ts` `resolveParsed` unknown-type branch, `opts.onUnknownType?.()`
+  (optional chaining) and its `return true`: only `Note`/`InlineNote` set
+  `noNoteType`; a `RegexNote` always has a configured type, so `search()`,
+  the one caller without `onUnknownType` and the only one that reads the
+  return value, never gets that branch.
 - `src/file.ts` `search()` ID path `onNew: warnUnknownId`: `search_id == true`
   implies an ID capture is present, so `parseInt` yields `number|NaN`, never
   `null` (`NaN != null` routes to the unknown path, not `onNew`).

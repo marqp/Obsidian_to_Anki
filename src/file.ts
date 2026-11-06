@@ -1,16 +1,14 @@
 /*Performing plugin operations on markdown file contents*/
 
 import { FROZEN_FIELDS_DICT } from './interfaces/field-interface'
-import { AnkiConnectNote, AnkiConnectNoteAndID } from './interfaces/note-interface'
+import { AnkiConnectNote, AnkiConnectNoteAndID, ParsedNote } from './interfaces/note-interface'
 import { FileData } from './interfaces/settings-interface'
 import {
 	Note,
 	InlineNote,
 	RegexNote,
 	AbstractNote,
-	CLOZE_ERROR,
 	isImageOcclusion,
-	NOTE_TYPE_ERROR,
 	TAG_SEP,
 	ID_REGEXP_STR,
 	TAG_REGEXP_STR
@@ -91,7 +89,7 @@ function issueSnippet(noteText: string): string {
 	return noteText.replace(/\s+/g, ' ').trim().slice(0, ISSUE_SNIPPET_LENGTH)
 }
 
-/** The ID a block carries; a sentinel identifier hides it from the parsed note. */
+/** The first ID line anywhere in a block, for issues about blocks that are not sent. */
 function existingIdIn(noteText: string): number | undefined {
 	const match = /(?:<!--)?ID: (\d+)/.exec(noteText)
 	return match ? parseInt(match[1], 10) : undefined
@@ -460,30 +458,36 @@ export class AllFile extends AbstractFile {
 	}
 
 	/**
-	 * Shared add-vs-edit classification for scanPattern and search(), in the
-	 * exact historical order (null -> unknown-ID with CLOZE_ERROR skip ->
-	 * edit). Callers differ only in what each outcome does, so each branch
-	 * is a callback. Returns false only for the CLOZE_ERROR skip, letting
-	 * search() undo its ignore-span bookkeeping for non-notes.
+	 * Shared add-vs-edit classification for scanPattern and search(): a block
+	 * with a problem is never sent, then a block with no ID is new, one with
+	 * an ID Anki does not have is stale, and the rest are edits. Callers
+	 * differ only in what each outcome does, so each branch is a callback.
+	 * Returns false only for a missing cloze, letting search() undo its
+	 * ignore-span bookkeeping for non-notes.
 	 */
 	private resolveParsed(
-		parsed: AnkiConnectNoteAndID,
+		parsed: ParsedNote,
 		opts: {
 			onNew: (identifier: number | null) => void
 			onUnknownId: (identifier: number | null) => void
 			onEdit: () => void
 			onClozeError?: () => void
+			onUnknownType?: () => void
 		}
 	): boolean {
+		if (parsed.problem === 'missing-cloze') {
+			opts.onClozeError?.()
+			return false
+		}
+		if (parsed.problem === 'unknown-type') {
+			opts.onUnknownType?.()
+			return true
+		}
 		if (parsed.identifier == null) {
 			opts.onNew(parsed.identifier)
 			return true
 		}
 		if (!this.data.EXISTING_IDS.has(parsed.identifier)) {
-			if (parsed.identifier == CLOZE_ERROR) {
-				opts.onClozeError?.()
-				return false
-			}
 			opts.onUnknownId(parsed.identifier)
 			return true
 		}
@@ -525,14 +529,9 @@ export class AllFile extends AbstractFile {
 	 * note is not created, and a note with an ID keeps what it has in Anki. Its ID
 	 * stays in the text, so it does not count as removed.
 	 */
-	private refuseMissingImage(parsed: AnkiConnectNoteAndID, noteText: string, position: number): boolean {
+	private refuseMissingImage(parsed: ParsedNote, noteText: string, position: number): boolean {
 		const { mediaExists } = this.data
-		if (
-			mediaExists === undefined ||
-			!isImageOcclusion(parsed.note.modelName) ||
-			parsed.identifier === CLOZE_ERROR ||
-			parsed.identifier === NOTE_TYPE_ERROR
-		) {
+		if (mediaExists === undefined || !isImageOcclusion(parsed.note.modelName) || parsed.problem !== undefined) {
 			return false
 		}
 		const missing = embeddedLinks(noteText).filter((link) => !mediaExists(link))
@@ -578,25 +577,24 @@ export class AllFile extends AbstractFile {
 					notesToAdd.push(parsed.note)
 					this.pendingAdds.push({ position, kind, start: note_match.index })
 				},
+				onUnknownType: () => {
+					console.warn('Did not recognise note type ', parsed.note.modelName, ' in file ', this.path)
+					this.addParseIssue(
+						'unknown-note-type',
+						note_match.index,
+						note,
+						`Unknown note type "${parsed.note.modelName}": the note was not sent to Anki. If the type is new, refresh the note type table in the plugin settings.`
+					)
+				},
 				onUnknownId: (identifier) => {
-					if (identifier == NOTE_TYPE_ERROR) {
-						console.warn('Did not recognise note type ', parsed.note.modelName, ' in file ', this.path)
-						this.addParseIssue(
-							'unknown-note-type',
-							note_match.index,
-							note,
-							`Unknown note type "${parsed.note.modelName}": the note was not sent to Anki. If the type is new, refresh the note type table in the plugin settings.`
-						)
-					} else {
-						console.warn('Note with id', identifier, ' in file ', this.path, ' does not exist in Anki!')
-						this.addParseIssue(
-							'stale-note-id',
-							note_match.index,
-							note,
-							`Note ${identifier} does not exist in Anki, so this block was not synced. Remove its ID line to create the note again.`,
-							identifier ?? undefined
-						)
-					}
+					console.warn('Note with id', identifier, ' in file ', this.path, ' does not exist in Anki!')
+					this.addParseIssue(
+						'stale-note-id',
+						note_match.index,
+						note,
+						`Note ${identifier} does not exist in Anki, so this block was not synced. Remove its ID line to create the note again.`,
+						identifier ?? undefined
+					)
 				},
 				onClozeError: () => {
 					this.addParseIssue(
@@ -675,7 +673,7 @@ export class AllFile extends AbstractFile {
 				for (const match of findignore(regexp, this.file, this.ignore_spans)) {
 					const matchPos: number = match.index ?? 0
 					this.ignore_spans.push([matchPos, matchPos + match[0].length])
-					const parsed: AnkiConnectNoteAndID = new RegexNote(
+					const parsed: ParsedNote = new RegexNote(
 						match,
 						note_type,
 						this.data.fields_dict,
@@ -705,9 +703,8 @@ export class AllFile extends AbstractFile {
 						}
 						continue
 					}
-					// Without an ID group every match is a fresh note (the
-					// CLOZE_ERROR branch below is unreachable by construction,
-					// kept only to preserve the historical shape).
+					// Without an ID group every match is a fresh note, unless it
+					// is a Cloze with no deletion: that one is not a note at all.
 					const consumed = this.resolveParsed(parsed, {
 						onNew: () => {
 							parsed.note.tags.push(...this.global_tags.split(TAG_SEP))

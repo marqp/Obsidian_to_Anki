@@ -4,7 +4,7 @@ Input must be the note text.
 Does NOT deal with finding the note in the file.*/
 
 import { FormatConverter } from './format'
-import { AnkiConnectNote, AnkiConnectNoteAndID } from './interfaces/note-interface'
+import { AnkiConnectNote, ParsedNote } from './interfaces/note-interface'
 import { FIELDS_DICT, FROZEN_FIELDS_DICT } from './interfaces/field-interface'
 import { FileData } from './interfaces/settings-interface'
 import { occlusionProblem } from './occlusion'
@@ -16,8 +16,6 @@ export const TAG_REGEXP_STR: string = String.raw`(Tags: .*)`
 const OBS_TAG_REGEXP: RegExp = /(?<=^|[\t ])#([\p{L}\p{N}\p{Emoji}\p{M}_/-]+)/gu
 
 const ANKI_CLOZE_REGEXP: RegExp = /{{c\d+::[\s\S]+?}}/
-export const CLOZE_ERROR: number = 42
-export const NOTE_TYPE_ERROR: number = 69
 
 function has_clozes(text: string): boolean {
 	/*Checks whether text actually has cloze deletions.*/
@@ -79,7 +77,7 @@ export interface BuildAnkiNoteParams {
 	noNoteType?: boolean
 }
 
-export function buildAnkiNote(params: BuildAnkiNoteParams): AnkiConnectNoteAndID {
+export function buildAnkiNote(params: BuildAnkiNoteParams): ParsedNote {
 	const {
 		template: baseTemplate,
 		modelName,
@@ -97,7 +95,7 @@ export function buildAnkiNote(params: BuildAnkiNoteParams): AnkiConnectNoteAndID
 	const template = cloneTemplate(baseTemplate)
 	template.modelName = modelName
 	if (noNoteType) {
-		return { note: template, identifier: NOTE_TYPE_ERROR }
+		return { note: template, identifier: params.identifier, problem: 'unknown-type' }
 	}
 
 	template.fields = fields
@@ -112,13 +110,9 @@ export function buildAnkiNote(params: BuildAnkiNoteParams): AnkiConnectNoteAndID
 		template.fields[contextField] = (template.fields[contextField] || '') + '<br>' + context
 	}
 
-	let identifier = params.identifier
 	const complete = isImageOcclusion(modelName)
 		? occlusionProblem(Object.values(template.fields)) === undefined
 		: !modelName.includes('Cloze') || note_has_clozes(template)
-	if (!complete) {
-		identifier = CLOZE_ERROR
-	}
 
 	const finalTags = [...tags]
 	if (data.add_obs_tags) {
@@ -132,7 +126,11 @@ export function buildAnkiNote(params: BuildAnkiNoteParams): AnkiConnectNoteAndID
 	template.tags.push(...finalTags)
 	template.deckName = deck
 
-	return { note: template, identifier }
+	const parsed: ParsedNote = { note: template, identifier: params.identifier }
+	if (!complete) {
+		parsed.problem = 'missing-cloze'
+	}
+	return parsed
 }
 
 export abstract class AbstractNote {
@@ -191,7 +189,7 @@ export abstract class AbstractNote {
 		frozen_fields_dict: FROZEN_FIELDS_DICT,
 		data: FileData,
 		context: string
-	): AnkiConnectNoteAndID {
+	): ParsedNote {
 		return buildAnkiNote({
 			template: data.template,
 			modelName: this.note_type,
@@ -377,7 +375,7 @@ export class RegexNote {
 		frozen_fields_dict: FROZEN_FIELDS_DICT,
 		data: FileData,
 		context: string
-	): AnkiConnectNoteAndID {
+	): ParsedNote {
 		return buildAnkiNote({
 			template: data.template,
 			modelName: this.note_type,

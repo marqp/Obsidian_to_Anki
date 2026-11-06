@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Note, NOTE_TYPE_ERROR } from '../../src/note'
+import { Note } from '../../src/note'
 import { FormatConverter } from '../../src/format'
 import type { FileData } from '../../src/interfaces/settings-interface'
 
@@ -66,7 +66,7 @@ describe('Regression: Note and InlineNote parsing', () => {
 		expect(parsed.note.fields['Text']).toContain('{{c')
 	})
 
-	it('returns NOTE_TYPE_ERROR for unrecognized model names', () => {
+	it('marks an unrecognized model name as an unknown type', () => {
 		const fileData = createDummyFileData()
 		const formatter = new FormatConverter({} as any, fileData.vault_name)
 		const noteText = 'NonExistentType\nField1: Val1\nField2: Val2'
@@ -74,6 +74,6 @@ describe('Regression: Note and InlineNote parsing', () => {
 		const note = new Note(noteText, fileData.fields_dict, false, false, formatter)
 		const parsed = note.parse('Medicina', '', {}, fileData, '')
 
-		expect(parsed.identifier).toBe(NOTE_TYPE_ERROR)
+		expect(parsed.problem).toBe('unknown-type')
 	})
 })

@@ -97,10 +97,26 @@ describe('custom regexp with managed IDs (search_id path)', () => {
 		const before = file.ignore_spans.length
 		file.search('Cloze', CUSTOM_QA)
 
-		// buildAnkiNote forces CLOZE_ERROR (42) for cloze-less Cloze notes;
+		// buildAnkiNote marks cloze-less Cloze notes as missing a cloze;
 		// resolveParsed returns false and search() undoes the span booking.
 		expect(file.regex_notes_to_add).toEqual([])
 		expect(file.notes_to_edit).toEqual([])
+		expect(file.ignore_spans.length).toBe(before)
+	})
+
+	it('Cloze custom without cloze and without an ID pops the span too', () => {
+		const data = testFileData({
+			fields_dict: { Basic: ['Front', 'Back'], Cloze: ['Text', 'Extra'] },
+			custom_regexps: { Cloze: CUSTOM_QA },
+			curly_cloze: true,
+			EXISTING_IDS: new Set<number>()
+		})
+		const file = new AllFile('Q::plain\nA::no cloze', 'note.md', '', data, emptyCache)
+		file.setupScan()
+		const before = file.ignore_spans.length
+		file.search('Cloze', CUSTOM_QA)
+
+		expect(file.regex_notes_to_add).toEqual([])
 		expect(file.ignore_spans.length).toBe(before)
 	})
 })
@@ -123,13 +139,22 @@ describe('Cloze blocks without cloze markup (scanPattern path)', () => {
 		expect(warnSpy).not.toHaveBeenCalled()
 	})
 
-	it('managed CLOZE_ERROR still edits (historical shape)', () => {
-		const file = scanAll('START\nCloze\nText: plain no cloze\nExtra: x\nEND', clozeData([42]))
+	it('does not edit a managed note that lost its clozes, and reports it with its ID', () => {
+		const file = scanAll('START\nCloze\nText: plain no cloze\nExtra: x\n<!--ID: 42-->\nEND', clozeData([42]))
 
-		// Odd but historical: an ID of 42 already managed in Anki takes the
-		// edit branch. Pinned so any change is deliberate, not accidental.
-		expect(file.notes_to_edit).toHaveLength(1)
-		expect(file.notes_to_edit[0].identifier).toBe(42)
+		// Before the problem field, the sentinel 42 made a note whose real ID
+		// was 42 take the edit branch; now the ID plays no part in the check.
+		expect(file.notes_to_edit).toEqual([])
+		expect(file.parseIssues).toEqual([expect.objectContaining({ kind: 'cloze-without-deletions', noteId: 42 })])
+	})
+
+	it('reports an unknown note type even when its ID is managed', () => {
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+		const file = scanAll('START\nNope\nFront: Q\n<!--ID: 69-->\nEND', clozeData([69]))
+
+		expect(file.notes_to_edit).toEqual([])
+		expect(file.parseIssues).toEqual([expect.objectContaining({ kind: 'unknown-note-type' })])
+		expect(warnSpy.mock.calls.some((args) => args.map(String).join(' ').includes('Did not recognise'))).toBe(true)
 	})
 })
 
