@@ -228,6 +228,46 @@ const RETRYABLE_ISSUES: ReadonlySet<ScanIssue['kind']> = new Set<ScanIssue['kind
 	'occlusion-image-missing'
 ])
 
+/**
+ * Anki keeps adding notes after a request times out, and a note whose ID never
+ * reaches the Markdown is added again by the next scan. So a scan that adds more
+ * than this sends its new notes in requests of about this size, and writes each
+ * request's IDs to the files before it sends the next one.
+ */
+const ADD_CHUNK_NOTES = 150
+
+/** One createDeck per deck the new notes of `files` go to. */
+function createDecksFor(files: AllFile[]): AnkiConnect.AnkiConnectRequest {
+	const decks = new Set<string>()
+	for (const file of files) {
+		for (const note of file.all_notes_to_add) {
+			if (note.deckName) {
+				decks.add(note.deckName)
+			}
+		}
+	}
+	return AnkiConnect.multi([...decks].map((deck) => AnkiConnect.createDeck(deck)))
+}
+
+/** Indexes of the files with notes to add, grouped to about `budget` notes each. A file is never split. */
+function addChunks(files: AllFile[], budget: number): Array<{ indexes: number[]; notes: number }> {
+	const chunks: Array<{ indexes: number[]; notes: number }> = []
+	files.forEach((file, index) => {
+		const count = file.all_notes_to_add.length
+		if (count === 0) {
+			return
+		}
+		const last = chunks[chunks.length - 1]
+		if (last && last.notes + count <= budget) {
+			last.indexes.push(index)
+			last.notes += count
+		} else {
+			chunks.push({ indexes: [index], notes: count })
+		}
+	})
+	return chunks
+}
+
 /** Every error inside one `multi` result, however deeply its batches nest. */
 function actionErrors(entry: unknown): string[] {
 	if (typeof entry !== 'object' || entry === null) {
@@ -315,6 +355,8 @@ export class FileManager {
 	/** Notes that differed from Anki when this scan read them. */
 	private changedNoteIds = new Set<number>()
 	private failedUpdateIds = new Set<number>()
+	/** Files edited while their IDs were being written: nothing more is written to them. */
+	private unsavedFiles = new Set<AllFile>()
 	/** Notes this scan meant to delete but Anki refused. */
 	failedDeleteCount = 0
 	/** Notes whose type this scan really converted. */
@@ -626,6 +668,7 @@ export class FileManager {
 		this.mediaUploads = []
 		this.changedNoteIds = new Set()
 		this.failedUpdateIds = new Set()
+		this.unsavedFiles = new Set()
 		this.failedDeleteCount = 0
 		this.convertedCount = 0
 		// One reflection call per scan decides which late actions this daemon
@@ -638,23 +681,13 @@ export class FileManager {
 		}
 		await this.keepAnkiStatusTags()
 		console.info('Requesting addition of new deck into Anki...')
-		const uniqueDecks = new Set<string>()
-		for (const file of this.ownFiles) {
-			for (const note of file.all_notes_to_add) {
-				if (note.deckName) {
-					uniqueDecks.add(note.deckName)
-				}
-			}
-		}
+		requests.push(createDecksFor(this.ownFiles))
 		let temp: AnkiConnect.AnkiConnectRequest[] = []
-		for (const deck of uniqueDecks) {
-			temp.push(AnkiConnect.createDeck(deck))
-		}
-		requests.push(AnkiConnect.multi(temp))
-		temp = []
+		const addsSent = await this.sendAddsInChunks()
 		console.info('Requesting addition of notes into Anki...')
 		for (const file of this.ownFiles) {
-			temp.push(file.getAddNotes())
+			// Notes sent in chunks already have IDs: an empty batch keeps one entry per file.
+			temp.push(addsSent ? AnkiConnect.multi([]) : file.getAddNotes())
 		}
 		requests.push(AnkiConnect.multi(temp))
 		temp = []
@@ -711,6 +744,112 @@ export class FileManager {
 		temp = []
 		this.requests_1_result = await AnkiConnect.invoke<unknown[]>('multi', { actions: requests })
 		await this.parse_requests_1()
+	}
+
+	/**
+	 * Sends the new notes in chunks when there are more than ADD_CHUNK_NOTES,
+	 * writing each chunk's IDs to its files before the next chunk goes. If a
+	 * request fails, the error ends the scan as before, but the files of the
+	 * chunks already sent keep their IDs, so the next scan only edits those
+	 * notes. Returns whether the notes were sent.
+	 */
+	private async sendAddsInChunks(): Promise<boolean> {
+		const total = this.ownFiles.reduce((n, file) => n + file.all_notes_to_add.length, 0)
+		if (total <= ADD_CHUNK_NOTES) {
+			return false
+		}
+		const chunks = addChunks(this.ownFiles, ADD_CHUNK_NOTES)
+		for (const [n, { indexes, notes }] of chunks.entries()) {
+			const files = indexes.map((index) => this.ownFiles[index])
+			console.info(`Adding ${notes} notes to Anki (part ${n + 1} of ${chunks.length})...`)
+			const [, added] = await AnkiConnect.invoke<[unknown, Requests1Result[0]]>('multi', {
+				actions: [createDecksFor(files), AnkiConnect.multi(files.map((file) => file.getAddNotes()))]
+			})
+			this.readAddResults(files, added)
+			for (const index of indexes) {
+				await this.writeIdsNow(this.ownFiles[index], this.files[index])
+			}
+		}
+		return true
+	}
+
+	/** Writes the IDs Anki just gave a file, before anything else of the scan can fail. */
+	private async writeIdsNow(ownFile: AllFile, obFile: TFile): Promise<void> {
+		ownFile.writeIDs()
+		if (await this.saveFile(ownFile, obFile)) {
+			ownFile.original_file = ownFile.file
+		} else {
+			ownFile.file = ownFile.original_file
+			this.unsavedFiles.add(ownFile)
+		}
+	}
+
+	/**
+	 * Writes the file's new text. process() hands us the file's current text: if
+	 * the user edited it while the sync ran, the ID offsets no longer apply, so
+	 * their edit is kept and reported instead. Returns false when nothing was written.
+	 */
+	private async saveFile(ownFile: AllFile, obFile: TFile): Promise<boolean> {
+		if (ownFile.file === ownFile.original_file) {
+			return true
+		}
+		let conflicted = false
+		await this.vault.process(obFile, (current) => {
+			if (current !== ownFile.original_file) {
+				conflicted = true
+				return current
+			}
+			return ownFile.file
+		})
+		if (conflicted) {
+			this.scanIssues.push({
+				file: ownFile.path,
+				kind: 'file-changed',
+				error: 'File was edited during the sync; note IDs were not written. Re-scan may create duplicate cards.'
+			})
+		}
+		return !conflicted
+	}
+
+	/** Reads the IDs of the notes added for `files`, one batch entry per file, into each file's note_ids. */
+	private readAddResults(files: AllFile[], addedIds: Requests1Result[0]): void {
+		let note_ids_array_by_file: NonNullable<Requests1Result[0]['result']>
+		try {
+			note_ids_array_by_file = AnkiConnect.parse(addedIds) ?? []
+		} catch (error) {
+			console.error('Error: ', error)
+			note_ids_array_by_file = addedIds.result ?? []
+			this.scanIssues.push({ file: '', kind: 'add-notes', error: issueMessage(error) })
+		}
+		for (let i = 0; i < note_ids_array_by_file.length; i++) {
+			const file = files[i]
+			let file_response: addNoteResponse[]
+			try {
+				file_response = AnkiConnect.parse(note_ids_array_by_file[i]) ?? []
+			} catch (error) {
+				console.error('Error: ', error)
+				file_response = note_ids_array_by_file[i].result ?? []
+				this.scanIssues.push({ file: file.path, kind: 'add-notes-file', error: issueMessage(error) })
+			}
+			file.note_ids = []
+			for (let j = 0; j < file_response.length; j++) {
+				const response = file_response[j]
+				try {
+					file.note_ids.push(AnkiConnect.parse(response))
+				} catch (error) {
+					console.warn(
+						'Failed to add note ',
+						file.all_notes_to_add[j],
+						' in file',
+						file.path,
+						' due to error ',
+						error
+					)
+					file.note_ids.push(response.result)
+					this.scanIssues.push({ file: file.path, kind: 'add-note', error: issueMessage(error) })
+				}
+			}
+		}
 	}
 
 	/**
@@ -938,14 +1077,7 @@ export class FileManager {
 		}
 		this.readUpdateResults(batch.updates)
 		const undeletedFiles = this.readDeleteResults(batch.deletes)
-		let note_ids_array_by_file: NonNullable<Requests1Result[0]['result']>
-		try {
-			note_ids_array_by_file = AnkiConnect.parse(batch.addedIds) ?? []
-		} catch (error) {
-			console.error('Error: ', error)
-			note_ids_array_by_file = batch.addedIds.result ?? []
-			this.scanIssues.push({ file: '', kind: 'add-notes', error: issueMessage(error) })
-		}
+		this.readAddResults(this.ownFiles, batch.addedIds)
 		// Per-file fault isolation: one file's malformed notesInfo must not
 		// abort the remaining files (or the tag list, ID stamping, and
 		// requests_2 below). Failures become ScanIssues; the file keeps its
@@ -966,35 +1098,6 @@ export class FileManager {
 			console.error('Error: ', error)
 			tag_list = []
 			this.scanIssues.push({ file: '', kind: 'tag-list', error: issueMessage(error) })
-		}
-		for (let i = 0; i < note_ids_array_by_file.length; i++) {
-			const file = this.ownFiles[i]
-			let file_response: addNoteResponse[]
-			try {
-				file_response = AnkiConnect.parse(note_ids_array_by_file[i]) ?? []
-			} catch (error) {
-				console.error('Error: ', error)
-				file_response = note_ids_array_by_file[i].result ?? []
-				this.scanIssues.push({ file: file.path, kind: 'add-notes-file', error: issueMessage(error) })
-			}
-			file.note_ids = []
-			for (let j = 0; j < file_response.length; j++) {
-				const response = file_response[j]
-				try {
-					file.note_ids.push(AnkiConnect.parse(response))
-				} catch (error) {
-					console.warn(
-						'Failed to add note ',
-						file.all_notes_to_add[j],
-						' in file',
-						file.path,
-						' due to error ',
-						error
-					)
-					file.note_ids.push(response.result)
-					this.scanIssues.push({ file: file.path, kind: 'add-note', error: issueMessage(error) })
-				}
-			}
 		}
 		for (let i = 0; i < note_info_array_by_file.length; i++) {
 			const file = this.ownFiles[i]
@@ -1043,33 +1146,17 @@ export class FileManager {
 		}
 		for (let i = 0; i < this.ownFiles.length; i++) {
 			const ownFile = this.ownFiles[i]
-			const obFile = this.files[i]
 			ownFile.tags = tag_list
+			// Edited while its chunk's IDs were written: that was reported, and writing now would lose the edit.
+			if (this.unsavedFiles.has(ownFile)) {
+				continue
+			}
 			ownFile.writeIDs()
 			// A DELETE line stays until the delete worked, so the retry can see it.
 			if (!undeletedFiles.has(ownFile.path)) {
 				ownFile.removeEmpties()
 			}
-			if (ownFile.file !== ownFile.original_file) {
-				// process() hands us the file's current text. If the user edited it
-				// while the sync ran, the id offsets no longer apply: keep their
-				// edit and report instead of clobbering it.
-				let conflicted = false
-				await this.vault.process(obFile, (current) => {
-					if (current !== ownFile.original_file) {
-						conflicted = true
-						return current
-					}
-					return ownFile.file
-				})
-				if (conflicted) {
-					this.scanIssues.push({
-						file: ownFile.path,
-						kind: 'file-changed',
-						error: 'File was edited during the sync; note IDs were not written. Re-scan may create duplicate cards.'
-					})
-				}
-			}
+			await this.saveFile(ownFile, this.files[i])
 		}
 		await this.requests_2()
 		if (this.scanIssues.length > 0) {

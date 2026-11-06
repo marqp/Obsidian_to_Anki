@@ -59,6 +59,7 @@ once, when the file is scanned; it does not repeat until the file changes.
 | `Local API could not start on port …` (Notice) | Port already in use | Change `Local API Port` |
 | `Another scan is already running` (HTTP 409) | A scan/dry-run holds the guard | Wait for it, then retry |
 | `File was edited during the sync; note IDs were not written` | You edited the note while the sync ran | Re-scan; if the card was duplicated, delete the duplicate in Anki |
+| `AnkiConnect request timed out after 30000ms: multi` | Anki took too long with the batch | Re-scan. Notes of a large scan go in parts, and parts already sent kept their IDs; look for duplicates only from the files of the part that failed (Anki's Browse → Notes → Find Duplicates) |
 
 ## Cards
 

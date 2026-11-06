@@ -22,6 +22,13 @@ Re-scans match by ID: same ID = update in place, scheduling preserved.
 Unknown ID (deleted manually in Anki) → warning `Note with id … does not exist
 in Anki!`, skipped. Remove the stale ID line to re-add as new.
 
+A scan that adds more than 150 notes sends them in parts of about 150 and
+writes each part's IDs before sending the next; a single file is never split.
+If a request fails or times out, the files of the parts already sent keep their
+IDs, so the next scan updates those notes instead of adding them again. Only the
+notes of the part that failed can come back as duplicates. Smaller scans send
+everything in one request.
+
 ## Updating
 
 Edit fields/tags in Markdown, re-scan. Field+tag updates go through one
