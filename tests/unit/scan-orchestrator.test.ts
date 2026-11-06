@@ -9,6 +9,7 @@ import {
 	getAllTFilesInFolder,
 	type PreviewCallbacks,
 	type ScanEnvironment,
+	type ScanReport,
 	type ScanState
 } from '../../src/scan-orchestrator'
 import type { DryRunSummary } from '../../src/dry-run'
@@ -272,6 +273,55 @@ describe('ScanOrchestrator pipeline', () => {
 		const file = tfile('note.md')
 		await h.orchestrator.scanVault(file)
 		expect(h.createdWith).toEqual([[file]])
+	})
+
+	describe('exclusive', () => {
+		it('holds the scan guard while the work runs, so a scan started meanwhile is refused', async () => {
+			const h = makeHarness()
+			let during: ScanReport | undefined
+			let guardDuring = false
+			const result = await h.orchestrator.exclusive(
+				async () => {
+					guardDuring = h.orchestrator.isScanning
+					during = await h.orchestrator.scanVault()
+					return 'written'
+				},
+				() => 'busy'
+			)
+
+			expect(result).toBe('written')
+			expect(guardDuring).toBe(true)
+			expect(during?.outcome).toBe('busy')
+			expect(h.createdWith).toEqual([])
+			expect(h.orchestrator.isScanning).toBe(false)
+		})
+
+		it('does not run the work while a scan runs', async () => {
+			const h = makeHarness()
+			const work = vi.fn(async () => 'written')
+			let result: string | undefined
+			h.fake.initialiseFiles = async () => {
+				result = await h.orchestrator.exclusive(work, () => 'busy')
+			}
+
+			await h.orchestrator.scanVault()
+
+			expect(result).toBe('busy')
+			expect(work).not.toHaveBeenCalled()
+		})
+
+		it('releases the guard when the work fails', async () => {
+			const h = makeHarness()
+
+			await expect(
+				h.orchestrator.exclusive(
+					() => Promise.reject(new Error('disk full')),
+					() => 'busy'
+				)
+			).rejects.toThrow('disk full')
+
+			expect(h.orchestrator.isScanning).toBe(false)
+		})
 	})
 
 	it('scans the vault when there is no active file', async () => {

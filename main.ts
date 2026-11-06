@@ -38,6 +38,8 @@ import { type ScanControl } from './src/files-manager'
 
 const CACHE_WAIT_MS = 100
 const CACHE_WAIT_ATTEMPTS = 50
+/** Why an import or a mask pull refuses to start. */
+const SCAN_RUNNING = 'A scan is running. Try again when it ends.'
 
 export default class MyPlugin extends Plugin {
 	declare settings: PluginSettings
@@ -511,25 +513,35 @@ export default class MyPlugin extends Plugin {
 			difficultCards: (query) => difficultCards(query, this.noteSourceLookup()),
 			importPreview: async ({ query, subjects }) =>
 				previewImport(await this.idsInVault(), await this.importOptions(subjects), query),
-			importApply: async ({ query, subjects }): Promise<ImportResult> => {
-				if (this.scanOrchestrator().isScanning) {
-					return {
-						blocked: ['A scan is running. Try again when it ends.'],
+			importApply: ({ query, subjects }): Promise<ImportResult> =>
+				this.scanOrchestrator().exclusive(
+					async () =>
+						await applyImport(
+							await this.idsInVault(),
+							await this.importOptions(subjects),
+							this.importVault(),
+							query
+						),
+					() => ({
+						blocked: [SCAN_RUNNING],
 						filesWritten: [],
 						notesWritten: 0,
 						imagesCopied: 0,
 						imagesAlreadyInVault: 0,
 						refused: []
-					}
+					})
+				),
+			occlusionPull: async (request) => {
+				const dependencies = await this.pullDependencies()
+				if (!request.apply) {
+					return await pullOcclusions(request, dependencies)
 				}
-				return await applyImport(
-					await this.idsInVault(),
-					await this.importOptions(subjects),
-					this.importVault(),
-					query
+				// The guard is ours while the masks are written, so the pull must not wait for itself.
+				return await this.scanOrchestrator().exclusive(
+					async () => await pullOcclusions(request, { ...dependencies, isScanning: () => false }),
+					() => ({ blocked: [SCAN_RUNNING], differences: [], notInVault: [], pulled: [], problems: [] })
 				)
-			},
-			occlusionPull: async (request) => pullOcclusions(request, await this.pullDependencies())
+			}
 		}
 	}
 

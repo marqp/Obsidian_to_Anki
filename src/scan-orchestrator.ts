@@ -219,6 +219,23 @@ export class ScanOrchestrator {
 		return this.scanInProgress
 	}
 
+	/**
+	 * Runs a vault write that is not a scan, such as an import or a mask pull,
+	 * under the scan guard, so no scan starts while it writes. Returns `busy()`
+	 * instead when a scan is already running.
+	 */
+	async exclusive<T>(work: () => Promise<T>, busy: () => T): Promise<T> {
+		if (this.scanInProgress) {
+			return busy()
+		}
+		this.scanInProgress = true
+		try {
+			return await work()
+		} finally {
+			this.scanInProgress = false
+		}
+	}
+
 	/** How the last scan or dry-run ended, for a caller that stopped waiting. */
 	get lastReport(): ScanReport | undefined {
 		return this.latestReport
