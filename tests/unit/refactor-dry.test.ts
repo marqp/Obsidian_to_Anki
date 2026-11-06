@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildAnkiNote, formatNoteFields, CLOZE_ERROR, NOTE_TYPE_ERROR } from '../../src/note'
+import { buildAnkiNote, formatNoteFields } from '../../src/note'
 import { FormatConverter } from '../../src/format'
 import type { FileData } from '../../src/interfaces/settings-interface'
 
@@ -68,7 +68,7 @@ describe('Refactor DRY: buildAnkiNote pure composition', () => {
 		expect(result.note.tags).toContain('BaseTag')
 	})
 
-	it('returns CLOZE_ERROR when a Cloze note has no clozes in fields', () => {
+	it('marks a Cloze note with no clozes in its fields', () => {
 		const data = createDummyFileData()
 		const formatter = new FormatConverter({} as any, data.vault_name)
 
@@ -83,10 +83,11 @@ describe('Refactor DRY: buildAnkiNote pure composition', () => {
 			formatter
 		})
 
-		expect(result.identifier).toBe(CLOZE_ERROR)
+		expect(result.problem).toBe('missing-cloze')
+		expect(result.identifier).toBeNull()
 	})
 
-	it('returns NOTE_TYPE_ERROR when noNoteType flag is set', () => {
+	it('marks the note type as unknown when the noNoteType flag is set', () => {
 		const data = createDummyFileData()
 		const formatter = new FormatConverter({} as any, data.vault_name)
 
@@ -102,7 +103,7 @@ describe('Refactor DRY: buildAnkiNote pure composition', () => {
 			noNoteType: true
 		})
 
-		expect(result.identifier).toBe(NOTE_TYPE_ERROR)
+		expect(result.problem).toBe('unknown-type')
 	})
 })
 

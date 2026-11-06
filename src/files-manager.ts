@@ -17,10 +17,21 @@ import {
 	isStatUnchanged,
 	mapConcurrent,
 	FileHashes,
-	VAULT_SCAN_YIELD_INTERVAL,
-	yieldToEventLoop
+	FRAME_BUDGET_MS,
+	createYielder
 } from './scan-optimizations'
-import { hashBytes, MEDIA_CHECKS_PER_SCAN, type MediaRecord, type MediaRecords } from './media-records'
+import { hashBytes, MEDIA_CHECKS_PER_SCAN, type MediaRecords } from './media-records'
+import {
+	compareFailedIssue,
+	compareMedia,
+	decideMedia,
+	mediaDiffersIssue,
+	planChangedMedia,
+	staleMedia,
+	type MediaCandidate,
+	type MediaDecision,
+	type MediaPlan
+} from './media-sync'
 
 /** Re-exported from src/notices.ts for existing importers. */
 export type { NoticePort } from './notices'
@@ -48,12 +59,14 @@ interface notesInfoResponse {
 }
 
 interface Requests1Result {
+	// AnkiConnect answers a failed action with result null, so the whole batch
+	// and each file's entry can be null.
 	0: {
 		error: string | null
 		result: Array<{
-			result: addNoteResponse[]
+			result: addNoteResponse[] | null
 			error: string | null
-		}>
+		}> | null
 	}
 	1: {
 		error: string | null
@@ -172,39 +185,6 @@ function issueMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error)
 }
 
-function mediaDiffersMessage(name: string, inAnki: boolean): string {
-	return inAnki
-		? `${name} in the vault differs from the file of that name in Anki, and notes in Anki show Anki's file.`
-		: `${name} is in the vault but not in Anki's media folder.`
-}
-
-/** A media link a scan should compare with Anki. */
-interface MediaCandidate {
-	link: string
-	dataFile: TFile
-	/** Absent when the link has no record, or its recorded file is gone. */
-	record?: MediaRecord
-}
-
-type MediaDecision =
-	/** Anki already holds the vault's bytes, or nothing about them changed. */
-	| { action: 'keep'; hash: string }
-	/** The vault changed and Anki still holds what was sent. */
-	| { action: 'send'; hash: string }
-	/** Either side could be the right one: only a person can decide. */
-	| { action: 'report'; inAnki: boolean }
-
-/** What a real scan would do with the changed media, computed without writing. */
-export interface MediaPlan {
-	/** Names that would be sent. */
-	resent: string[]
-	/** Vault paths of those files, which a media comparison should not report. */
-	paths: ReadonlySet<string>
-	issues: ScanIssue[]
-}
-
-export const NO_MEDIA_PLAN: MediaPlan = { resent: [], paths: new Set(), issues: [] }
-
 /**
  * Failures a later scan can repair by trying again, so the file must stay
  * "changed". The rest (a note Anki can never accept as written, a missing
@@ -225,6 +205,46 @@ const RETRYABLE_ISSUES: ReadonlySet<ScanIssue['kind']> = new Set<ScanIssue['kind
 	// The fix is outside the file: adding the image changes nothing a hash would see.
 	'occlusion-image-missing'
 ])
+
+/**
+ * Anki keeps adding notes after a request times out, and a note whose ID never
+ * reaches the Markdown is added again by the next scan. So a scan that adds more
+ * than this sends its new notes in requests of about this size, and writes each
+ * request's IDs to the files before it sends the next one.
+ */
+const ADD_CHUNK_NOTES = 150
+
+/** One createDeck per deck the new notes of `files` go to. */
+function createDecksFor(files: AllFile[]): AnkiConnect.AnkiConnectRequest {
+	const decks = new Set<string>()
+	for (const file of files) {
+		for (const note of file.all_notes_to_add) {
+			if (note.deckName) {
+				decks.add(note.deckName)
+			}
+		}
+	}
+	return AnkiConnect.multi([...decks].map((deck) => AnkiConnect.createDeck(deck)))
+}
+
+/** Indexes of the files with notes to add, grouped to about `budget` notes each. A file is never split. */
+function addChunks(files: AllFile[], budget: number): Array<{ indexes: number[]; notes: number }> {
+	const chunks: Array<{ indexes: number[]; notes: number }> = []
+	files.forEach((file, index) => {
+		const count = file.all_notes_to_add.length
+		if (count === 0) {
+			return
+		}
+		const last = chunks[chunks.length - 1]
+		if (last && last.notes + count <= budget) {
+			last.indexes.push(index)
+			last.notes += count
+		} else {
+			chunks.push({ indexes: [index], notes: count })
+		}
+	})
+	return chunks
+}
 
 /** Every error inside one `multi` result, however deeply its batches nest. */
 function actionErrors(entry: unknown): string[] {
@@ -287,6 +307,8 @@ export interface ScanControl {
 	 * would rewrite and resend files that did not change.
 	 */
 	everyFile?: boolean
+	/** Dry-run only: add the text Anki holds and the text the scan would write to each update. */
+	includeDiff?: boolean
 }
 
 /** Thrown at yield boundaries when ScanControl.isCancelled() returns true. */
@@ -313,6 +335,8 @@ export class FileManager {
 	/** Notes that differed from Anki when this scan read them. */
 	private changedNoteIds = new Set<number>()
 	private failedUpdateIds = new Set<number>()
+	/** Files edited while their IDs were being written: nothing more is written to them. */
+	private unsavedFiles = new Set<AllFile>()
 	/** Notes this scan meant to delete but Anki refused. */
 	failedDeleteCount = 0
 	/** Notes whose type this scan really converted. */
@@ -334,6 +358,8 @@ export class FileManager {
 	private mediaIssues: ScanIssue[] = []
 	private readonly vault: VaultPort
 	private readonly notifier: NoticePort
+	/** The clock scans pace their pauses by; injectable so tests need not race real time. */
+	private readonly now: () => number
 
 	constructor(
 		app: App,
@@ -341,11 +367,12 @@ export class FileManager {
 		files: TFile[],
 		file_hashes: FileHashes,
 		added_media: string[],
-		ports: { vault?: VaultPort; notices?: NoticePort } = {}
+		ports: { vault?: VaultPort; notices?: NoticePort; now?: () => number } = {}
 	) {
 		this.app = app
 		this.vault = ports.vault ?? vaultPortFromApp(app)
 		this.notifier = ports.notices ?? obsidianNoticePort
+		this.now = ports.now ?? (() => performance.now())
 		this.data = data
 
 		this.files = this.findFilesThatAreNotIgnored(files, data)
@@ -366,11 +393,10 @@ export class FileManager {
 	/** Every file a scan would look at, whether or not it changed. */
 	async validationInputs(): Promise<ValidationInput[]> {
 		const inputs: ValidationInput[] = []
+		const yieldIfDue = this.yielder()
 		for (const file of this.findFilesThatAreNotIgnored(this.files, this.data)) {
 			inputs.push({ path: file.path, text: await this.vault.read(file), data: this.dataToFileData(file) })
-			if (inputs.length % VAULT_SCAN_YIELD_INTERVAL === 0) {
-				await yieldToEventLoop()
-			}
+			await yieldIfDue()
 		}
 		return inputs
 	}
@@ -466,6 +492,7 @@ export class FileManager {
 		this.throwIfCancelled(control)
 
 		// Pass 3: Verify content hash and scan changed/new files
+		const yieldIfDue = this.yielder()
 		for (let index = 0; index < readResults.length; index++) {
 			const { obFile, content } = readResults[index]
 
@@ -486,9 +513,9 @@ export class FileManager {
 				obfiles_changed.push(obFile)
 			}
 
-			if ((index + 1) % VAULT_SCAN_YIELD_INTERVAL === 0 || index + 1 === readResults.length) {
+			// Progress and cancellation go with each pause, and with the last file.
+			if ((await yieldIfDue()) || index + 1 === readResults.length) {
 				control.onProgress?.({ done: index + 1, total: readResults.length, phase: 'scan' })
-				await yieldToEventLoop()
 				this.throwIfCancelled(control)
 			}
 		}
@@ -508,15 +535,23 @@ export class FileManager {
 	 * place only when that file is scanned. Deleting would lose the card's review
 	 * history, so anything about to be deleted is first looked for in the rest of
 	 * the vault. Scans that delete nothing read no extra file.
+	 *
+	 * A file whose mtime and size still match its record has not changed since
+	 * that record was written, so its stored IDs, which computeOrphanNoteIds
+	 * already counted, are its IDs: only the other files are read.
 	 */
 	private async withoutIdsElsewhere(orphanIds: number[], scanned: AllFile[]): Promise<number[]> {
 		if (orphanIds.length === 0) {
 			return orphanIds
 		}
 		const scannedPaths = new Set(scanned.map((file) => file.path))
-		const others = this.vault.markdownFiles().filter((file) => !scannedPaths.has(file.path))
+		const toRead = this.vault.markdownFiles().filter((obFile) => {
+			const entry = this.file_hashes[obFile.path]
+			const recordHolds = isStatUnchanged(obFile.stat, entry) && Array.isArray(entry.noteIds)
+			return !scannedPaths.has(obFile.path) && !recordHolds
+		})
 		const found = new Set<number>()
-		await mapConcurrent(others, 8, async (obFile) => {
+		await mapConcurrent(toRead, 8, async (obFile) => {
 			const content = await this.vault.read(obFile)
 			const file = new AllFile(
 				content,
@@ -530,6 +565,10 @@ export class FileManager {
 			}
 		})
 		return orphanIds.filter((id) => !found.has(id))
+	}
+
+	private yielder(): () => Promise<boolean> {
+		return createYielder(FRAME_BUDGET_MS, this.now)
 	}
 
 	/** Load the Anki note-ID set once, the first time a changed file needs it. */
@@ -624,6 +663,7 @@ export class FileManager {
 		this.mediaUploads = []
 		this.changedNoteIds = new Set()
 		this.failedUpdateIds = new Set()
+		this.unsavedFiles = new Set()
 		this.failedDeleteCount = 0
 		this.convertedCount = 0
 		// One reflection call per scan decides which late actions this daemon
@@ -636,23 +676,13 @@ export class FileManager {
 		}
 		await this.keepAnkiStatusTags()
 		console.info('Requesting addition of new deck into Anki...')
-		const uniqueDecks = new Set<string>()
-		for (const file of this.ownFiles) {
-			for (const note of file.all_notes_to_add) {
-				if (note.deckName) {
-					uniqueDecks.add(note.deckName)
-				}
-			}
-		}
+		requests.push(createDecksFor(this.ownFiles))
 		let temp: AnkiConnect.AnkiConnectRequest[] = []
-		for (const deck of uniqueDecks) {
-			temp.push(AnkiConnect.createDeck(deck))
-		}
-		requests.push(AnkiConnect.multi(temp))
-		temp = []
+		const addsSent = await this.sendAddsInChunks()
 		console.info('Requesting addition of notes into Anki...')
 		for (const file of this.ownFiles) {
-			temp.push(file.getAddNotes())
+			// Notes sent in chunks already have IDs: an empty batch keeps one entry per file.
+			temp.push(addsSent ? AnkiConnect.multi([]) : file.getAddNotes())
 		}
 		requests.push(AnkiConnect.multi(temp))
 		temp = []
@@ -712,6 +742,112 @@ export class FileManager {
 	}
 
 	/**
+	 * Sends the new notes in chunks when there are more than ADD_CHUNK_NOTES,
+	 * writing each chunk's IDs to its files before the next chunk goes. If a
+	 * request fails, the error ends the scan as before, but the files of the
+	 * chunks already sent keep their IDs, so the next scan only edits those
+	 * notes. Returns whether the notes were sent.
+	 */
+	private async sendAddsInChunks(): Promise<boolean> {
+		const total = this.ownFiles.reduce((n, file) => n + file.all_notes_to_add.length, 0)
+		if (total <= ADD_CHUNK_NOTES) {
+			return false
+		}
+		const chunks = addChunks(this.ownFiles, ADD_CHUNK_NOTES)
+		for (const [n, { indexes, notes }] of chunks.entries()) {
+			const files = indexes.map((index) => this.ownFiles[index])
+			console.info(`Adding ${notes} notes to Anki (part ${n + 1} of ${chunks.length})...`)
+			const [, added] = await AnkiConnect.invoke<[unknown, Requests1Result[0]]>('multi', {
+				actions: [createDecksFor(files), AnkiConnect.multi(files.map((file) => file.getAddNotes()))]
+			})
+			this.readAddResults(files, added)
+			for (const index of indexes) {
+				await this.writeIdsNow(this.ownFiles[index], this.files[index])
+			}
+		}
+		return true
+	}
+
+	/** Writes the IDs Anki just gave a file, before anything else of the scan can fail. */
+	private async writeIdsNow(ownFile: AllFile, obFile: TFile): Promise<void> {
+		ownFile.writeIDs()
+		if (await this.saveFile(ownFile, obFile)) {
+			ownFile.original_file = ownFile.file
+		} else {
+			ownFile.file = ownFile.original_file
+			this.unsavedFiles.add(ownFile)
+		}
+	}
+
+	/**
+	 * Writes the file's new text. process() hands us the file's current text: if
+	 * the user edited it while the sync ran, the ID offsets no longer apply, so
+	 * their edit is kept and reported instead. Returns false when nothing was written.
+	 */
+	private async saveFile(ownFile: AllFile, obFile: TFile): Promise<boolean> {
+		if (ownFile.file === ownFile.original_file) {
+			return true
+		}
+		let conflicted = false
+		await this.vault.process(obFile, (current) => {
+			if (current !== ownFile.original_file) {
+				conflicted = true
+				return current
+			}
+			return ownFile.file
+		})
+		if (conflicted) {
+			this.scanIssues.push({
+				file: ownFile.path,
+				kind: 'file-changed',
+				error: 'File was edited during the sync; note IDs were not written. Re-scan may create duplicate cards.'
+			})
+		}
+		return !conflicted
+	}
+
+	/** Reads the IDs of the notes added for `files`, one batch entry per file, into each file's note_ids. */
+	private readAddResults(files: AllFile[], addedIds: Requests1Result[0]): void {
+		let note_ids_array_by_file: NonNullable<Requests1Result[0]['result']>
+		try {
+			note_ids_array_by_file = AnkiConnect.parse(addedIds) ?? []
+		} catch (error) {
+			console.error('Error: ', error)
+			note_ids_array_by_file = addedIds.result ?? []
+			this.scanIssues.push({ file: '', kind: 'add-notes', error: issueMessage(error) })
+		}
+		for (let i = 0; i < note_ids_array_by_file.length; i++) {
+			const file = files[i]
+			let file_response: addNoteResponse[]
+			try {
+				file_response = AnkiConnect.parse(note_ids_array_by_file[i]) ?? []
+			} catch (error) {
+				console.error('Error: ', error)
+				file_response = note_ids_array_by_file[i].result ?? []
+				this.scanIssues.push({ file: file.path, kind: 'add-notes-file', error: issueMessage(error) })
+			}
+			file.note_ids = []
+			for (let j = 0; j < file_response.length; j++) {
+				const response = file_response[j]
+				try {
+					file.note_ids.push(AnkiConnect.parse(response))
+				} catch (error) {
+					console.warn(
+						'Failed to add note ',
+						file.all_notes_to_add[j],
+						' in file',
+						file.path,
+						' due to error ',
+						error
+					)
+					file.note_ids.push(response.result)
+					this.scanIssues.push({ file: file.path, kind: 'add-note', error: issueMessage(error) })
+				}
+			}
+		}
+	}
+
+	/**
 	 * The media Anki holds now. `Added Media` only says a file was sent once, and
 	 * Anki can drop it later, as Check Media does with files no card uses. Null
 	 * when nothing needs checking or Anki can't say: then that cache decides.
@@ -742,16 +878,13 @@ export class FileManager {
 	async refreshChangedMedia(): Promise<void> {
 		this.resentMedia = []
 		this.mediaIssues = []
-		for (const candidate of this.staleMedia().slice(0, MEDIA_CHECKS_PER_SCAN)) {
+		const candidates = staleMedia(this.vault, this.added_media_set, this.mediaRecords)
+		for (const candidate of candidates.slice(0, MEDIA_CHECKS_PER_SCAN)) {
 			try {
-				await this.applyMediaDecision(candidate, await this.decideMedia(candidate))
+				await this.applyMediaDecision(candidate, await decideMedia(this.vault, candidate))
 			} catch (error) {
 				// Filed under the image, not a note file: no note has to be retried for this.
-				this.mediaIssues.push({
-					file: candidate.dataFile.path,
-					kind: 'media',
-					error: `Could not compare ${candidate.link}: ${issueMessage(error)}`
-				})
+				this.mediaIssues.push(compareFailedIssue(candidate.dataFile.path, candidate.link, error))
 			}
 		}
 		this.scanIssues = [...this.mediaIssues]
@@ -759,78 +892,13 @@ export class FileManager {
 
 	/** What refreshChangedMedia would do with the sent files that changed. Writes nothing. */
 	async planChangedMedia(): Promise<MediaPlan> {
-		const resent: string[] = []
-		const paths = new Set<string>()
-		const issues: ScanIssue[] = []
-		const sent = this.staleMedia().filter((candidate) => typeof candidate.record?.hash === 'string')
-		for (const candidate of sent.slice(0, MEDIA_CHECKS_PER_SCAN)) {
-			const { link, dataFile } = candidate
-			try {
-				const decision = await this.decideMedia(candidate)
-				if (decision.action === 'send') {
-					resent.push(basename(link))
-					paths.add(dataFile.path)
-				} else if (decision.action === 'report') {
-					issues.push(this.mediaDiffersIssue(link, dataFile, decision.inAnki))
-				}
-			} catch (error) {
-				issues.push({
-					file: dataFile.path,
-					kind: 'media',
-					error: `Could not compare ${link}: ${issueMessage(error)}`
-				})
-			}
-		}
-		return { resent, paths, issues }
-	}
-
-	/**
-	 * The links worth comparing with Anki, sent files first, so files with no
-	 * record yet can't delay a changed one. A record whose stat still matches
-	 * needs no read: this runs on every scan and only looks at cached stats.
-	 */
-	private staleMedia(): MediaCandidate[] {
-		const sent: MediaCandidate[] = []
-		const unrecorded: MediaCandidate[] = []
-		for (const link of new Set([...this.added_media_set, ...Object.keys(this.mediaRecords)])) {
-			const known = this.mediaRecords[link]
-			const atRecordedPath = known ? this.vault.getFirstLinkpathDest(known.path, '') : null
-			if (atRecordedPath && known) {
-				if (atRecordedPath.stat.mtime !== known.mtime || atRecordedPath.stat.size !== known.size) {
-					sent.push({ link, dataFile: atRecordedPath, record: known })
-				}
-				continue
-			}
-			// Moved or never recorded: only a byte match can tie this file to what Anki holds.
-			const dataFile = this.vault.getFirstLinkpathDest(link, '')
-			if (dataFile) {
-				unrecorded.push({ link, dataFile })
-			}
-		}
-		return [...sent, ...unrecorded]
-	}
-
-	private async decideMedia({ link, dataFile, record }: MediaCandidate): Promise<MediaDecision> {
-		const hash = hashBytes(await this.vault.readBinary(dataFile))
-		const sentHash = record?.hash ?? null
-		if (hash === sentHash) {
-			return { action: 'keep', hash }
-		}
-		const encoded = await AnkiConnect.invoke<string | false>('retrieveMediaFile', { filename: basename(link) })
-		if (encoded === false) {
-			return { action: 'report', inAnki: false }
-		}
-		const ankiHash = hashBytes(Buffer.from(encoded, 'base64'))
-		if (ankiHash === hash) {
-			return { action: 'keep', hash }
-		}
-		return ankiHash === sentHash ? { action: 'send', hash } : { action: 'report', inAnki: true }
+		return await planChangedMedia(this.vault, this.added_media_set, this.mediaRecords)
 	}
 
 	private async applyMediaDecision(candidate: MediaCandidate, decision: MediaDecision): Promise<void> {
 		const { link, dataFile } = candidate
 		if (decision.action === 'report') {
-			this.mediaIssues.push(this.mediaDiffersIssue(link, dataFile, decision.inAnki))
+			this.mediaIssues.push(mediaDiffersIssue(link, dataFile, decision.inAnki))
 			// The stat is kept, so this reports once per change instead of on every scan.
 			this.recordMedia(link, dataFile, null)
 			return
@@ -841,10 +909,6 @@ export class FileManager {
 			this.resentMedia.push(basename(link))
 		}
 		this.recordMedia(link, dataFile, decision.hash)
-	}
-
-	private mediaDiffersIssue(link: string, dataFile: TFile, inAnki: boolean): ScanIssue {
-		return { file: dataFile.path, kind: 'media-differs', error: mediaDiffersMessage(basename(link), inAnki) }
 	}
 
 	private recordMedia(link: string, dataFile: TFile, hash: string | null): void {
@@ -868,7 +932,7 @@ export class FileManager {
 					issues.push({ file: file.path, kind: 'media-missing', error: `Couldn't locate media file ${link}` })
 				} else if (!compared.has(dataFile.path)) {
 					compared.add(dataFile.path)
-					const issue = await this.compareMedia(file.path, link, dataFile)
+					const issue = await compareMedia(this.vault, file.path, link, dataFile)
 					if (issue) {
 						issues.push(issue)
 					}
@@ -876,23 +940,6 @@ export class FileManager {
 			}
 		}
 		return issues
-	}
-
-	private async compareMedia(path: string, link: string, dataFile: TFile): Promise<ScanIssue | null> {
-		try {
-			const name = basename(link)
-			const encoded = await AnkiConnect.invoke<string | false>('retrieveMediaFile', { filename: name })
-			if (encoded === false) {
-				return { file: path, kind: 'media-differs', error: mediaDiffersMessage(name, false) }
-			}
-			const inVault = Buffer.from(await this.vault.readBinary(dataFile))
-			if (Buffer.from(encoded, 'base64').equals(inVault)) {
-				return null
-			}
-			return { file: path, kind: 'media-differs', error: mediaDiffersMessage(name, true) }
-		} catch (error) {
-			return { file: path, kind: 'media', error: `Could not compare ${link}: ${issueMessage(error)}` }
-		}
 	}
 
 	async parse_requests_1() {
@@ -936,14 +983,7 @@ export class FileManager {
 		}
 		this.readUpdateResults(batch.updates)
 		const undeletedFiles = this.readDeleteResults(batch.deletes)
-		let note_ids_array_by_file: Requests1Result[0]['result']
-		try {
-			note_ids_array_by_file = AnkiConnect.parse(batch.addedIds)
-		} catch (error) {
-			console.error('Error: ', error)
-			note_ids_array_by_file = batch.addedIds.result
-			this.scanIssues.push({ file: '', kind: 'add-notes', error: issueMessage(error) })
-		}
+		this.readAddResults(this.ownFiles, batch.addedIds)
 		// Per-file fault isolation: one file's malformed notesInfo must not
 		// abort the remaining files (or the tag list, ID stamping, and
 		// requests_2 below). Failures become ScanIssues; the file keeps its
@@ -964,35 +1004,6 @@ export class FileManager {
 			console.error('Error: ', error)
 			tag_list = []
 			this.scanIssues.push({ file: '', kind: 'tag-list', error: issueMessage(error) })
-		}
-		for (let i = 0; i < note_ids_array_by_file.length; i++) {
-			const file = this.ownFiles[i]
-			let file_response: addNoteResponse[]
-			try {
-				file_response = AnkiConnect.parse(note_ids_array_by_file[i])
-			} catch (error) {
-				console.error('Error: ', error)
-				file_response = note_ids_array_by_file[i].result
-				this.scanIssues.push({ file: file.path, kind: 'add-notes-file', error: issueMessage(error) })
-			}
-			file.note_ids = []
-			for (let j = 0; j < file_response.length; j++) {
-				const response = file_response[j]
-				try {
-					file.note_ids.push(AnkiConnect.parse(response))
-				} catch (error) {
-					console.warn(
-						'Failed to add note ',
-						file.all_notes_to_add[j],
-						' in file',
-						file.path,
-						' due to error ',
-						error
-					)
-					file.note_ids.push(response.result)
-					this.scanIssues.push({ file: file.path, kind: 'add-note', error: issueMessage(error) })
-				}
-			}
 		}
 		for (let i = 0; i < note_info_array_by_file.length; i++) {
 			const file = this.ownFiles[i]
@@ -1041,33 +1052,17 @@ export class FileManager {
 		}
 		for (let i = 0; i < this.ownFiles.length; i++) {
 			const ownFile = this.ownFiles[i]
-			const obFile = this.files[i]
 			ownFile.tags = tag_list
+			// Edited while its chunk's IDs were written: that was reported, and writing now would lose the edit.
+			if (this.unsavedFiles.has(ownFile)) {
+				continue
+			}
 			ownFile.writeIDs()
 			// A DELETE line stays until the delete worked, so the retry can see it.
 			if (!undeletedFiles.has(ownFile.path)) {
 				ownFile.removeEmpties()
 			}
-			if (ownFile.file !== ownFile.original_file) {
-				// process() hands us the file's current text. If the user edited it
-				// while the sync ran, the id offsets no longer apply: keep their
-				// edit and report instead of clobbering it.
-				let conflicted = false
-				await this.vault.process(obFile, (current) => {
-					if (current !== ownFile.original_file) {
-						conflicted = true
-						return current
-					}
-					return ownFile.file
-				})
-				if (conflicted) {
-					this.scanIssues.push({
-						file: ownFile.path,
-						kind: 'file-changed',
-						error: 'File was edited during the sync; note IDs were not written. Re-scan may create duplicate cards.'
-					})
-				}
-			}
+			await this.saveFile(ownFile, this.files[i])
 		}
 		await this.requests_2()
 		if (this.scanIssues.length > 0) {

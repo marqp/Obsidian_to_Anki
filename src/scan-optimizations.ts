@@ -1,7 +1,8 @@
-import { Md5 } from 'ts-md5'
+import { createHash } from 'crypto'
 import type { FileData, ParsedSettings } from './interfaces/settings-interface'
 
-export const VAULT_SCAN_YIELD_INTERVAL = 100
+/** How long a scan may hold Obsidian's thread before it lets a frame be drawn. */
+export const FRAME_BUDGET_MS = 16
 
 export interface FileHashEntry {
 	hash: string
@@ -29,8 +30,12 @@ export function pruneFileHashes(hashes: FileHashes, pathExists: (path: string) =
 	return removed
 }
 
+/**
+ * MD5 of the text's UTF-8 bytes, in hex: the value stored in `File Hashes`.
+ * Records written by the old ts-md5 hash match it, so no file is rescanned.
+ */
 export function getFileContentHash(content: string): string {
-	return Md5.hashStr(content) as string
+	return createHash('md5').update(content, 'utf8').digest('hex')
 }
 
 export function getStoredHash(entry: string | FileHashEntry | undefined): string | undefined {
@@ -122,7 +127,7 @@ export function findFirstNoteId(content: string): number | null {
 export function isStatUnchanged(
 	stat: { mtime: number; size: number } | undefined,
 	cachedEntry: string | FileHashEntry | undefined
-): boolean {
+): cachedEntry is FileHashEntry {
 	if (!stat || !cachedEntry || typeof cachedEntry === 'string') {
 		return false
 	}
@@ -196,4 +201,25 @@ export function createFileData(data: ParsedSettings, deckName: string, tags: str
 
 export async function yieldToEventLoop(): Promise<void> {
 	await new Promise<void>((resolve) => setTimeout(resolve, 0))
+}
+
+/**
+ * A yield point for one scan. It lets Obsidian draw and take input once the scan
+ * has held the thread for `budgetMs`, which a fixed number of files cannot do:
+ * a hundred files the hash skips take a few milliseconds, a hundred to format can
+ * take a second. Resolves to whether it yielded. Each scan makes its own.
+ */
+export function createYielder(
+	budgetMs = FRAME_BUDGET_MS,
+	now: () => number = () => performance.now()
+): () => Promise<boolean> {
+	let last = now()
+	return async () => {
+		if (now() - last < budgetMs) {
+			return false
+		}
+		await yieldToEventLoop()
+		last = now()
+		return true
+	}
 }

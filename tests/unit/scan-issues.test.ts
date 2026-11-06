@@ -59,6 +59,11 @@ function managerWithFiles(
 	return { manager, invokeMock }
 }
 function managerWithAdd(data: ParsedSettings, addedIdsResult: unknown) {
+	return managerWithAddBatch(data, { error: null, result: addedIdsResult })
+}
+
+/** Like managerWithAdd, but the caller supplies the whole addNotes batch entry. */
+function managerWithAddBatch(data: ParsedSettings, addedIdsBatch: unknown) {
 	const manager = new FileManager(testApp(), data, [], {}, [])
 	const file = new AllFile('', 'note.md', '', createFileData(data, 'Default', []), {} as CachedMetadata)
 	file.all_notes_to_add = [testNote() as never]
@@ -66,7 +71,7 @@ function managerWithAdd(data: ParsedSettings, addedIdsResult: unknown) {
 	manager.files = []
 	const multiResponse = [
 		{ error: null, result: [] },
-		{ error: null, result: addedIdsResult },
+		addedIdsBatch,
 		{ error: null, result: [] },
 		{ error: null, result: [] },
 		{ error: null, result: [] },
@@ -212,5 +217,52 @@ describe('parse_requests_1: named batch + ScanIssue collection', () => {
 		await manager.requests_1()
 
 		expect(manager.scanIssues).toEqual([issue])
+	})
+
+	it('survives an addNotes batch that failed as a whole', async () => {
+		const data = createParsedSettings()
+		const manager = managerWithAddBatch(data, { error: 'collection is closed', result: null })
+		vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+		await manager.requests_1()
+
+		expect(manager.ownFiles[0].note_ids).toEqual([])
+		expect(manager.ownFiles[0].tags).toEqual([])
+		expect(manager.scanIssues).toEqual([
+			{ file: '', kind: 'add-notes', error: 'AnkiConnect [parse]: collection is closed' }
+		])
+	})
+
+	it('survives an addNotes batch with no result and no error', async () => {
+		const data = createParsedSettings()
+		const manager = managerWithAddBatch(data, { error: null, result: null })
+
+		await manager.requests_1()
+
+		expect(manager.ownFiles[0].note_ids).toEqual([])
+		expect(manager.scanIssues).toEqual([])
+	})
+
+	it("survives one file's addNotes that failed as a whole", async () => {
+		const data = createParsedSettings()
+		const manager = managerWithAdd(data, [{ error: 'model was not found', result: null }])
+		vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+		await manager.requests_1()
+
+		expect(manager.ownFiles[0].note_ids).toEqual([])
+		expect(manager.scanIssues).toEqual([
+			{ file: 'note.md', kind: 'add-notes-file', error: 'AnkiConnect [parse]: model was not found' }
+		])
+	})
+
+	it("survives one file's addNotes with no result and no error", async () => {
+		const data = createParsedSettings()
+		const manager = managerWithAdd(data, [{ error: null, result: null }])
+
+		await manager.requests_1()
+
+		expect(manager.ownFiles[0].note_ids).toEqual([])
+		expect(manager.scanIssues).toEqual([])
 	})
 })

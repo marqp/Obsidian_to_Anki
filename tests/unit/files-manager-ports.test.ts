@@ -109,6 +109,26 @@ describe('FileManager with injected VaultPort (no Obsidian)', () => {
 		expect(progress).toContain('scan:2/2')
 	})
 
+	it('gives validation every file it would scan, changed or not, with its text', async () => {
+		const vault = fakeVault({ 'a.md': NOTE, 'b.md': 'plain' })
+		const data = createParsedSettings({ ignored_file_globs: ['**/*.excalidraw.md'] })
+		const files = [
+			tfile('a.md', { mtime: 1, size: 1 }),
+			tfile('b.md', { mtime: 2, size: 1 }),
+			tfile('draw.excalidraw.md', { mtime: 3, size: 1 })
+		]
+		const hashes = { 'a.md': { hash: 'h', mtime: 1, size: 1, noteIds: [] } }
+		const manager = new FileManager({} as never, data, files, hashes, [], { vault })
+
+		const inputs = await manager.validationInputs()
+
+		expect(inputs.map(({ path, text }) => ({ path, text }))).toEqual([
+			{ path: 'a.md', text: NOTE },
+			{ path: 'b.md', text: 'plain' }
+		])
+		expect(inputs[0].data.fields_dict).toEqual(data.fields_dict)
+	})
+
 	it('honours cancellation between read and scan passes', async () => {
 		const vault = fakeVault({ 'a.md': NOTE })
 		const data = createParsedSettings()

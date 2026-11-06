@@ -57,8 +57,9 @@ once, when the file is scanned; it does not repeat until the file changes.
 | `Cannot reach the plugin API` in the agent | Obsidian closed, or `Local API` off | Open Obsidian, enable `Local API` in the plugin settings |
 | `The plugin rejected the token` | Token in the MCP env differs from the settings | Copy `Local API Token` again into `OBSIDIAN_ANKI_TOKEN` |
 | `Local API could not start on port …` (Notice) | Port already in use | Change `Local API Port` |
-| `Another scan is already running` (HTTP 409) | A scan/dry-run holds the guard | Wait for it, then retry |
+| `Another scan is already running` (HTTP 409) | A scan, dry-run, import or mask pull holds the guard | Wait for it, then retry |
 | `File was edited during the sync; note IDs were not written` | You edited the note while the sync ran | Re-scan; if the card was duplicated, delete the duplicate in Anki |
+| `AnkiConnect request timed out after 30000ms: multi` | Anki took too long with the batch | Re-scan. Notes of a large scan go in parts, and parts already sent kept their IDs; look for duplicates only from the files of the part that failed (Anki's Browse → Notes → Find Duplicates) |
 
 ## Cards
 

@@ -47,13 +47,15 @@ describe('initialiseFiles: ScanControl progress + cooperative cancel', () => {
 		const parsed = createParsedSettings({ delete_removed_notes: false })
 		const files: Record<string, string> = {}
 		const tfiles: TFile[] = []
-		// > VAULT_SCAN_YIELD_INTERVAL so the loop actually hits a yield point.
-		for (let i = 0; i < 210; i++) {
+		for (let i = 0; i < 10; i++) {
 			files[`f${i}.md`] = BLOCK
 			tfiles.push(fakeTFile(`f${i}.md`, 200 + i, 100))
 		}
 		const app = fakeApp(files)
-		const manager = new FileManager(app, parsed, tfiles, {}, [])
+		// Every file takes a whole frame, so the scan pauses after each one.
+		let clock = 0
+		const now = () => (clock += 20)
+		const manager = new FileManager(app, parsed, tfiles, {}, [], { now })
 		let calls = 0
 		const control = {
 			isCancelled: () => {
@@ -64,6 +66,23 @@ describe('initialiseFiles: ScanControl progress + cooperative cancel', () => {
 		await expect(manager.initialiseFiles(control)).rejects.toBeInstanceOf(ScanCancelledError)
 		// Cancel happened mid-scan: nothing was committed to ownFiles.
 		expect(manager.ownFiles).toEqual([])
+	})
+
+	it('reports progress at each pause, not after each file', async () => {
+		const parsed = createParsedSettings({ delete_removed_notes: false })
+		const files: Record<string, string> = {}
+		const tfiles: TFile[] = []
+		for (let i = 0; i < 5; i++) {
+			files[`f${i}.md`] = BLOCK
+			tfiles.push(fakeTFile(`f${i}.md`, 200 + i, 100))
+		}
+		// The clock stands still: no file uses up a frame, so only the last one reports.
+		const manager = new FileManager(fakeApp(files), parsed, tfiles, {}, [], { now: () => 0 })
+		const scans: number[] = []
+
+		await manager.initialiseFiles({ onProgress: (p) => p.phase === 'scan' && scans.push(p.done) })
+
+		expect(scans).toEqual([5])
 	})
 
 	it('ScanCancelledError carries the user-facing message', () => {

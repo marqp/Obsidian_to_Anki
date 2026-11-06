@@ -36,7 +36,15 @@ export default defineConfig({
 				'src/progress-notice.ts',
 				'src/api-server.ts',
 				'src/setting-to-data.ts',
-				'src/ui/settings-migration.ts'
+				'src/ui/settings-migration.ts',
+				'src/anki-import.ts',
+				'src/anki-read.ts',
+				'src/html-to-markdown.ts',
+				'src/media-records.ts',
+				'src/media-sync.ts',
+				'src/occlusion.ts',
+				'src/occlusion-pull.ts',
+				'src/validate.ts'
 			],
 			thresholds: {
 				lines: 70,

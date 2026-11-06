@@ -71,8 +71,11 @@ obsidian "vault=My Vault" command id="obsidian-to-anki-plugin:anki-scan-vault"
 - Opt-in "Auto-launch Anki" fires one detached spawn (resolved per-platform in
   `resolveAnkiLaunchTarget`), waits 2s, re-probes once, then aborts with "run the scan again".
   Default off; desktop-only (`isDesktopOnly: true` — no mobile plans).
-- `child_process`/`fs` are the only Node natives allowed, and only in `src/anki-launch.ts`
-  (kept in Rollup `external`); everything else must stay renderer-safe.
+- `child_process`/`fs` stay in `src/anki-launch.ts`. Besides them the engine uses only `path`
+  and `crypto` (hashes in `scan-optimizations.ts`, `media-records.ts`), plus `http` in the opt-in
+  `api-server.ts`. All are Node builtins, external in `esbuild.config.mjs` and available in
+  Obsidian's desktop renderer; add no other. `ts-md5` is a devDependency only because the
+  parity harness builds the pinned upstream, which imports it.
 
 ## Commands
 
@@ -116,6 +119,11 @@ CI (`ci.yml`, pnpm): version sync → tsc6 + tsc7 → lint → knip → format:c
 - **`multi` response `slice(1)` is intentional.** Index 0 is the `createDeck` batch result, which
   needs no processing. The single `as unknown as Requests1Result` in `parse_requests_1` is the
   documented wire trust boundary — don't scatter more casts around it.
+- **New notes past `ADD_CHUNK_NOTES` (150) go in chunks before the main `multi`.** Anki keeps
+  adding after a request times out, and a note whose ID never reached the Markdown is added
+  again next scan. So `sendAddsInChunks` writes each chunk's IDs to its files before sending the
+  next, and the main batch then carries an empty add per file. A file is never split. Smaller
+  scans keep the single `multi` (the shape most unit tests mock).
 - **`params` is `Record<string, unknown>`.** Narrow with `Array.isArray`, never `as any`.
 - **Late AnkiConnect actions are gated by `apiReflect`, not `version`.** `updateNote`/`updateNoteModel`
   shipped while the API version stayed frozen at 6; `detectSupportedActions()` probes once per scan

@@ -20,9 +20,6 @@ importers:
       showdown:
         specifier: ^2.1.0
         version: 2.1.0
-      ts-md5:
-        specifier: ^2.0.1
-        version: 2.0.1
     devDependencies:
       '@eslint/js':
         specifier: ^10.0.1
@@ -66,6 +63,9 @@ importers:
       showdown-highlight:
         specifier: 3.1.0
         version: 3.1.0
+      ts-md5:
+        specifier: ^2.0.1
+        version: 2.0.1
       typescript:
         specifier: npm:@typescript/typescript6@^6.0.2
         version: '@typescript/typescript6@6.0.2'

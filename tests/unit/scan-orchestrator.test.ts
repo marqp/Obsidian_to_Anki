@@ -9,17 +9,12 @@ import {
 	getAllTFilesInFolder,
 	type PreviewCallbacks,
 	type ScanEnvironment,
+	type ScanReport,
 	type ScanState
 } from '../../src/scan-orchestrator'
 import type { DryRunSummary } from '../../src/dry-run'
-import {
-	NO_MEDIA_PLAN,
-	ScanCancelledError,
-	type FileManager,
-	type MediaPlan,
-	type ScanControl,
-	type ScanIssue
-} from '../../src/files-manager'
+import { ScanCancelledError, type FileManager, type ScanControl, type ScanIssue } from '../../src/files-manager'
+import { NO_MEDIA_PLAN, type MediaPlan } from '../../src/media-sync'
 import type { MediaRecords } from '../../src/media-records'
 import type { ParsedSettings, PluginSettings } from '../../src/interfaces/settings-interface'
 import type { FileHashes } from '../../src/scan-optimizations'
@@ -69,6 +64,7 @@ function makePluginSettings(scanDirs: string[] = []): PluginSettings {
 function tfile(path: string): TFile {
 	const file = new TFile()
 	file.path = path
+	file.extension = path.slice(path.lastIndexOf('.') + 1)
 	return file
 }
 
@@ -273,11 +269,74 @@ describe('ScanOrchestrator pipeline', () => {
 		expect(h.createdWith).toEqual([[file]])
 	})
 
+	describe('exclusive', () => {
+		it('holds the scan guard while the work runs, so a scan started meanwhile is refused', async () => {
+			const h = makeHarness()
+			let during: ScanReport | undefined
+			let guardDuring = false
+			const result = await h.orchestrator.exclusive(
+				async () => {
+					guardDuring = h.orchestrator.isScanning
+					during = await h.orchestrator.scanVault()
+					return 'written'
+				},
+				() => 'busy'
+			)
+
+			expect(result).toBe('written')
+			expect(guardDuring).toBe(true)
+			expect(during?.outcome).toBe('busy')
+			expect(h.createdWith).toEqual([])
+			expect(h.orchestrator.isScanning).toBe(false)
+		})
+
+		it('does not run the work while a scan runs', async () => {
+			const h = makeHarness()
+			const work = vi.fn(async () => 'written')
+			let result: string | undefined
+			h.fake.initialiseFiles = async () => {
+				result = await h.orchestrator.exclusive(work, () => 'busy')
+			}
+
+			await h.orchestrator.scanVault()
+
+			expect(result).toBe('busy')
+			expect(work).not.toHaveBeenCalled()
+		})
+
+		it('releases the guard when the work fails', async () => {
+			const h = makeHarness()
+
+			await expect(
+				h.orchestrator.exclusive(
+					() => Promise.reject(new Error('disk full')),
+					() => 'busy'
+				)
+			).rejects.toThrow('disk full')
+
+			expect(h.orchestrator.isScanning).toBe(false)
+		})
+	})
+
+	it('scans the vault when there is no active file', async () => {
+		const h = makeHarness()
+		await h.orchestrator.scanVault(null)
+		expect(h.createdWith).toEqual([[]])
+	})
+
+	it('scans exactly the files given, ignoring the scan directories', async () => {
+		const files = [tfile('a.md'), tfile('b/c.md')]
+		const h = makeHarness({}, ['elsewhere'])
+		await h.orchestrator.scanVault(files)
+		expect(h.createdWith).toEqual([files])
+		expect(h.notices).not.toContain('Error: incorrect path for scan directory elsewhere')
+	})
+
 	it('resolves custom scan directories and warns on bad paths', async () => {
 		const inner = tfile('notes/a.md')
 		const folder = new TFolder()
 		folder.path = 'notes'
-		folder.children = [inner]
+		folder.children = [inner, tfile('notes/heart.png'), tfile('notes/slides.pdf')]
 		const app = new App()
 		app.vault.getAbstractFileByPath = (path: string) => (path === 'notes' ? folder : null)
 		const h2 = makeHarness({ app }, ['notes', 'missing'])
@@ -313,6 +372,39 @@ describe('ScanOrchestrator pipeline', () => {
 		expect(h.notices).toContain('No changed files found. Nothing to sync.')
 		expect(requests).not.toHaveBeenCalled()
 		expect(h.committed).toEqual([])
+	})
+
+	it('a dry-run asked for the diff adds it to each update', async () => {
+		AnkiConnect.setTransport({
+			invoke: async (action: string) =>
+				action === 'notesInfo'
+					? [
+							{
+								noteId: 51,
+								modelName: 'Basic',
+								tags: [],
+								fields: { Front: { order: 0, value: 'q' }, Back: { order: 1, value: 'old' } },
+								cards: [501]
+							}
+						]
+					: [{ cardId: 501, deckName: 'Default', type: 2 }]
+		})
+		const h = makeHarness()
+		h.fake.ownFiles = createManagerFiles(
+			createParsedSettings(),
+			[{ id: 51, fields: { Front: 'q', Back: 'new' }, tags: [] }],
+			[]
+		)
+		const manager = h.fake as unknown as Record<string, unknown>
+		manager['data'] = { allow_note_type_changes: false }
+		manager['orphanNoteIds'] = []
+		manager['orphanFileById'] = () => new Map<number, string>()
+
+		const plain = await h.orchestrator.runDryRun()
+		const withDiff = await h.orchestrator.runDryRun({ includeDiff: true })
+
+		expect(plain.details?.changes[0].diff).toBeUndefined()
+		expect(withDiff.details?.changes[0].diff).toEqual({ fields: { Back: { anki: 'old', markdown: 'new' } } })
 	})
 
 	it('dry-run previews without mutating or persisting', async () => {
@@ -459,6 +551,14 @@ describe('changed media', () => {
 
 		expect(refresh).not.toHaveBeenCalled()
 		expect(plan).not.toHaveBeenCalled()
+	})
+
+	it('leaves media alone when scanning a list of files', async () => {
+		const { h, refresh } = withMediaRefresh(['img.png'])
+
+		await h.orchestrator.scanVault([tfile('a.md'), tfile('b.md')])
+
+		expect(refresh).not.toHaveBeenCalled()
 	})
 
 	it('does not send from the confirmation path, whose modal lists no media', async () => {

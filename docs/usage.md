@@ -43,6 +43,11 @@ changing notes in Anki, call `POST /dry-run` with `{"everyFile": true}` or
 every file, compares cited media with Anki's copies, and writes nothing. See
 [parity.md](./parity.md).
 
+Each update names the fields that differ. To see the text itself, add
+`"includeDiff": true` (`anki_dry_run` with `includeDiff`): each update then carries
+`diff.fields`, with the HTML Anki holds and the HTML the scan would write for every
+differing field, cut at 2000 characters, and `diff.tags` when the tags differ.
+
 Delete entries in the JSON carry the file that last held the ID, so UIs can
 group them per file instead of showing a bare ID list. The JSON also carries
 per-deck touched-card counters (`decks: [{ deck, cards, new }]`), read live

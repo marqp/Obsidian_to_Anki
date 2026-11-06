@@ -1,14 +1,8 @@
 import { App, TFile, TFolder } from 'obsidian'
 import { settingToData } from './setting-to-data'
-import {
-	FileManager,
-	NO_MEDIA_PLAN,
-	ScanCancelledError,
-	type MediaPlan,
-	type ScanControl,
-	type ScanIssue
-} from './files-manager'
+import { FileManager, ScanCancelledError, type ScanControl, type ScanIssue } from './files-manager'
 import type { MediaRecords } from './media-records'
+import { NO_MEDIA_PLAN, type MediaPlan } from './media-sync'
 import { collectDryRunState, formatDryRunSummary, type DryRunSummary } from './dry-run'
 import { launchAnki, probeAnkiStatus, type AnkiProbe, type LaunchOutcome } from './anki-launch'
 import { obsidianNoticePort, type NoticePort } from './notices'
@@ -170,6 +164,9 @@ export function formatScanIssues(issues: ScanIssue[], maxShown = 3): string | nu
 	return `${issues.length} problem(s) during sync:\n${lines.join('\n')}${more}`
 }
 
+/** What a scan reads: one file, a list of files, or (null or omitted) the vault or its Scan Directories. */
+export type ScanTarget = TFile | TFile[] | null
+
 /**
  * Recursively traverse a TFolder and return all TFiles.
  * @param tfolder - The TFolder to start the traversal from.
@@ -196,6 +193,11 @@ export function getAllTFilesInFolder(tfolder: TFolder): TFile[] {
 	return allTFiles
 }
 
+/** The Markdown files of a folder and its subfolders: the images and PDFs beside them hold no cards. */
+export function markdownFilesIn(folder: TFolder): TFile[] {
+	return getAllTFilesInFolder(folder).filter((file) => file.extension === 'md')
+}
+
 /**
  * Scan pipeline extracted from the plugin class (Wave 3): connection probe,
  * file discovery, FileManager passes, dry-run preview, and the mutating sync.
@@ -211,13 +213,30 @@ export class ScanOrchestrator {
 		return this.scanInProgress
 	}
 
+	/**
+	 * Runs a vault write that is not a scan, such as an import or a mask pull,
+	 * under the scan guard, so no scan starts while it writes. Returns `busy()`
+	 * instead when a scan is already running.
+	 */
+	async exclusive<T>(work: () => Promise<T>, busy: () => T): Promise<T> {
+		if (this.scanInProgress) {
+			return busy()
+		}
+		this.scanInProgress = true
+		try {
+			return await work()
+		} finally {
+			this.scanInProgress = false
+		}
+	}
+
 	/** How the last scan or dry-run ended, for a caller that stopped waiting. */
 	get lastReport(): ScanReport | undefined {
 		return this.latestReport
 	}
 
 	async scanVault(
-		file?: TFile | null,
+		file?: ScanTarget,
 		control: ScanControl = {},
 		opts: { bypassConfirm?: boolean } = {}
 	): Promise<ScanReport> {
@@ -255,7 +274,7 @@ export class ScanOrchestrator {
 		}
 	}
 
-	async scanVaultOnce(file?: TFile | null, dryRun = false, control: ScanControl = {}): Promise<ScanReport> {
+	async scanVaultOnce(file?: ScanTarget, dryRun = false, control: ScanControl = {}): Promise<ScanReport> {
 		const notReady = await this.checkConnection(dryRun)
 		if (notReady !== null) {
 			return emptyReport('aborted', dryRun, notReady)
@@ -277,14 +296,14 @@ export class ScanOrchestrator {
 		} finally {
 			progress.close()
 		}
-		// Media belongs to the vault, not to one file: scanning a file leaves it alone.
+		// Media belongs to the vault, not to some files: scanning files leaves it alone.
 		const wholeVault = file === undefined || file === null
 		if (dryRun) {
 			const media = wholeVault ? await manager.planChangedMedia() : NO_MEDIA_PLAN
 			if (manager.ownFiles.length === 0 && media.resent.length === 0 && media.issues.length === 0) {
 				return this.reportNothingToSync(dryRun, totalFiles)
 			}
-			return await this.reportDryRun(manager, totalFiles, control.everyFile === true, media)
+			return await this.reportDryRun(manager, totalFiles, control.everyFile === true, media, control.includeDiff)
 		}
 		if (wholeVault) {
 			await manager.refreshChangedMedia()
@@ -342,7 +361,7 @@ export class ScanOrchestrator {
 	 * The returned commit runs the mutating tail over the same manager.
 	 * Cancellation propagates as ScanCancelledError for the caller to report.
 	 */
-	async previewScan(file?: TFile | null, control: ScanControl = {}): Promise<ScanPreview> {
+	async previewScan(file?: ScanTarget, control: ScanControl = {}): Promise<ScanPreview> {
 		if ((await this.checkConnection(true)) !== null) {
 			return { status: 'aborted' }
 		}
@@ -371,7 +390,7 @@ export class ScanOrchestrator {
 	 * guard is held while the modal is open and released by exactly one of
 	 * the modal callbacks, so a concurrent scan waits instead of racing it.
 	 */
-	async runPreviewSync(file?: TFile | null, control: ScanControl = {}): Promise<void> {
+	async runPreviewSync(file?: ScanTarget, control: ScanControl = {}): Promise<void> {
 		if (this.scanInProgress) {
 			this.env.notices.notify('A vault scan is already in progress.')
 			return
@@ -500,13 +519,15 @@ export class ScanOrchestrator {
 		return probe.message
 	}
 
-	private async prepareManager(file?: TFile | null): Promise<{ manager: FileManager; totalFiles: number }> {
+	private async prepareManager(file?: ScanTarget): Promise<{ manager: FileManager; totalFiles: number }> {
 		const { notices } = this.env
 		const state = this.env.loadState()
 		const data: ParsedSettings = await this.env.toData(this.env.app, state.settings, state.fieldsDict)
 		const scanDirs = state.settings.Defaults['Scan Directories']
 		let manager: FileManager
-		if (file !== undefined && file !== null) {
+		if (Array.isArray(file)) {
+			manager = this.env.createManager(this.env.app, data, file, state.fileHashes, state.addedMedia)
+		} else if (file !== undefined && file !== null) {
 			manager = this.env.createManager(this.env.app, data, [file], state.fileHashes, state.addedMedia)
 		} else if (scanDirs && scanDirs.length > 0) {
 			const markdownFiles: TFile[] = []
@@ -514,7 +535,7 @@ export class ScanOrchestrator {
 				const scanDir = this.env.app.vault.getAbstractFileByPath(dirPath)
 				if (scanDir instanceof TFolder) {
 					console.info('Using custom scan directory: ' + scanDir.path)
-					markdownFiles.push(...getAllTFilesInFolder(scanDir))
+					markdownFiles.push(...markdownFilesIn(scanDir))
 				} else {
 					notices.notify('Error: incorrect path for scan directory ' + dirPath)
 				}
@@ -579,12 +600,14 @@ export class ScanOrchestrator {
 		manager: FileManager,
 		totalFiles: number,
 		everyFile = false,
-		media: MediaPlan = NO_MEDIA_PLAN
+		media: MediaPlan = NO_MEDIA_PLAN,
+		includeDiff = false
 	): Promise<ScanReport> {
 		const summary = await collectDryRunState(manager.ownFiles, {
 			hasNoteTypeChanges: manager.data.allow_note_type_changes,
 			orphanNoteIds: manager.orphanNoteIds,
-			orphanFileById: manager.orphanFileById()
+			orphanFileById: manager.orphanFileById(),
+			includeDiff
 		})
 		summary.filesTotal = totalFiles
 		// The full comparison covers what the plan reports, and names the note files.

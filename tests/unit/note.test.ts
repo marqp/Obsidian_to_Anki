@@ -1,14 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import {
-	Note,
-	InlineNote,
-	RegexNote,
-	cloneTemplate,
-	formatNoteFields,
-	buildAnkiNote,
-	CLOZE_ERROR,
-	NOTE_TYPE_ERROR
-} from '../../src/note'
+import { Note, InlineNote, RegexNote, cloneTemplate, formatNoteFields, buildAnkiNote } from '../../src/note'
 import { FormatConverter } from '../../src/format'
 import type { FileData } from '../../src/interfaces/settings-interface'
 import type { AnkiConnectNote } from '../../src/interfaces/note-interface'
@@ -101,7 +92,7 @@ describe('Note logic: formatNoteFields', () => {
 })
 
 describe('Note logic: buildAnkiNote', () => {
-	it('returns NOTE_TYPE_ERROR when noNoteType is true', () => {
+	it('marks the note type as unknown when noNoteType is true', () => {
 		const data = createDummyFileData()
 		const formatter = new FormatConverter({} as any, 'vault')
 
@@ -117,7 +108,8 @@ describe('Note logic: buildAnkiNote', () => {
 			noNoteType: true
 		})
 
-		expect(result.identifier).toBe(NOTE_TYPE_ERROR)
+		expect(result.problem).toBe('unknown-type')
+		expect(result.identifier).toBeNull()
 		expect(result.note.modelName).toBe('UnknownModel')
 	})
 
@@ -136,7 +128,8 @@ describe('Note logic: buildAnkiNote', () => {
 			data,
 			formatter
 		})
-		expect(missingCloze.identifier).toBe(CLOZE_ERROR)
+		expect(missingCloze.problem).toBe('missing-cloze')
+		expect(missingCloze.identifier).toBe(123)
 
 		// Valid cloze deletion present
 		const validCloze = buildAnkiNote({
@@ -150,6 +143,7 @@ describe('Note logic: buildAnkiNote', () => {
 			formatter
 		})
 		expect(validCloze.identifier).toBe(123)
+		expect(validCloze).not.toHaveProperty('problem')
 	})
 
 	it('appends context and file link when configured', () => {
@@ -429,7 +423,7 @@ describe('Note classes: Note, InlineNote, RegexNote', () => {
 
 		expect(note.no_note_type).toBe(true)
 		const parsed = note.parse('Default', '', {}, data, '')
-		expect(parsed.identifier).toBe(NOTE_TYPE_ERROR)
+		expect(parsed.problem).toBe('unknown-type')
 	})
 
 	it('keeps an unknown note type on constructor defaults', () => {

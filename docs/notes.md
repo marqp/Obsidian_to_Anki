@@ -30,6 +30,9 @@ Rules:
 - First field prefix may be omitted (first line = first field).
 - Every other field starts on its own line with `FieldName:` prefix.
 - Fields may span lines; order is free; omit unused fields.
+- A line without a prefix continues the field above it, so an answer written without
+  `Back:` lands on the front of a `Basic` card; `anki_validate` warns about it
+  (`missing-back-label`) for every note type whose second field is `Back`.
 - `Tags:` line optional; `Tags:A B` (no space) does not parse.
 - Default markers: `START`/`END`, inline `STARTI`/`ENDI`, deck `TARGET DECK`,
   file tags `FILE TAGS`, delete `DELETE`, frozen `FROZEN` — all configurable in settings.

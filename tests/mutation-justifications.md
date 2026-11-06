@@ -41,6 +41,37 @@ ideas for the rest.
    assertion (`toContain('mytag')`) was too loose — membership survived
    inside a mangled slice.
 
+## Open backlog (scope extended 2026-11-06)
+
+`src/anki-import.ts`, `anki-read.ts`, `html-to-markdown.ts`, `media-records.ts`,
+`occlusion.ts`, `occlusion-pull.ts`, `validate.ts`, `api-server.ts` and
+`progress-notice.ts` were in neither the coverage gate nor `mutate`, or (the last
+two) only in the coverage gate. All nine now are. Line coverage was already ~97%,
+so the gate passed at once; the first mutation run left these survivors, none yet
+killed or justified one by one:
+
+| Module | Score | Survived | NoCoverage |
+|---|---|---|---|
+| `html-to-markdown.ts` | 71.15 | 205 | 29 |
+| `anki-import.ts` | 80.72 | 64 | 16 |
+| `api-server.ts` | 83.06 | 77 | 7 |
+| `occlusion.ts` | 81.36 | 51 | 1 |
+| `validate.ts` | 75.95 | 37 | 1 |
+| `occlusion-pull.ts` | 84.75 | 30 | 4 |
+| `anki-read.ts` | 85.65 | 22 | 9 |
+| `progress-notice.ts` | 70.97 | 9 | 0 |
+| `media-records.ts` | 100 | 0 | 0 |
+
+`src/media-sync.ts` came out of `files-manager.ts` later, as a pure move. Its 8
+survivors (score 93.44) are the ones that code had in `files-manager.ts`, on the
+same expressions: the `MEDIA_CHECKS_PER_SCAN` slice, the `'report'` check in the
+plan, the `''` source paths of `getFirstLinkpathDest`, the size half of the stat
+comparison and both `keep` results.
+
+Most are `ConditionalExpression`, `StringLiteral` (user-facing messages no test
+pins) and `Regex` (the HTML-to-Markdown rules). Work through one module per
+commit, starting with `html-to-markdown.ts`, and shrink this table as you go.
+
 ## Accepted survivors (keep, do not "fix")
 
 ### perTest-mapping misses (hand-verified red, Stryker reports Survived)
@@ -80,11 +111,15 @@ scratch copy, run only the suspect file, confirm red, restore):
 
 ### Equivalent mutants (unobservable, keep)
 
-- `src/file.ts` `search()` no-ID path `onUnknownId`/`onEdit: () => undefined`
-  + `if (!consumed) pop`: `search_id == false` forces `identifier == null`,
-  so `resolveParsed` always takes the first branch and returns `true`. No
-  test can reach them without breaking the `RegexNote(id=false→null)`
-  contract (comment at `file.ts:557-559` is correct).
+- `src/file.ts` `search()` no-ID path `onUnknownId`/`onEdit: () => undefined`:
+  `search_id == false` forces `identifier == null`, so `resolveParsed` never
+  reaches those branches. Its `if (!consumed) pop` is reachable (a Cloze with
+  no deletion) and killed by `custom-regexp-id.test.ts`.
+- `src/file.ts` `resolveParsed` unknown-type branch, `opts.onUnknownType?.()`
+  (optional chaining) and its `return true`: only `Note`/`InlineNote` set
+  `noNoteType`; a `RegexNote` always has a configured type, so `search()`,
+  the one caller without `onUnknownType` and the only one that reads the
+  return value, never gets that branch.
 - `src/file.ts` `search()` ID path `onNew: warnUnknownId`: `search_id == true`
   implies an ID capture is present, so `parseInt` yields `number|NaN`, never
   `null` (`NaN != null` routes to the unknown path, not `onNew`).
@@ -119,6 +154,12 @@ scratch copy, run only the suspect file, confirm red, restore):
   iteration reads `undefined` and the `item &&` guard skips it — equivalent
   under the guard, which exists for daemons returning ragged entries (the
   stray-entry test pins the `?? ''` fallback instead).
+- `src/files-manager.ts` `readAddResults` batch-level `?? []` (both the
+  parsed and the failed-batch fallback) → `["Stryker was here"]`: the stray
+  entry is read as the first file's response, has no `error` or `result`,
+  and the per-file `?? []` turns it into an empty list — the same file with
+  no IDs that `[]` leaves. The null cases themselves are pinned by the four
+  "survives …" tests in `scan-issues.test.ts` (red without the fallbacks).
 - `src/dry-run.ts` deck-sort comparator (`<=`/`>=`/branch variants): deck
   names are map keys, hence distinct — same strict-weak-ordering argument
   as the view comparator above; a 3-deck unsorted fixture pins the order.

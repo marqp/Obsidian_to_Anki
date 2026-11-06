@@ -15,6 +15,7 @@ type ValidationKind =
 	| 'unterminated-block'
 	| 'end-marker-collision'
 	| 'literal-field-label'
+	| 'missing-back-label'
 
 interface ValidationIssue {
 	file: string
@@ -103,6 +104,19 @@ function structuralIssues(input: ValidationInput, beginNote: string): { issues: 
 		const fields = data.fields_dict[lines[0].trim()]
 		if (!fields) {
 			continue
+		}
+		// Lines without a label stay in the field above, so a Basic block with no
+		// "Back:" line puts its answer on the front and makes a card with no back.
+		// A block that swallowed the next one is already reported, and its labels prove nothing.
+		if (!nested && fields[1] === 'Back' && !lines.some((line) => line.startsWith('Back:'))) {
+			issues.push({
+				file: path,
+				kind: 'missing-back-label',
+				severity: 'warning',
+				message: `No line starts with "Back:", so the whole block went to ${fields[0]} and the card has no answer. Start the answer with "Back:".`,
+				line: lineAt(text, match.index),
+				snippet: snippetOf(body)
+			})
 		}
 		const foreign = [...allFields].filter((name) => !fields.includes(name))
 		lines.slice(1).forEach((line, index) => {

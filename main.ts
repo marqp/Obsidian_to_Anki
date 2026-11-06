@@ -1,4 +1,4 @@
-import { Notice, Plugin, TFile, addIcon } from 'obsidian'
+import { Notice, Plugin, TFile, TFolder, addIcon } from 'obsidian'
 import * as AnkiConnect from './src/anki'
 import { PluginSettings, StoredPluginData } from './src/interfaces/settings-interface'
 import { DEFAULT_IGNORED_FILE_GLOBS, SettingsTab } from './src/settings'
@@ -12,8 +12,10 @@ import { buildDefaults } from './src/defaults-meta'
 import {
 	ScanOrchestrator,
 	createScanEnvironment,
+	markdownFilesIn,
 	type PreviewCallbacks,
-	type ScanReport
+	type ScanReport,
+	type ScanTarget
 } from './src/scan-orchestrator'
 import { openNoteInAnki, registerPluginCommands } from './src/commands'
 import { obsidianNoticePort } from './src/notices'
@@ -36,6 +38,8 @@ import { type ScanControl } from './src/files-manager'
 
 const CACHE_WAIT_MS = 100
 const CACHE_WAIT_ATTEMPTS = 50
+/** Why an import or a mask pull refuses to start. */
+const SCAN_RUNNING = 'A scan is running. Try again when it ends.'
 
 export default class MyPlugin extends Plugin {
 	declare settings: PluginSettings
@@ -164,6 +168,35 @@ export default class MyPlugin extends Plugin {
 		return current_data.fields_dict ?? {}
 	}
 
+	/**
+	 * Obsidian calls this when data.json changes on disk from outside the app:
+	 * a sync service, or a person or agent editing the file. The settings and
+	 * the fields dictionary are taken from the file and applied; the scan
+	 * state (file hashes, media records, added media) stays as it is in
+	 * memory, because a scan may be running and the next save writes it back.
+	 * The schedule and the local API restart only when their settings changed,
+	 * so a request in progress is not cut off for nothing.
+	 */
+	async onExternalSettingsChange(): Promise<void> {
+		const snapshot = (await this.loadData()) as StoredPluginData | null
+		if (snapshot == null || typeof snapshot.settings !== 'object' || snapshot.settings === null) {
+			return
+		}
+		const before = this.settings.Defaults
+		this.settings = migrateSettings(snapshot.settings).settings
+		this.fields_dict = snapshot.fields_dict ?? this.fields_dict
+		this.note_types = Object.keys(this.settings.CUSTOM_REGEXPS)
+		this.syncTransportKey()
+		const after = this.settings.Defaults
+		if (after['Scheduling Interval'] !== before['Scheduling Interval']) {
+			this.startSchedule()
+		}
+		const apiKeys = ['Local API', 'Local API Port', 'Local API Token'] as const
+		if (apiKeys.some((key) => after[key] !== before[key])) {
+			await this.restartApiServer()
+		}
+	}
+
 	async saveAllData(): Promise<void> {
 		this.syncTransportKey()
 		this.saveData({
@@ -222,13 +255,13 @@ export default class MyPlugin extends Plugin {
 	 * this); UI commands go straight to the orchestrator. Always direct —
 	 * unattended scans must never open a modal. Thin delegation.
 	 */
-	async scanVault(file?: TFile | null, control: ScanControl = {}): Promise<ScanReport> {
+	async scanVault(file?: ScanTarget, control: ScanControl = {}): Promise<ScanReport> {
 		return await this.scanOrchestrator().scanVault(file, control, { bypassConfirm: true })
 	}
 
 	/** Read-only preview of what a sync would do; same guard as a real scan. */
-	async dryRun(file?: TFile | null, everyFile = false): Promise<ScanReport> {
-		return await this.scanOrchestrator().runDryRun({ everyFile }, file)
+	async dryRun(file?: TFile | null, everyFile = false, includeDiff = false): Promise<ScanReport> {
+		return await this.scanOrchestrator().runDryRun({ everyFile, includeDiff }, file)
 	}
 
 	private scanOrchestrator(): ScanOrchestrator {
@@ -300,6 +333,17 @@ export default class MyPlugin extends Plugin {
 			const file = this.app.vault.getAbstractFileByPath(form)
 			if (file instanceof TFile) {
 				return file
+			}
+		}
+		return null
+	}
+
+	/** The folder at `path`, in either Unicode form; null when there is none. */
+	private apiFolder(path: string): TFolder | null {
+		for (const form of pathForms(path)) {
+			const folder = this.app.vault.getAbstractFileByPath(form)
+			if (folder instanceof TFolder) {
+				return folder
 			}
 		}
 		return null
@@ -435,12 +479,27 @@ export default class MyPlugin extends Plugin {
 				const file = this.apiFile(path)
 				return file === null ? null : await this.scanVault(file)
 			},
-			dryRun: async (path, everyFile) => {
+			scanFolder: async (path) => {
+				const folder = this.apiFolder(path)
+				if (folder === null) {
+					return null
+				}
+				return await this.scanVault(markdownFilesIn(folder))
+			},
+			scanFiles: async (paths) => {
+				const files = paths.map((path) => this.apiFile(path))
+				const missing = paths.filter((_, index) => files[index]?.extension !== 'md')
+				if (missing.length > 0) {
+					return { missing }
+				}
+				return await this.scanVault(files.filter((file) => file !== null))
+			},
+			dryRun: async (path, everyFile, includeDiff) => {
 				if (path === undefined) {
-					return await this.dryRun(undefined, everyFile)
+					return await this.dryRun(undefined, everyFile, includeDiff)
 				}
 				const file = this.apiFile(path)
-				return file === null ? null : await this.dryRun(file, everyFile)
+				return file === null ? null : await this.dryRun(file, everyFile, includeDiff)
 			},
 			validate: async ({ path, content }) => {
 				const orchestrator = this.scanOrchestrator()
@@ -483,25 +542,35 @@ export default class MyPlugin extends Plugin {
 			difficultCards: (query) => difficultCards(query, this.noteSourceLookup()),
 			importPreview: async ({ query, subjects }) =>
 				previewImport(await this.idsInVault(), await this.importOptions(subjects), query),
-			importApply: async ({ query, subjects }): Promise<ImportResult> => {
-				if (this.scanOrchestrator().isScanning) {
-					return {
-						blocked: ['A scan is running. Try again when it ends.'],
+			importApply: ({ query, subjects }): Promise<ImportResult> =>
+				this.scanOrchestrator().exclusive(
+					async () =>
+						await applyImport(
+							await this.idsInVault(),
+							await this.importOptions(subjects),
+							this.importVault(),
+							query
+						),
+					() => ({
+						blocked: [SCAN_RUNNING],
 						filesWritten: [],
 						notesWritten: 0,
 						imagesCopied: 0,
 						imagesAlreadyInVault: 0,
 						refused: []
-					}
+					})
+				),
+			occlusionPull: async (request) => {
+				const dependencies = await this.pullDependencies()
+				if (!request.apply) {
+					return await pullOcclusions(request, dependencies)
 				}
-				return await applyImport(
-					await this.idsInVault(),
-					await this.importOptions(subjects),
-					this.importVault(),
-					query
+				// The guard is ours while the masks are written, so the pull must not wait for itself.
+				return await this.scanOrchestrator().exclusive(
+					async () => await pullOcclusions(request, { ...dependencies, isScanning: () => false }),
+					() => ({ blocked: [SCAN_RUNNING], differences: [], notInVault: [], pulled: [], problems: [] })
 				)
-			},
-			occlusionPull: async (request) => pullOcclusions(request, await this.pullDependencies())
+			}
 		}
 	}
 

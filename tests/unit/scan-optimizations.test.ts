@@ -3,7 +3,9 @@ import { test } from 'vitest'
 import { Md5 } from 'ts-md5'
 import type { ParsedSettings } from '../../src/interfaces/settings-interface'
 import {
+	FRAME_BUDGET_MS,
 	createFileData,
+	createYielder,
 	getFileContentHash,
 	getStoredHash,
 	isFileUnchanged,
@@ -166,4 +168,55 @@ test('pruneFileHashes leaves a fully valid map untouched', () => {
 		0
 	)
 	assert.deepEqual(Object.keys(hashes), ['a.md', 'b.md'])
+})
+
+test('createYielder pauses only once the scan has held the thread for the budget', async () => {
+	let clock = 1000
+	const yieldIfDue = createYielder(16, () => clock)
+
+	clock += 15
+	assert.equal(await yieldIfDue(), false)
+	clock += 1
+	assert.equal(await yieldIfDue(), true)
+	// The budget counts again from the pause.
+	clock += 15
+	assert.equal(await yieldIfDue(), false)
+	clock += 1
+	assert.equal(await yieldIfDue(), true)
+})
+
+test('createYielder lets pending timers run when it pauses', async () => {
+	let clock = 0
+	const yieldIfDue = createYielder(16, () => clock)
+	let ran = false
+	setTimeout(() => {
+		ran = true
+	}, 0)
+
+	clock = 16
+	await yieldIfDue()
+
+	assert.equal(ran, true)
+})
+
+test('createYielder defaults to a frame on the real clock', async () => {
+	assert.equal(FRAME_BUDGET_MS, 16)
+	const yieldIfDue = createYielder()
+	assert.equal(await yieldIfDue(), false)
+	await new Promise((resolve) => setTimeout(resolve, 20))
+	assert.equal(await yieldIfDue(), true)
+})
+
+test('getFileContentHash matches the ts-md5 hashes stored by earlier versions', () => {
+	const samples = [
+		'',
+		'START\nBasic\nFront: q\nBack: a\nEND\n',
+		'Clínica Médica: ação, coração, órgãos',
+		'Emoji 🫀🧠 and CJK 心臓 ',
+		'\r\nWindows line ends\r\n',
+		'x'.repeat(100_000)
+	]
+	for (const sample of samples) {
+		assert.equal(getFileContentHash(sample), Md5.hashStr(sample))
+	}
 })

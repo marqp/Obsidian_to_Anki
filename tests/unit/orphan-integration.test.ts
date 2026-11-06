@@ -83,19 +83,25 @@ describe('orphan deletion: initialiseFiles wiring', () => {
 	})
 
 	describe('when the scan reads only the file a block was cut from', () => {
+		const OTHER_STAT = { mtime: 300, size: 30 }
+
 		function vaultWith(others: Record<string, string>) {
 			const { app } = fakeApp(NOTE_WITH_ID_1)
 			const read = vi.fn(async (file: TFile) => others[file.path] ?? NOTE_WITH_ID_1)
 			Object.assign(app.vault, {
 				read,
-				getMarkdownFiles: () => [fakeTFile(), ...Object.keys(others).map((path) => ({ path }) as TFile)]
+				getMarkdownFiles: () => [
+					fakeTFile(),
+					...Object.keys(others).map((path) => ({ path, stat: OTHER_STAT }) as unknown as TFile)
+				]
 			})
 			return { app, read }
 		}
 
-		async function orphansOf(app: App, stored: number[]) {
+		async function orphansOf(app: App, stored: number[], otherRecords: FileHashes = {}) {
 			const parsed = createParsedSettings({ delete_removed_notes: true, EXISTING_IDS: new Set([1, 2]) })
-			const manager = new FileManager(app, parsed, [fakeTFile()], storedEntry(stored), [])
+			const hashes = { ...storedEntry(stored), ...otherRecords }
+			const manager = new FileManager(app, parsed, [fakeTFile()], hashes, [])
 			await manager.initialiseFiles()
 			return manager.orphanNoteIds
 		}
@@ -118,6 +124,40 @@ describe('orphan deletion: initialiseFiles wiring', () => {
 		it('does not let another file delete line keep the note', async () => {
 			const { app } = vaultWith({ 'other.md': 'DELETE\nID: 2' })
 			expect(await orphansOf(app, [1, 2])).toEqual([2])
+		})
+
+		it('reads only the files changed since their record was written', async () => {
+			const { app, read } = vaultWith({
+				'same.md': 'no cards here',
+				'moved.md': 'START\nBasic\nFront: q2\nBack: a2\n<!--ID: 2-->\nEND'
+			})
+			const records = {
+				'same.md': { hash: 'h', ...OTHER_STAT, noteIds: [] },
+				'moved.md': { hash: 'h', mtime: 1, size: OTHER_STAT.size, noteIds: [] }
+			}
+			expect(await orphansOf(app, [1, 2], records)).toEqual([])
+			expect(read.mock.calls.map(([file]) => file.path)).toEqual(['note.md', 'moved.md'])
+		})
+
+		it('deletes when the record of an unchanged file no longer has the ID', async () => {
+			const { app, read } = vaultWith({ 'other.md': 'no cards here' })
+			const record = { 'other.md': { hash: 'h', ...OTHER_STAT, noteIds: [] } }
+			expect(await orphansOf(app, [1, 2], record)).toEqual([2])
+			expect(read.mock.calls.map(([file]) => file.path)).toEqual(['note.md'])
+		})
+
+		it('reads a file changed since its record was written', async () => {
+			const { app, read } = vaultWith({ 'other.md': 'START\nBasic\nFront: q2\nBack: a2\n<!--ID: 2-->\nEND' })
+			const record = { 'other.md': { hash: 'h', mtime: 1, size: OTHER_STAT.size, noteIds: [] } }
+			expect(await orphansOf(app, [1, 2], record)).toEqual([])
+			expect(read.mock.calls.map(([file]) => file.path)).toEqual(['note.md', 'other.md'])
+		})
+
+		it('reads an unchanged file whose record predates note IDs', async () => {
+			const { app, read } = vaultWith({ 'other.md': 'START\nBasic\nFront: q2\nBack: a2\n<!--ID: 2-->\nEND' })
+			const record = { 'other.md': { hash: 'h', ...OTHER_STAT } }
+			expect(await orphansOf(app, [1, 2], record)).toEqual([])
+			expect(read.mock.calls.map(([file]) => file.path)).toEqual(['note.md', 'other.md'])
 		})
 
 		it('reads no other file when nothing would be deleted', async () => {
