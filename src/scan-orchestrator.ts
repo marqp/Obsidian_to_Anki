@@ -170,6 +170,9 @@ export function formatScanIssues(issues: ScanIssue[], maxShown = 3): string | nu
 	return `${issues.length} problem(s) during sync:\n${lines.join('\n')}${more}`
 }
 
+/** What a scan reads: one file, a list of files, or (null or omitted) the vault or its Scan Directories. */
+export type ScanTarget = TFile | TFile[] | null
+
 /**
  * Recursively traverse a TFolder and return all TFiles.
  * @param tfolder - The TFolder to start the traversal from.
@@ -217,7 +220,7 @@ export class ScanOrchestrator {
 	}
 
 	async scanVault(
-		file?: TFile | null,
+		file?: ScanTarget,
 		control: ScanControl = {},
 		opts: { bypassConfirm?: boolean } = {}
 	): Promise<ScanReport> {
@@ -255,7 +258,7 @@ export class ScanOrchestrator {
 		}
 	}
 
-	async scanVaultOnce(file?: TFile | null, dryRun = false, control: ScanControl = {}): Promise<ScanReport> {
+	async scanVaultOnce(file?: ScanTarget, dryRun = false, control: ScanControl = {}): Promise<ScanReport> {
 		const notReady = await this.checkConnection(dryRun)
 		if (notReady !== null) {
 			return emptyReport('aborted', dryRun, notReady)
@@ -277,7 +280,7 @@ export class ScanOrchestrator {
 		} finally {
 			progress.close()
 		}
-		// Media belongs to the vault, not to one file: scanning a file leaves it alone.
+		// Media belongs to the vault, not to some files: scanning files leaves it alone.
 		const wholeVault = file === undefined || file === null
 		if (dryRun) {
 			const media = wholeVault ? await manager.planChangedMedia() : NO_MEDIA_PLAN
@@ -342,7 +345,7 @@ export class ScanOrchestrator {
 	 * The returned commit runs the mutating tail over the same manager.
 	 * Cancellation propagates as ScanCancelledError for the caller to report.
 	 */
-	async previewScan(file?: TFile | null, control: ScanControl = {}): Promise<ScanPreview> {
+	async previewScan(file?: ScanTarget, control: ScanControl = {}): Promise<ScanPreview> {
 		if ((await this.checkConnection(true)) !== null) {
 			return { status: 'aborted' }
 		}
@@ -371,7 +374,7 @@ export class ScanOrchestrator {
 	 * guard is held while the modal is open and released by exactly one of
 	 * the modal callbacks, so a concurrent scan waits instead of racing it.
 	 */
-	async runPreviewSync(file?: TFile | null, control: ScanControl = {}): Promise<void> {
+	async runPreviewSync(file?: ScanTarget, control: ScanControl = {}): Promise<void> {
 		if (this.scanInProgress) {
 			this.env.notices.notify('A vault scan is already in progress.')
 			return
@@ -500,13 +503,15 @@ export class ScanOrchestrator {
 		return probe.message
 	}
 
-	private async prepareManager(file?: TFile | null): Promise<{ manager: FileManager; totalFiles: number }> {
+	private async prepareManager(file?: ScanTarget): Promise<{ manager: FileManager; totalFiles: number }> {
 		const { notices } = this.env
 		const state = this.env.loadState()
 		const data: ParsedSettings = await this.env.toData(this.env.app, state.settings, state.fieldsDict)
 		const scanDirs = state.settings.Defaults['Scan Directories']
 		let manager: FileManager
-		if (file !== undefined && file !== null) {
+		if (Array.isArray(file)) {
+			manager = this.env.createManager(this.env.app, data, file, state.fileHashes, state.addedMedia)
+		} else if (file !== undefined && file !== null) {
 			manager = this.env.createManager(this.env.app, data, [file], state.fileHashes, state.addedMedia)
 		} else if (scanDirs && scanDirs.length > 0) {
 			const markdownFiles: TFile[] = []

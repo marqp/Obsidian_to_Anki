@@ -88,6 +88,8 @@ describe('protocol', () => {
 			'anki_import_apply',
 			'anki_occlusion_pull',
 			'anki_scan_file',
+			'anki_scan_files',
+			'anki_scan_folder',
 			'anki_scan_vault'
 		])
 		expect(reply.result.tools.every((t) => t.title.length > 0)).toBe(true)
@@ -178,6 +180,19 @@ describe('tool calls', () => {
 		expect(calls[0].url).toBe('http://127.0.0.1:27180/scan-file')
 		expect(JSON.parse(calls[0].init.body as string)).toEqual({ path: 'a/b.md' })
 		expect(calls[0].init.headers['Content-Type']).toBe('application/json')
+	})
+
+	it('anki_scan_folder and anki_scan_files post to their routes', async () => {
+		const calls: Call[] = []
+		const handle = handlerWith(fakeFetch(200, { outcome: 'completed' }, calls))
+		await callTool(handle, 'anki_scan_folder', { path: 'Notes' })
+		await callTool(handle, 'anki_scan_files', { paths: ['a.md', 'b.md'] })
+		expect(calls.map((c) => c.url)).toEqual([
+			'http://127.0.0.1:27180/scan-folder',
+			'http://127.0.0.1:27180/scan-files'
+		])
+		expect(JSON.parse(calls[0].init.body as string)).toEqual({ path: 'Notes' })
+		expect(JSON.parse(calls[1].init.body as string)).toEqual({ paths: ['a.md', 'b.md'] })
 	})
 
 	it('anki_dry_run omits the path for a whole-vault preview', async () => {

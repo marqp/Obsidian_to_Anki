@@ -273,6 +273,20 @@ describe('ScanOrchestrator pipeline', () => {
 		expect(h.createdWith).toEqual([[file]])
 	})
 
+	it('scans the vault when there is no active file', async () => {
+		const h = makeHarness()
+		await h.orchestrator.scanVault(null)
+		expect(h.createdWith).toEqual([[]])
+	})
+
+	it('scans exactly the files given, ignoring the scan directories', async () => {
+		const files = [tfile('a.md'), tfile('b/c.md')]
+		const h = makeHarness({}, ['elsewhere'])
+		await h.orchestrator.scanVault(files)
+		expect(h.createdWith).toEqual([files])
+		expect(h.notices).not.toContain('Error: incorrect path for scan directory elsewhere')
+	})
+
 	it('resolves custom scan directories and warns on bad paths', async () => {
 		const inner = tfile('notes/a.md')
 		const folder = new TFolder()
@@ -459,6 +473,14 @@ describe('changed media', () => {
 
 		expect(refresh).not.toHaveBeenCalled()
 		expect(plan).not.toHaveBeenCalled()
+	})
+
+	it('leaves media alone when scanning a list of files', async () => {
+		const { h, refresh } = withMediaRefresh(['img.png'])
+
+		await h.orchestrator.scanVault([tfile('a.md'), tfile('b.md')])
+
+		expect(refresh).not.toHaveBeenCalled()
 	})
 
 	it('does not send from the confirmation path, whose modal lists no media', async () => {

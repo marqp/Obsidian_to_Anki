@@ -1,4 +1,4 @@
-import { Notice, Plugin, TFile, addIcon } from 'obsidian'
+import { Notice, Plugin, TFile, TFolder, addIcon } from 'obsidian'
 import * as AnkiConnect from './src/anki'
 import { PluginSettings, StoredPluginData } from './src/interfaces/settings-interface'
 import { DEFAULT_IGNORED_FILE_GLOBS, SettingsTab } from './src/settings'
@@ -12,8 +12,10 @@ import { buildDefaults } from './src/defaults-meta'
 import {
 	ScanOrchestrator,
 	createScanEnvironment,
+	getAllTFilesInFolder,
 	type PreviewCallbacks,
-	type ScanReport
+	type ScanReport,
+	type ScanTarget
 } from './src/scan-orchestrator'
 import { openNoteInAnki, registerPluginCommands } from './src/commands'
 import { obsidianNoticePort } from './src/notices'
@@ -222,7 +224,7 @@ export default class MyPlugin extends Plugin {
 	 * this); UI commands go straight to the orchestrator. Always direct —
 	 * unattended scans must never open a modal. Thin delegation.
 	 */
-	async scanVault(file?: TFile | null, control: ScanControl = {}): Promise<ScanReport> {
+	async scanVault(file?: ScanTarget, control: ScanControl = {}): Promise<ScanReport> {
 		return await this.scanOrchestrator().scanVault(file, control, { bypassConfirm: true })
 	}
 
@@ -300,6 +302,17 @@ export default class MyPlugin extends Plugin {
 			const file = this.app.vault.getAbstractFileByPath(form)
 			if (file instanceof TFile) {
 				return file
+			}
+		}
+		return null
+	}
+
+	/** The folder at `path`, in either Unicode form; null when there is none. */
+	private apiFolder(path: string): TFolder | null {
+		for (const form of pathForms(path)) {
+			const folder = this.app.vault.getAbstractFileByPath(form)
+			if (folder instanceof TFolder) {
+				return folder
 			}
 		}
 		return null
@@ -434,6 +447,21 @@ export default class MyPlugin extends Plugin {
 			scanFile: async (path) => {
 				const file = this.apiFile(path)
 				return file === null ? null : await this.scanVault(file)
+			},
+			scanFolder: async (path) => {
+				const folder = this.apiFolder(path)
+				if (folder === null) {
+					return null
+				}
+				return await this.scanVault(getAllTFilesInFolder(folder).filter((file) => file.extension === 'md'))
+			},
+			scanFiles: async (paths) => {
+				const files = paths.map((path) => this.apiFile(path))
+				const missing = paths.filter((_, index) => files[index]?.extension !== 'md')
+				if (missing.length > 0) {
+					return { missing }
+				}
+				return await this.scanVault(files.filter((file) => file !== null))
 			},
 			dryRun: async (path, everyFile) => {
 				if (path === undefined) {

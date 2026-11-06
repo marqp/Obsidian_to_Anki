@@ -165,7 +165,7 @@ Turn on `Local API` (off by default) to expose scans, dry-runs, offline card val
 |---|---|
 | `anki_status`, `anki_get_metadata` | Check readiness; list decks, note types, tags and the rules for writing cards |
 | `anki_validate`, `anki_dry_run` | Check syntax, even with Anki closed; preview changes |
-| `anki_scan_file`, `anki_scan_vault` | Sync one file or every changed file |
+| `anki_scan_file`, `anki_scan_files`, `anki_scan_folder`, `anki_scan_vault` | Sync one file, a list of files, a folder, or every changed file |
 | `anki_search_notes`, `anki_get_notes` | Search and read notes, each with its source file |
 | `anki_study_overview`, `anki_difficult_cards` | Read due counts, leeches, reviews per day and the most-failed cards |
 | `anki_import_preview`, `anki_import_apply` | Bring Anki-only notes into the vault |

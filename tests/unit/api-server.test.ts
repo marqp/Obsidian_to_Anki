@@ -58,6 +58,8 @@ function makeHandlers(overrides: Partial<ApiHandlers> = {}): ApiHandlers {
 		status: vi.fn(async () => ({ status: 'ready' as const, message: 'ok', version: 6 })),
 		scan: vi.fn(async () => report()),
 		scanFile: vi.fn(async () => report()),
+		scanFolder: vi.fn(async () => report()),
+		scanFiles: vi.fn(async () => report()),
 		dryRun: vi.fn(async () => report({ dryRun: true })),
 		validate: vi.fn(async () => validation),
 		scanState: vi.fn(() => ({ inProgress: false })),
@@ -243,6 +245,61 @@ describe('LocalApiServer routes', () => {
 		const reply = await call(s.port, 'POST', '/scan-file', { body: JSON.stringify({ path: 'nope.md' }) })
 		expect(reply.status).toBe(404)
 		expect(String(reply.body['error'])).toContain('nope.md')
+	})
+
+	it('POST /scan-folder passes the path, requires it, and 404s on a missing folder', async () => {
+		const handlers = makeHandlers()
+		const s = await start(handlers)
+		const ok = await call(s.port, 'POST', '/scan-folder', { body: JSON.stringify({ path: 'Notes/Cardio' }) })
+		expect(ok.status).toBe(200)
+		expect(handlers.scanFolder).toHaveBeenCalledWith('Notes/Cardio')
+		expect((await call(s.port, 'POST', '/scan-folder', { body: '{}' })).status).toBe(400)
+		expect((await call(s.port, 'GET', '/scan-folder')).status).toBe(405)
+
+		const none = await start(makeHandlers({ scanFolder: vi.fn(async () => null) }))
+		const reply = await call(none.port, 'POST', '/scan-folder', { body: JSON.stringify({ path: 'Nope' }) })
+		expect(reply.status).toBe(404)
+		expect(reply.body['error']).toBe('Not a folder in this vault: Nope')
+	})
+
+	it('POST /scan-files passes each path once', async () => {
+		const handlers = makeHandlers()
+		const s = await start(handlers)
+		const body = JSON.stringify({ paths: ['a.md', 'b.md', 'a.md'] })
+		const ok = await call(s.port, 'POST', '/scan-files', { body })
+		expect(ok.status).toBe(200)
+		expect(ok.body['outcome']).toBe('completed')
+		expect(handlers.scanFiles).toHaveBeenCalledWith(['a.md', 'b.md'])
+		expect((await call(s.port, 'GET', '/scan-files')).status).toBe(405)
+	})
+
+	it('POST /scan-files refuses a missing, empty, oversized or malformed list', async () => {
+		const handlers = makeHandlers()
+		const s = await start(handlers)
+		const status = async (body: unknown) =>
+			(await call(s.port, 'POST', '/scan-files', { body: JSON.stringify(body) })).status
+		const message = '"paths" must be 1 to 500 vault-relative file paths.'
+		const reply = await call(s.port, 'POST', '/scan-files', { body: '{}' })
+		expect(reply.status).toBe(400)
+		expect(reply.body['error']).toBe(message)
+		expect(await status({ paths: 'a.md' })).toBe(400)
+		expect(await status({ paths: [] })).toBe(400)
+		expect(await status({ paths: ['a.md', 7] })).toBe(400)
+		expect(await status({ paths: ['a.md', '  '] })).toBe(400)
+		expect(await status({ paths: ['x'.repeat(1025)] })).toBe(400)
+		expect(await status({ paths: Array.from({ length: 501 }, (_, i) => `${i}.md`) })).toBe(400)
+		expect(await status({ paths: Array.from({ length: 500 }, (_, i) => `${i}.md`) })).toBe(200)
+		expect(await status({ paths: ['x'.repeat(1024)] })).toBe(200)
+		expect(handlers.scanFiles).toHaveBeenCalledTimes(2)
+	})
+
+	it('POST /scan-files names the paths that are not Markdown files and scans nothing', async () => {
+		const s = await start(makeHandlers({ scanFiles: vi.fn(async () => ({ missing: ['nope.md', 'img.png'] })) }))
+		const reply = await call(s.port, 'POST', '/scan-files', {
+			body: JSON.stringify({ paths: ['a.md', 'nope.md', 'img.png'] })
+		})
+		expect(reply.status).toBe(404)
+		expect(reply.body['error']).toBe('Not Markdown files in this vault: nope.md, img.png')
 	})
 
 	it('POST /dry-run works with and without a path', async () => {

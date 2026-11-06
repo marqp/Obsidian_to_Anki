@@ -26,6 +26,7 @@ const MAX_VALIDATE_BODY_BYTES = 1024 * 1024
 const MAX_PATH_LENGTH = 1024
 const MAX_QUERY_LENGTH = 2048
 const MAX_NOTE_IDS = 100
+const MAX_SCAN_FILES = 500
 const MAX_PAGE_SIZE = 100
 const DEFAULT_PAGE_SIZE = 20
 const MAX_REVIEW_DAYS = 365
@@ -41,6 +42,10 @@ export interface ApiHandlers {
 	scan(): Promise<ScanReport>
 	/** null when the path is not a file in the vault. */
 	scanFile(path: string): Promise<ScanReport | null>
+	/** The Markdown files of a folder and its subfolders. null when the path is not a folder. */
+	scanFolder(path: string): Promise<ScanReport | null>
+	/** Several files in one scan; the paths that are not Markdown files of the vault, when any is not. */
+	scanFiles(paths: string[]): Promise<ScanReport | { missing: string[] }>
 	/** Read-only preview; a path narrows it to one file. null when not found. */
 	dryRun(path: string | undefined, everyFile: boolean): Promise<ScanReport | null>
 	/**
@@ -184,6 +189,19 @@ function readPath(body: Record<string, unknown>, required: boolean): string | un
 		throw new HttpError(400, '"path" must be a non-empty vault-relative string.')
 	}
 	return value
+}
+
+function readPaths(body: Record<string, unknown>): string[] {
+	const value = body['paths']
+	if (
+		!Array.isArray(value) ||
+		value.length === 0 ||
+		value.length > MAX_SCAN_FILES ||
+		!value.every((path) => typeof path === 'string' && path.trim() !== '' && path.length <= MAX_PATH_LENGTH)
+	) {
+		throw new HttpError(400, `"paths" must be 1 to ${MAX_SCAN_FILES} vault-relative file paths.`)
+	}
+	return [...new Set(value as string[])]
 }
 
 function readInteger(
@@ -345,6 +363,25 @@ export class LocalApiServer {
 					throw new HttpError(404, `Not a file in this vault: ${path}`)
 				}
 				send(res, statusForReport(report), report)
+				return
+			}
+			case '/scan-folder': {
+				expectMethod('POST')
+				const path = readPath(await readJsonBody(req), true) as string
+				const report = await handlers.scanFolder(path)
+				if (report === null) {
+					throw new HttpError(404, `Not a folder in this vault: ${path}`)
+				}
+				send(res, statusForReport(report), report)
+				return
+			}
+			case '/scan-files': {
+				expectMethod('POST')
+				const result = await handlers.scanFiles(readPaths(await readJsonBody(req, MAX_VALIDATE_BODY_BYTES)))
+				if ('missing' in result) {
+					throw new HttpError(404, `Not Markdown files in this vault: ${result.missing.join(', ')}`)
+				}
+				send(res, statusForReport(result), result)
 				return
 			}
 			case '/dry-run': {

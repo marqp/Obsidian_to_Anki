@@ -61,7 +61,7 @@ The first line is the note type; call anki_get_metadata for the types and their 
 
 The plugin stamps <!--ID: 123--> before END. Never write or copy one: two blocks with one ID overwrite the same note, and removing the line creates a new card without its review history. To delete a card, replace its block with DELETE and its ID on the next line, or remove the block.
 
-Workflow: anki_search_notes to avoid duplicates, write the file, anki_validate, anki_dry_run, show the result to the user, then anki_scan_file. Report every entry in "issues": it means something did not reach Anki as written.`
+Workflow: anki_search_notes to avoid duplicates, write the file, anki_validate, anki_dry_run, show the result to the user, then anki_scan_file (anki_scan_files for several files). Report every entry in "issues": it means something did not reach Anki as written.`
 
 const IMPORT_SELECTION = {
 	query: { type: 'string', description: 'Anki search narrowing which notes to consider, e.g. `deck:"Cirurgia"`.' },
@@ -140,7 +140,7 @@ export const TOOLS = [
 		annotations: READ_ONLY,
 		outputSchema: scanReportSchema,
 		description:
-			'Preview what a sync would add, update, delete or convert in Anki. Read-only: writes nothing to Anki or the vault. Run this before anki_scan_vault or anki_scan_file.',
+			'Preview what a sync would add, update, delete or convert in Anki. Read-only: writes nothing to Anki or the vault. Run this before anki_scan_vault, anki_scan_folder, anki_scan_files or anki_scan_file.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -220,6 +220,58 @@ export const TOOLS = [
 			method: 'POST',
 			route: '/scan-file',
 			body: { path: args.path },
+			timeoutMs: SCAN_TIMEOUT_MS
+		})
+	},
+	{
+		name: 'anki_scan_folder',
+		title: 'Sync a folder to Anki',
+		annotations: WRITES_VAULT,
+		outputSchema: scanReportSchema,
+		description:
+			'Sync the Markdown files of one folder and its subfolders to Anki, whatever the Scan Directories setting says. WRITES: creates/updates/deletes Anki notes and stamps <!--ID--> comments into the files. Only changed files are processed.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				path: {
+					type: 'string',
+					description: 'The folder to sync, relative to the vault root, e.g. "Medicine/Cardiology".'
+				}
+			},
+			required: ['path'],
+			additionalProperties: false
+		},
+		request: (args) => ({
+			method: 'POST',
+			route: '/scan-folder',
+			body: { path: args.path },
+			timeoutMs: SCAN_TIMEOUT_MS
+		})
+	},
+	{
+		name: 'anki_scan_files',
+		title: 'Sync several files to Anki',
+		annotations: WRITES_VAULT,
+		outputSchema: scanReportSchema,
+		description:
+			'Sync several Markdown files to Anki in one scan, for example the files you just wrote. WRITES: creates/updates/deletes Anki notes and stamps <!--ID--> comments into the files. Nothing is synced if any path is not a Markdown file of the vault.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				paths: {
+					type: 'array',
+					items: pathProperty('A file to sync.'),
+					minItems: 1,
+					maxItems: 500
+				}
+			},
+			required: ['paths'],
+			additionalProperties: false
+		},
+		request: (args) => ({
+			method: 'POST',
+			route: '/scan-files',
+			body: { paths: args.paths },
 			timeoutMs: SCAN_TIMEOUT_MS
 		})
 	},
@@ -395,7 +447,8 @@ export const TOOLS = [
 				noteIds: {
 					type: 'array',
 					items: { type: 'number' },
-					description: 'Up to 100 note IDs. Omit to compare every Image Occlusion note. Required with `apply`.'
+					description:
+						'Up to 100 note IDs. Omit to compare every Image Occlusion note. Required with `apply`.'
 				},
 				apply: { type: 'boolean', description: 'Write the listed notes to the Markdown (default false).' }
 			},
