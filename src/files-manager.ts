@@ -17,8 +17,8 @@ import {
 	isStatUnchanged,
 	mapConcurrent,
 	FileHashes,
-	VAULT_SCAN_YIELD_INTERVAL,
-	yieldToEventLoop
+	FRAME_BUDGET_MS,
+	createYielder
 } from './scan-optimizations'
 import { hashBytes, MEDIA_CHECKS_PER_SCAN, type MediaRecord, type MediaRecords } from './media-records'
 
@@ -380,6 +380,8 @@ export class FileManager {
 	private mediaIssues: ScanIssue[] = []
 	private readonly vault: VaultPort
 	private readonly notifier: NoticePort
+	/** The clock scans pace their pauses by; injectable so tests need not race real time. */
+	private readonly now: () => number
 
 	constructor(
 		app: App,
@@ -387,11 +389,12 @@ export class FileManager {
 		files: TFile[],
 		file_hashes: FileHashes,
 		added_media: string[],
-		ports: { vault?: VaultPort; notices?: NoticePort } = {}
+		ports: { vault?: VaultPort; notices?: NoticePort; now?: () => number } = {}
 	) {
 		this.app = app
 		this.vault = ports.vault ?? vaultPortFromApp(app)
 		this.notifier = ports.notices ?? obsidianNoticePort
+		this.now = ports.now ?? (() => performance.now())
 		this.data = data
 
 		this.files = this.findFilesThatAreNotIgnored(files, data)
@@ -412,11 +415,10 @@ export class FileManager {
 	/** Every file a scan would look at, whether or not it changed. */
 	async validationInputs(): Promise<ValidationInput[]> {
 		const inputs: ValidationInput[] = []
+		const yieldIfDue = this.yielder()
 		for (const file of this.findFilesThatAreNotIgnored(this.files, this.data)) {
 			inputs.push({ path: file.path, text: await this.vault.read(file), data: this.dataToFileData(file) })
-			if (inputs.length % VAULT_SCAN_YIELD_INTERVAL === 0) {
-				await yieldToEventLoop()
-			}
+			await yieldIfDue()
 		}
 		return inputs
 	}
@@ -512,6 +514,7 @@ export class FileManager {
 		this.throwIfCancelled(control)
 
 		// Pass 3: Verify content hash and scan changed/new files
+		const yieldIfDue = this.yielder()
 		for (let index = 0; index < readResults.length; index++) {
 			const { obFile, content } = readResults[index]
 
@@ -532,9 +535,9 @@ export class FileManager {
 				obfiles_changed.push(obFile)
 			}
 
-			if ((index + 1) % VAULT_SCAN_YIELD_INTERVAL === 0 || index + 1 === readResults.length) {
+			// Progress and cancellation go with each pause, and with the last file.
+			if ((await yieldIfDue()) || index + 1 === readResults.length) {
 				control.onProgress?.({ done: index + 1, total: readResults.length, phase: 'scan' })
-				await yieldToEventLoop()
 				this.throwIfCancelled(control)
 			}
 		}
@@ -584,6 +587,10 @@ export class FileManager {
 			}
 		})
 		return orphanIds.filter((id) => !found.has(id))
+	}
+
+	private yielder(): () => Promise<boolean> {
+		return createYielder(FRAME_BUDGET_MS, this.now)
 	}
 
 	/** Load the Anki note-ID set once, the first time a changed file needs it. */
