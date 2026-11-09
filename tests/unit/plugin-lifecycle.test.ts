@@ -295,3 +295,50 @@ describe('getActiveMarkdownFile', () => {
 		expect(createdNotices).not.toContain('No active Markdown file to scan.')
 	})
 })
+
+describe('data saving and API queue lifecycle', () => {
+	it('awaits saveData in saveAllData', async () => {
+		const plugin = makePlugin()
+		plugin.settings = { Defaults: {} } as never
+		let resolved = false
+		vi.spyOn(plugin, 'saveData').mockImplementation(async () => {
+			await new Promise((r) => setTimeout(r, 10))
+			resolved = true
+		})
+		await plugin.saveAllData()
+		expect(resolved).toBe(true)
+	})
+
+	it('does not poison subsequent restarts if one restart fails', async () => {
+		const plugin = makePlugin()
+		let attempts = 0
+		vi.spyOn(plugin as unknown as { applyApiSettings(): Promise<void> }, 'applyApiSettings').mockImplementation(
+			async () => {
+				attempts++
+				if (attempts === 1) {
+					throw new Error('port busy')
+				}
+			}
+		)
+		await expect(plugin.restartApiServer()).rejects.toThrow('port busy')
+		await expect(plugin.restartApiServer()).resolves.toBeUndefined()
+		expect(attempts).toBe(2)
+	})
+
+	it('stops the server and saves data on onunload even if apiQueue rejects', async () => {
+		const plugin = makePlugin()
+		const stopServer = vi.fn().mockResolvedValue(undefined)
+		const internal = plugin as unknown as {
+			apiServer: { stop(): Promise<void> } | undefined
+			apiQueue: Promise<void>
+		}
+		internal.apiServer = { stop: stopServer }
+		internal.apiQueue = Promise.reject(new Error('api queue error'))
+		const saveAllData = vi.spyOn(plugin, 'saveAllData').mockResolvedValue(undefined)
+
+		await plugin.onunload()
+
+		expect(stopServer).toHaveBeenCalled()
+		expect(saveAllData).toHaveBeenCalled()
+	})
+})

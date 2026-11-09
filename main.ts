@@ -110,7 +110,7 @@ export default class MyPlugin extends Plugin {
 
 	async saveDefault(): Promise<void> {
 		const default_sets = await this.getDefaultSettings()
-		this.saveData({
+		await this.saveData({
 			settings: default_sets,
 			'Added Media': [],
 			'File Hashes': {},
@@ -126,7 +126,7 @@ export default class MyPlugin extends Plugin {
 		if (current_data == null || typeof current_data.settings !== 'object' || current_data.settings === null) {
 			new Notice('Need to connect to Anki generate default settings...')
 			const default_sets = await this.getDefaultSettings()
-			this.saveData({
+			await this.saveData({
 				settings: default_sets,
 				'Added Media': [],
 				'File Hashes': {},
@@ -207,7 +207,7 @@ export default class MyPlugin extends Plugin {
 
 	async saveAllData(): Promise<void> {
 		this.syncTransportKey()
-		this.saveData({
+		await this.saveData({
 			settings: this.settings,
 			'Added Media': this.added_media,
 			'Media Records': this.media_records,
@@ -295,7 +295,9 @@ export default class MyPlugin extends Plugin {
 								this.file_hashes,
 								(path) => this.app.vault.getAbstractFileByPath(path) !== null
 							)
-							this.saveAllData()
+							void this.saveAllData().catch((error) => {
+								console.error('[Obsidian_to_Anki] failed to save scan results:', error)
+							})
 						}
 					},
 					{
@@ -587,7 +589,7 @@ export default class MyPlugin extends Plugin {
 	 * one if enabled. Serialised through apiQueue; failures become a Notice.
 	 */
 	restartApiServer(): Promise<void> {
-		this.apiQueue = this.apiQueue.then(() => this.applyApiSettings())
+		this.apiQueue = this.apiQueue.catch(() => undefined).then(() => this.applyApiSettings())
 		return this.apiQueue
 	}
 
@@ -719,9 +721,13 @@ export default class MyPlugin extends Plugin {
 			window.clearTimeout(this.apiTimer)
 			this.apiTimer = undefined
 		}
-		await this.apiQueue
+		try {
+			await this.apiQueue
+		} catch {
+			// Ignore API server startup/shutdown failures during unload.
+		}
 		await this.apiServer?.stop()
 		this.apiServer = undefined
-		this.saveAllData()
+		await this.saveAllData()
 	}
 }
