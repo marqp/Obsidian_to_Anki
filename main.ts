@@ -85,14 +85,21 @@ export default class MyPlugin extends Plugin {
 			IGNORED_FILE_GLOBS: DEFAULT_IGNORED_FILE_GLOBS
 		}
 		/*Making settings from scratch, so need note types*/
-		this.note_types = (await AnkiConnect.invoke('modelNames')) as Array<string>
-		this.fields_dict = await this.generateFieldsDict()
-		for (const note_type of this.note_types) {
-			settings['CUSTOM_REGEXPS'][note_type] = ''
-			// Reuse the already-fetched field names (a second modelFieldNames
-			// round per model here tripled first-run AnkiConnect traffic).
-			const field_names: string[] = this.fields_dict[note_type]
-			settings['FILE_LINK_FIELDS'][note_type] = field_names[0]
+		try {
+			this.note_types = (await AnkiConnect.invoke('modelNames')) as Array<string>
+			this.fields_dict = await this.generateFieldsDict()
+			for (const note_type of this.note_types) {
+				settings['CUSTOM_REGEXPS'][note_type] = ''
+				// Reuse the already-fetched field names (a second modelFieldNames
+				// round per model here tripled first-run AnkiConnect traffic).
+				const field_names: string[] = this.fields_dict[note_type]
+				settings['FILE_LINK_FIELDS'][note_type] = field_names[0]
+			}
+		} catch (e) {
+			console.error('[Obsidian_to_Anki] could not fetch note types from Anki:', e)
+			new Notice(await describeConnectionFailure(), 10000)
+			this.note_types = []
+			this.fields_dict = {}
 		}
 		return settings
 	}

@@ -342,3 +342,27 @@ describe('data saving and API queue lifecycle', () => {
 		expect(saveAllData).toHaveBeenCalled()
 	})
 })
+
+describe('first-run boot with Anki unavailable', () => {
+	beforeEach(() => {
+		clearNotices()
+	})
+
+	it('registers setting tab and commands when Anki is unreachable on first run', async () => {
+		AnkiConnect.setTransport({
+			invoke: async () => {
+				throw new Error('connect ECONNREFUSED 127.0.0.1:8765')
+			}
+		})
+		const plugin = makePlugin()
+		vi.spyOn(plugin, 'loadData').mockResolvedValue(null)
+		const addSettingTab = vi.spyOn(plugin, 'addSettingTab')
+		const addCommand = vi.spyOn(plugin, 'addCommand')
+
+		await plugin.onload()
+
+		expect(addSettingTab).toHaveBeenCalled()
+		expect(addCommand).toHaveBeenCalled()
+		expect(createdNotices.some((n) => n.includes('Anki') || n.includes('connect'))).toBe(true)
+	})
+})
