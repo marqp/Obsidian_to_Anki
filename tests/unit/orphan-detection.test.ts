@@ -61,6 +61,15 @@ describe('AllFile.getNoteIdsInFile', () => {
 	})
 })
 
+describe('AllFile.scanDeletions', () => {
+	it('ignores DELETE lines inside fenced code blocks', () => {
+		const content = ['```', 'DELETE', '<!--ID: 999-->', '```', 'DELETE', '<!--ID: 888-->'].join('\n')
+		const file = makeFile(content)
+		file.scanDeletions()
+		expect(file.notes_to_delete).toEqual([888])
+	})
+})
+
 describe('findOrphanedNoteIds', () => {
 	const existing = new Set([1, 2, 3, 4])
 

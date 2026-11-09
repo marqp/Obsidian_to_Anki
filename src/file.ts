@@ -287,7 +287,12 @@ abstract class AbstractFile {
 	abstract scanFile(): void
 
 	scanDeletions() {
+		const fenceSpans = spans(c.OBS_DISPLAY_CODE_REGEXP, this.file)
 		for (const match of this.file.matchAll(this.data.EMPTY_REGEXP)) {
+			const position = match.index ?? 0
+			if (fenceSpans.some(([start, end]) => position >= start && position < end)) {
+				continue
+			}
 			this.notes_to_delete.push(parseInt(match[1]))
 		}
 	}
