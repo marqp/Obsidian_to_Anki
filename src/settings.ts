@@ -542,7 +542,10 @@ export class SettingsTab extends PluginSettingTab {
 							plugin.note_types = await AnkiConnect.invoke('modelNames')
 							plugin.regenerateSettingsRegexps()
 							plugin.fields_dict = await plugin.loadFieldsDict()
-							if (Object.keys(plugin.fields_dict).length != plugin.note_types.length) {
+							if (
+								Object.keys(plugin.fields_dict).length != plugin.note_types.length ||
+								plugin.note_types.some((nt) => !(nt in plugin.fields_dict))
+							) {
 								new Notice('Need to connect to Anki to generate fields dictionary...')
 								try {
 									plugin.fields_dict = await plugin.generateFieldsDict()

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { SettingsTab } from '../../src/settings'
-import { App } from '../mocks/obsidian'
+import { App, Setting } from '../mocks/obsidian'
+import * as AnkiConnect from '../../src/anki'
 
 describe('SettingsTab Folder Table Optimizations', () => {
 	function createMockPlugin(initialDecks: Record<string, string> = {}, initialTags: Record<string, string> = {}) {
@@ -161,5 +162,53 @@ describe('SettingsTab Folder Table Optimizations', () => {
 		}
 		const scrollers = findIn(tab.containerEl.children as Array<Record<string, unknown>>, 'o2a-table-scroll')
 		expect(scrollers.length).toBeGreaterThanOrEqual(1)
+	})
+
+	it('regenerates fields dictionary when note types change even if count is unchanged', async () => {
+		const plugin = createMockPlugin({}, {})
+		plugin.regenerateSettingsRegexps = vi.fn()
+		plugin.loadFieldsDict = vi.fn().mockResolvedValue({
+			Basic: ['Front', 'Back'],
+			OldType: ['Field1', 'Field2']
+		})
+		plugin.generateFieldsDict = vi.fn().mockResolvedValue({
+			Basic: ['Front', 'Back'],
+			NewType: ['Field1', 'Field2']
+		})
+		vi.spyOn(AnkiConnect, 'invoke').mockImplementation(async (action: string) => {
+			if (action === 'modelNames') {
+				return ['Basic', 'NewType']
+			}
+			return null
+		})
+
+		let clickHandler: (() => Promise<void>) | null = null
+		const addBtnSpy = vi.spyOn(Setting.prototype, 'addButton').mockImplementation(function (
+			this: Setting,
+			cb: (b: unknown) => void
+		) {
+			const btn = {
+				setButtonText: () => btn,
+				setClass: () => btn,
+				onClick: (fn: () => Promise<void>) => {
+					if (!clickHandler) {
+						clickHandler = fn
+					}
+					return btn
+				}
+			}
+			cb(btn)
+			return this
+		})
+
+		const tab = new SettingsTab(plugin.app, plugin)
+		const container = tab.containerEl.createEl('div')
+		tab.setup_buttons(container)
+		expect(clickHandler).not.toBeNull()
+
+		await (clickHandler as () => Promise<void>)()
+
+		expect(plugin.generateFieldsDict).toHaveBeenCalledTimes(1)
+		addBtnSpy.mockRestore()
 	})
 })
