@@ -69,7 +69,7 @@ function decodeEntities(text: string): string {
 		if (code.startsWith('#')) {
 			const isHex = code[1] === 'x' || code[1] === 'X'
 			const value = parseInt(code.slice(isHex ? 2 : 1), isHex ? 16 : 10)
-			return Number.isNaN(value) ? whole : String.fromCodePoint(value)
+			return Number.isNaN(value) || value < 0 || value > 0x10ffff ? whole : String.fromCodePoint(value)
 		}
 		return NAMED_ENTITIES[code.toLowerCase()] ?? whole
 	})
