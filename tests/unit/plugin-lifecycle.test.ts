@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import MyPlugin from '../../main.ts'
+import MyPlugin, { getActiveMarkdownFile } from '../../main.ts'
 import * as AnkiConnect from '../../src/anki'
 import type { StoredPluginData } from '../../src/interfaces/settings-interface'
 import type { ApiHandlers } from '../../src/api-server'
 import type { ScanReport } from '../../src/scan-orchestrator'
-import { TFile, TFolder } from 'obsidian'
+import { TFile, TFolder, clearNotices, createdNotices } from 'obsidian'
 
 function makePlugin(): MyPlugin {
 	const plugin = new MyPlugin({} as never, {} as never)
@@ -268,5 +268,30 @@ describe('onExternalSettingsChange', () => {
 		await plugin.onExternalSettingsChange()
 
 		expect(plugin.settings.Defaults['Confirm Before Sync']).toBe(false)
+	})
+})
+
+describe('getActiveMarkdownFile', () => {
+	beforeEach(() => {
+		clearNotices()
+	})
+
+	it('returns null and notifies when no file is active', () => {
+		expect(getActiveMarkdownFile(null)).toBeNull()
+		expect(createdNotices).toContain('No active Markdown file to scan.')
+	})
+
+	it('returns null and notifies when active file is not markdown', () => {
+		const canvas = new TFile()
+		canvas.extension = 'canvas'
+		expect(getActiveMarkdownFile(canvas)).toBeNull()
+		expect(createdNotices).toContain('No active Markdown file to scan.')
+	})
+
+	it('returns the file and does not notify when active file is markdown', () => {
+		const md = new TFile()
+		md.extension = 'md'
+		expect(getActiveMarkdownFile(md)).toBe(md)
+		expect(createdNotices).not.toContain('No active Markdown file to scan.')
 	})
 })

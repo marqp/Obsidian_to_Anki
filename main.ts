@@ -41,6 +41,14 @@ const CACHE_WAIT_ATTEMPTS = 50
 /** Why an import or a mask pull refuses to start. */
 const SCAN_RUNNING = 'A scan is running. Try again when it ends.'
 
+export function getActiveMarkdownFile(file: TFile | null): TFile | null {
+	if (file === null || file.extension !== 'md') {
+		new Notice('No active Markdown file to scan.')
+		return null
+	}
+	return file
+}
+
 export default class MyPlugin extends Plugin {
 	declare settings: PluginSettings
 	note_types: Array<string> = []
@@ -679,7 +687,11 @@ export default class MyPlugin extends Plugin {
 				await orchestrator.scanVault(undefined)
 			},
 			onScanFile: async () => {
-				await orchestrator.scanVault(this.app.workspace.getActiveFile())
+				const file = getActiveMarkdownFile(this.app.workspace.getActiveFile())
+				if (file === null) {
+					return
+				}
+				await orchestrator.scanVault(file)
 			},
 			onDryRun: async () => {
 				await orchestrator.runDryRun()
