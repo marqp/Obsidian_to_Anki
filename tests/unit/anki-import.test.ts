@@ -9,6 +9,7 @@ import {
 	type ImportVault
 } from '../../src/anki-import'
 import { createFileData } from '../../src/scan-optimizations'
+import { escapeRegex } from '../../src/constants'
 import { createParsedSettings } from './anki-test-helpers'
 
 afterEach(() => {
@@ -128,6 +129,38 @@ describe('buildImportPlan', () => {
 
 		expect(result.refused).toEqual([])
 		expect(result.files[0].text).toBe('TARGET DECK: Med\n\nSTART\nBasic\nFront: q\nBack: a\n<!--ID: 1-->\nEND\n')
+	})
+
+	it('writes blocks with the configured syntax (custom beginNote, endNote, targetDeckLine)', () => {
+		const customSettings = createParsedSettings({
+			...settings,
+			NOTE_REGEXP: new RegExp(
+				String.raw`^` +
+					escapeRegex('INICIO') +
+					String.raw`[ ]*\n([\s\S]*?\n)` +
+					escapeRegex('FIM') +
+					String.raw`[ ]*`,
+				'gm'
+			),
+			DECK_REGEXP: new RegExp(String.raw`^` + escapeRegex('BARALHO ALVO') + String.raw`(?:\n|: )(.*)`, 'm')
+		})
+		const customOptions: ImportOptions = {
+			...options,
+			beginNote: 'INICIO',
+			endNote: 'FIM',
+			targetDeckLine: 'BARALHO ALVO',
+			reservedWords: ['INICIO', 'FIM', 'BARALHO ALVO', 'Tags: ', 'Front:', 'Back:'],
+			dataFor: (deck) => createFileData(customSettings, deck, [])
+		}
+		const result = buildImportPlan(
+			[basic(1, 'q', 'a', ['Bio'])],
+			inDeck([basic(1, 'q', 'a', ['Bio'])], 'Med'),
+			customOptions
+		)
+		expect(result.files).toHaveLength(1)
+		expect(result.files[0].text).toBe(
+			'BARALHO ALVO: Med\n\n' + 'INICIO\nBasic\nFront: q\nBack: a\nTags: Bio\n<!--ID: 1-->\nFIM\n'
+		)
 	})
 
 	it('groups by most used tag, ignoring tags Anki sets, and folders other decks', () => {

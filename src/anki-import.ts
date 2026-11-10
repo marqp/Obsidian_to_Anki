@@ -35,6 +35,8 @@ export interface ImportOptions {
 	folder: string
 	defaultDeck: string
 	beginNote: string
+	endNote?: string
+	targetDeckLine?: string
 	/** Line starts the block parser reads as structure. */
 	reservedWords: string[]
 	dataFor(deck: string): FileData
@@ -126,7 +128,12 @@ function markdownTags(note: ImportableNote): string[] {
 	return note.tags.filter((tag) => !ANKI_STATUS_TAGS.includes(tag.toLowerCase()))
 }
 
-function noteBlock(note: ImportableNote, reservedWords: string[]): { text: string; unsupported: string[] } {
+function noteBlock(
+	note: ImportableNote,
+	reservedWords: string[],
+	beginNote = 'START',
+	endNote = 'END'
+): { text: string; unsupported: string[] } {
 	const lines = [note.modelName]
 	const unsupported: string[] = []
 	for (const [name, html] of fieldsInOrder(note)) {
@@ -141,7 +148,7 @@ function noteBlock(note: ImportableNote, reservedWords: string[]): { text: strin
 		lines.push(`Tags: ${tags.join(' ')}`)
 	}
 	lines.push(`<!--ID: ${note.noteId}-->`)
-	return { text: `START\n${lines.join('\n')}\nEND\n`, unsupported: [...new Set(unsupported)] }
+	return { text: `${beginNote}\n${lines.join('\n')}\n${endNote}\n`, unsupported: [...new Set(unsupported)] }
 }
 
 /** What Obsidian's cache will hold for these embeds once the file exists. */
@@ -154,8 +161,8 @@ function embedsCache(text: string): CachedMetadata {
 	return { embeds } as unknown as CachedMetadata
 }
 
-function fileText(deck: string, blocks: string[]): string {
-	return `TARGET DECK: ${deck}\n\n${blocks.join('\n')}`
+function fileText(deck: string, blocks: string[], targetDeckLine = 'TARGET DECK'): string {
+	return `${targetDeckLine}: ${deck}\n\n${blocks.join('\n')}`
 }
 
 /** Runs the file through the real scanner and says what differs for each note. */
@@ -297,7 +304,7 @@ export function buildImportPlan(
 	const blocks = new Map<number, string>()
 	for (const note of notes) {
 		const noteDecks = new Set(note.cards.map((card) => deckByCard.get(card)))
-		const block = noteBlock(note, options.reservedWords)
+		const block = noteBlock(note, options.reservedWords, options.beginNote, options.endNote)
 		const [deck] = noteDecks
 		if (noteDecks.size !== 1 || deck === undefined) {
 			refused.set(note.noteId, ['cards in more than one deck'])
@@ -322,7 +329,8 @@ export function buildImportPlan(
 			noteIds: group.notes.map((note) => note.noteId),
 			text: fileText(
 				group.deck,
-				group.notes.map((note) => blocks.get(note.noteId) ?? '')
+				group.notes.map((note) => blocks.get(note.noteId) ?? ''),
+				options.targetDeckLine
 			)
 		}
 		const problems = roundTripProblems(draft, group.notes, data)
@@ -337,7 +345,8 @@ export function buildImportPlan(
 				noteIds: kept.map((note) => note.noteId),
 				text: fileText(
 					group.deck,
-					kept.map((note) => blocks.get(note.noteId) ?? '')
+					kept.map((note) => blocks.get(note.noteId) ?? ''),
+					options.targetDeckLine
 				)
 			})
 		}
