@@ -237,4 +237,26 @@ describe('orphanFileById attribution', () => {
 
 		expect(manager.orphanFileById().get(7)).toBe('a.md')
 	})
+
+	it('uses a Set for orphan ID lookups', () => {
+		const parsed = createParsedSettings({ delete_removed_notes: true })
+		const { app } = fakeApp('no note blocks here')
+		const hashes: FileHashes = {
+			'a.md': { hash: 'x', mtime: 1, size: 1, noteIds: [10, 20] },
+			'b.md': { hash: 'y', mtime: 1, size: 1, noteIds: [30] }
+		}
+		const manager = new FileManager(app, parsed, [], hashes, [])
+		manager.orphanNoteIds = [10, 30]
+
+		const hasSpy = vi.spyOn(Set.prototype, 'has')
+		try {
+			const result = manager.orphanFileById()
+			expect(result.get(10)).toBe('a.md')
+			expect(result.get(30)).toBe('b.md')
+			expect(hasSpy).toHaveBeenCalledWith(10)
+			expect(hasSpy).toHaveBeenCalledWith(30)
+		} finally {
+			hasSpy.mockRestore()
+		}
+	})
 })

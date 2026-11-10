@@ -589,12 +589,13 @@ export class FileManager {
 	 */
 	orphanFileById(): Map<number, string> {
 		const fileById = new Map<number, string>()
+		const orphanIds = new Set(this.orphanNoteIds)
 		for (const [path, entry] of Object.entries(this.file_hashes)) {
 			if (typeof entry === 'string' || !Array.isArray(entry.noteIds)) {
 				continue
 			}
 			for (const id of entry.noteIds) {
-				if (this.orphanNoteIds.includes(id) && !fileById.has(id)) {
+				if (orphanIds.has(id) && !fileById.has(id)) {
 					fileById.set(id, path)
 				}
 			}
