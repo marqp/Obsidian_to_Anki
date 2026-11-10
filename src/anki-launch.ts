@@ -1,4 +1,5 @@
 import { existsSync } from 'fs'
+import { join, delimiter } from 'path'
 import { spawn, type ChildProcess } from 'child_process'
 import * as AnkiConnect from './anki'
 
@@ -25,15 +26,34 @@ export interface LaunchEnvironment {
 	pathOnPath: (binary: string) => boolean
 }
 
-export interface Spawner {
-	spawn: (command: string, args: string[], options: object) => { unref: () => void } | ChildProcess
+export interface SpawnedProcess {
+	unref: () => void
+	on: (event: 'error', listener: (err: Error) => void) => unknown
 }
 
-const realEnvironment: LaunchEnvironment = {
+export interface Spawner {
+	spawn: (command: string, args: string[], options: object) => SpawnedProcess | ChildProcess
+}
+
+export const realEnvironment: LaunchEnvironment = {
 	platform: process.platform,
 	env: process.env as Record<string, string | undefined>,
 	pathExists: existsSync,
-	pathOnPath: () => true
+	pathOnPath: (name: string) => {
+		const pathEnv = process.env.PATH ?? ''
+		for (const dir of pathEnv.split(delimiter)) {
+			if (!dir) {
+				continue
+			}
+			if (existsSync(join(dir, name))) {
+				return true
+			}
+			if (process.platform === 'win32' && existsSync(join(dir, `${name}.exe`))) {
+				return true
+			}
+		}
+		return false
+	}
 }
 
 const realSpawner: Spawner = {
@@ -194,7 +214,9 @@ export async function launchAnki(
 		return 'no-target'
 	}
 	const spawner = options.spawner ?? realSpawner
-	spawner.spawn(target.command, target.args, { detached: true, stdio: 'ignore', windowsHide: true }).unref()
+	const child = spawner.spawn(target.command, target.args, { detached: true, stdio: 'ignore', windowsHide: true })
+	child.on('error', (e) => console.error('[Obsidian_to_Anki] failed to launch Anki:', e))
+	child.unref()
 	const wait = options.waitMs ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
 	await wait(LAUNCH_GRACE_MS)
 	const probe = options.probe ?? (() => probeAnkiStatus())
