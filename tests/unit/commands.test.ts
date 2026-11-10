@@ -43,6 +43,20 @@ describe('openNoteInAnki', () => {
 		expect(notify).not.toHaveBeenCalled()
 	})
 
+	it('does not read editor.getValue when cursor line already has an ID', async () => {
+		const invoke = vi.fn().mockResolvedValue(null)
+		const notify = vi.fn()
+		const getValueSpy = vi.fn().mockReturnValue('large file content')
+		const editor = {
+			getLine: () => '<!--ID: 777-->',
+			getCursor: () => ({ line: 0 }),
+			getValue: getValueSpy
+		} as unknown as Editor
+		await openNoteInAnki({ invoke, notify }, editor, 'browse')
+		expect(invoke).toHaveBeenCalledWith('guiBrowse', { query: 'nid:777' })
+		expect(getValueSpy).not.toHaveBeenCalled()
+	})
+
 	it('edits the note for the resolved ID', async () => {
 		const invoke = vi.fn().mockResolvedValue(null)
 		const notify = vi.fn()

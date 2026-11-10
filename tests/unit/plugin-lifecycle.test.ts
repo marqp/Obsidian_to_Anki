@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import MyPlugin from '../../main.ts'
+import MyPlugin, { getActiveMarkdownFile } from '../../main.ts'
 import * as AnkiConnect from '../../src/anki'
 import type { StoredPluginData } from '../../src/interfaces/settings-interface'
 import type { ApiHandlers } from '../../src/api-server'
 import type { ScanReport } from '../../src/scan-orchestrator'
-import { TFile, TFolder } from 'obsidian'
+import { TFile, TFolder, clearNotices, createdNotices } from 'obsidian'
 
 function makePlugin(): MyPlugin {
 	const plugin = new MyPlugin({} as never, {} as never)
@@ -268,5 +268,101 @@ describe('onExternalSettingsChange', () => {
 		await plugin.onExternalSettingsChange()
 
 		expect(plugin.settings.Defaults['Confirm Before Sync']).toBe(false)
+	})
+})
+
+describe('getActiveMarkdownFile', () => {
+	beforeEach(() => {
+		clearNotices()
+	})
+
+	it('returns null and notifies when no file is active', () => {
+		expect(getActiveMarkdownFile(null)).toBeNull()
+		expect(createdNotices).toContain('No active Markdown file to scan.')
+	})
+
+	it('returns null and notifies when active file is not markdown', () => {
+		const canvas = new TFile()
+		canvas.extension = 'canvas'
+		expect(getActiveMarkdownFile(canvas)).toBeNull()
+		expect(createdNotices).toContain('No active Markdown file to scan.')
+	})
+
+	it('returns the file and does not notify when active file is markdown', () => {
+		const md = new TFile()
+		md.extension = 'md'
+		expect(getActiveMarkdownFile(md)).toBe(md)
+		expect(createdNotices).not.toContain('No active Markdown file to scan.')
+	})
+})
+
+describe('data saving and API queue lifecycle', () => {
+	it('awaits saveData in saveAllData', async () => {
+		const plugin = makePlugin()
+		plugin.settings = { Defaults: {} } as never
+		let resolved = false
+		vi.spyOn(plugin, 'saveData').mockImplementation(async () => {
+			await new Promise((r) => setTimeout(r, 10))
+			resolved = true
+		})
+		await plugin.saveAllData()
+		expect(resolved).toBe(true)
+	})
+
+	it('does not poison subsequent restarts if one restart fails', async () => {
+		const plugin = makePlugin()
+		let attempts = 0
+		vi.spyOn(plugin as unknown as { applyApiSettings(): Promise<void> }, 'applyApiSettings').mockImplementation(
+			async () => {
+				attempts++
+				if (attempts === 1) {
+					throw new Error('port busy')
+				}
+			}
+		)
+		await expect(plugin.restartApiServer()).rejects.toThrow('port busy')
+		await expect(plugin.restartApiServer()).resolves.toBeUndefined()
+		expect(attempts).toBe(2)
+	})
+
+	it('stops the server and saves data on onunload even if apiQueue rejects', async () => {
+		const plugin = makePlugin()
+		const stopServer = vi.fn().mockResolvedValue(undefined)
+		const internal = plugin as unknown as {
+			apiServer: { stop(): Promise<void> } | undefined
+			apiQueue: Promise<void>
+		}
+		internal.apiServer = { stop: stopServer }
+		internal.apiQueue = Promise.reject(new Error('api queue error'))
+		const saveAllData = vi.spyOn(plugin, 'saveAllData').mockResolvedValue(undefined)
+
+		await plugin.onunload()
+
+		expect(stopServer).toHaveBeenCalled()
+		expect(saveAllData).toHaveBeenCalled()
+	})
+})
+
+describe('first-run boot with Anki unavailable', () => {
+	beforeEach(() => {
+		clearNotices()
+	})
+
+	it('registers setting tab and commands when Anki is unreachable on first run', async () => {
+		AnkiConnect.setTransport({
+			invoke: async () => {
+				throw new Error('connect ECONNREFUSED 127.0.0.1:8765')
+			}
+		})
+		const plugin = makePlugin()
+		vi.spyOn(plugin, 'loadData').mockResolvedValue(null)
+		const addSettingTab = vi.spyOn(plugin, 'addSettingTab')
+		const addCommand = vi.spyOn(plugin, 'addCommand')
+
+		await plugin.onload()
+
+		expect(addSettingTab).toHaveBeenCalled()
+		expect(addCommand).toHaveBeenCalled()
+		expect(createdNotices.some((n) => n.includes('Anki') || n.includes('connect'))).toBe(true)
 	})
 })

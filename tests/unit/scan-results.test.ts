@@ -61,7 +61,6 @@ function setup(edits: DryRunNoteSpec[], daemon: Daemon, data: ParsedSettings = c
 				{ result: [], error: null },
 				daemon.addedIds ?? { result: [{ result: [], error: null }], error: null },
 				{ result: [{ result: daemon.notesInfo ?? [], error: null }], error: null },
-				{ result: [], error: null },
 				daemon.updates ?? { result: [{ result: [], error: null }], error: null },
 				daemon.deletes ?? { result: [ok], error: null },
 				{ result: [], error: null }
@@ -347,6 +346,13 @@ describe('getHashes: only clean files are marked as synced', () => {
 	it('retries every file when a whole batch failed', async () => {
 		const { manager } = setup([], {})
 		manager.scanIssues = [{ file: '', kind: 'add-notes', error: 'offline' }]
+
+		expect(manager.getHashes()).toEqual({})
+	})
+
+	it('keeps a file edited during sync (file-changed) out of the commit', async () => {
+		const { manager, file } = setup([], {})
+		manager.scanIssues = [{ file: file.path, kind: 'file-changed', error: 'file changed on disk' }]
 
 		expect(manager.getHashes()).toEqual({})
 	})

@@ -55,6 +55,8 @@ export interface DryRunSummary {
 	changes: DryRunChange[]
 	/** Notes the sync would leave alone and report, because their type differs. */
 	issues: ScanIssue[]
+	/** Changed media files to send to Anki. */
+	resentMedia?: string[]
 }
 
 /** Cards the preview would touch in one deck (Anki `type === 0` counts as new). */
@@ -130,6 +132,8 @@ export async function collectDryRunState(
 		orphanFileById?: Map<number, string>
 		/** Add the before and after text to each update. */
 		includeDiff?: boolean
+		/** Whole-vault comparison: all files were checked, even unchanged ones. */
+		everyFile?: boolean
 	}
 ): Promise<DryRunSummary> {
 	const changes: DryRunChange[] = []
@@ -244,24 +248,47 @@ export async function collectDryRunState(
 		}
 	}
 
+	const allChanges: DryRunChange[] = [
+		...changes,
+		...explicitDeletes,
+		...orphanNoteIds.map((noteId) => ({
+			kind: 'delete' as const,
+			file: orphanFileById?.get(noteId) ?? '',
+			noteId,
+			deleteReason: 'orphan' as const
+		}))
+	]
+
+	let filesChanged = files.length
+	if (options.everyFile) {
+		const changedFiles = new Set<string>()
+		for (const change of allChanges) {
+			if (change.file) {
+				changedFiles.add(change.file)
+			}
+		}
+		for (const issue of issues) {
+			if (issue.file) {
+				changedFiles.add(issue.file)
+			}
+		}
+		for (const file of files) {
+			if (file.parseIssues?.length && file.path) {
+				changedFiles.add(file.path)
+			}
+		}
+		filesChanged = changedFiles.size
+	}
+
 	return {
-		filesChanged: files.length,
+		filesChanged,
 		filesTotal: files.length,
 		wouldAdd,
 		wouldUpdate,
 		wouldDelete: explicitDeletes.length + orphanNoteIds.length,
 		wouldConvert,
 		decks: collectDeckStats(uniqueCardIds, deckByCardId, cardInfoById),
-		changes: [
-			...changes,
-			...explicitDeletes,
-			...orphanNoteIds.map((noteId) => ({
-				kind: 'delete' as const,
-				file: orphanFileById?.get(noteId) ?? '',
-				noteId,
-				deleteReason: 'orphan' as const
-			}))
-		],
+		changes: allChanges,
 		issues
 	}
 }

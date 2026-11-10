@@ -135,4 +135,30 @@ describe('migrateSettings', () => {
 		const second = migrateSettings(first.settings)
 		expect(second.dirty).toBe(false)
 	})
+
+	it('keeps existing non-empty Scan Directories when legacy Scan Directory key exists', () => {
+		const settings = modernSettings({
+			Defaults: {
+				...modernSettings().Defaults,
+				'Scan Directory': 'Notes/Legacy',
+				'Scan Directories': ['Notes/Existing']
+			} as PluginSettings['Defaults']
+		})
+		const result = migrateSettings(settings)
+
+		expect(result.dirty).toBe(true)
+		expect(result.settings.Defaults['Scan Directories']).toEqual(['Notes/Existing'])
+		expect('Scan Directory' in result.settings.Defaults).toBe(false)
+	})
+
+	it('assigns a copy of DEFAULT_IGNORED_FILE_GLOBS instead of the shared reference', () => {
+		const settings = modernSettings({
+			IGNORED_FILE_GLOBS: undefined as unknown as string[]
+		})
+		const result = migrateSettings(settings)
+
+		expect(result.dirty).toBe(true)
+		expect(result.settings.IGNORED_FILE_GLOBS).toEqual(DEFAULT_IGNORED_FILE_GLOBS)
+		expect(result.settings.IGNORED_FILE_GLOBS).not.toBe(DEFAULT_IGNORED_FILE_GLOBS)
+	})
 })

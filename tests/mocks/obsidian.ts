@@ -119,8 +119,16 @@ function makeMockTableSection() {
 
 function makeMockTable() {
 	const table = makeMockEl('table', { cls: 'anki-settings-table' })
-	table['createTHead'] = () => makeMockTableSection()
-	table['createTBody'] = () => makeMockTableSection()
+	table['createTHead'] = () => {
+		const head = makeMockTableSection()
+		;(table['children'] as unknown[]).push(head)
+		return head
+	}
+	table['createTBody'] = () => {
+		const body = makeMockTableSection()
+		;(table['children'] as unknown[]).push(body)
+		return body
+	}
 	return table
 }
 

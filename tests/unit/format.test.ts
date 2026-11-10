@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { FormatConverter } from '../../src/format'
+import { codeHighlightExtension } from '../../src/highlight'
 
 function createFormatter() {
 	return new FormatConverter({} as never, 'test-vault')
@@ -178,6 +179,14 @@ describe('FormatConverter code highlighting (bundled subset)', () => {
 		const out = formatter.format('```\nSELECT a FROM b;\n```', false, false)
 
 		expect(out).toContain('hljs-keyword')
+	})
+
+	it('leaves out-of-range numeric entities untouched in codeHighlightExtension', () => {
+		const ext = codeHighlightExtension()
+		expect(() => ext.filter('<pre><code>&#1114112; &#x110000;</code></pre>', null, null)).not.toThrow()
+		const out = ext.filter('<pre><code>&#1114112; &#x110000;</code></pre>', null, null)
+		expect(out).toContain('&amp;#1114112;')
+		expect(out).toContain('&amp;#x110000;')
 	})
 })
 

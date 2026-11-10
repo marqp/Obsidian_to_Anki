@@ -86,6 +86,9 @@ interface FakeManager {
 	updatedNoteCount: () => number
 	failedDeleteCount: number
 	convertedCount: number
+	data: ParsedSettings
+	orphanFileById: () => Map<number, string>
+	findMediaDifferences: (paths: Set<string>) => Promise<ScanIssue[]>
 }
 
 interface Harness {
@@ -109,6 +112,7 @@ function makeHarness(overrides: Partial<ScanEnvironment> = {}, scanDirs: string[
 	const state: ScanState = { settings, fieldsDict: {}, fileHashes: {}, addedMedia: [], mediaRecords: {} }
 	const committed: Harness['committed'] = []
 	const createdWith: TFile[][] = []
+	const data = createParsedSettings()
 	const fake: FakeManager = {
 		files: [],
 		ownFiles: [],
@@ -126,9 +130,11 @@ function makeHarness(overrides: Partial<ScanEnvironment> = {}, scanDirs: string[
 		getHashes: () => ({}),
 		updatedNoteCount: () => 0,
 		failedDeleteCount: 0,
-		convertedCount: 0
+		convertedCount: 0,
+		data,
+		orphanFileById: () => new Map<number, string>(),
+		findMediaDifferences: () => Promise.resolve([])
 	}
-	const data = createParsedSettings()
 	const env: ScanEnvironment = {
 		app: new App(),
 		notices: { notify: (message) => notices.push(message) },
@@ -458,8 +464,13 @@ describe('ScanOrchestrator pipeline', () => {
 describe('changed media', () => {
 	const record = { path: 'img.png', hash: 'h', mtime: 1, size: 1 }
 
-	function withMediaRefresh(resent: string[], issues: ScanIssue[] = [], recordsChanged = true) {
-		const h = makeHarness()
+	function withMediaRefresh(
+		resent: string[],
+		issues: ScanIssue[] = [],
+		recordsChanged = true,
+		envOverrides: Partial<ScanEnvironment> = {}
+	) {
+		const h = makeHarness(envOverrides)
 		const refresh = vi.fn(async () => {
 			h.fake.resentMedia = resent
 			h.fake.scanIssues = issues
@@ -561,13 +572,25 @@ describe('changed media', () => {
 		expect(refresh).not.toHaveBeenCalled()
 	})
 
-	it('does not send from the confirmation path, whose modal lists no media', async () => {
-		const { h, refresh } = withMediaRefresh(['img.png'])
+	it('plans and sends from the confirmation path when confirmed', async () => {
+		const modal = captureModal()
+		const { h, refresh, sync } = withMediaRefresh(['img.png'], [], true, { openPreviewModal: modal.opener })
+		h.fake.planChangedMedia = () =>
+			Promise.resolve({ resent: ['img.png'], paths: new Set(['img.png']), issues: [] })
 		h.settings.Defaults['Confirm Before Sync'] = true
 
-		await h.orchestrator.runPreviewSync()
-
+		const run = h.orchestrator.runPreviewSync()
+		await tick()
+		expect(modal.calls).toHaveLength(1)
+		expect(modal.calls[0].summary.resentMedia).toEqual(['img.png'])
 		expect(refresh).not.toHaveBeenCalled()
+
+		modal.calls[0].callbacks.onConfirm()
+		await run
+
+		expect(refresh).toHaveBeenCalledTimes(1)
+		expect(sync).toHaveBeenCalledTimes(1)
+		expect(h.committed).toHaveLength(1)
 	})
 
 	it('a dry-run writes nothing and says what it would send, even with no note changed', async () => {
@@ -626,6 +649,21 @@ describe('changed media', () => {
 		expect(findMediaDifferences).toHaveBeenCalledWith(paths)
 		expect(report.issues).toEqual([compared])
 		expect(report.resentMedia).toEqual(['sent.png'])
+	})
+
+	it('an everyFile dry-run counts only distinct changed files in filesChanged', async () => {
+		const h = makeHarness()
+		const data = createParsedSettings()
+		const changed = createManagerFiles(data, [], [{ deckName: 'Default', modelName: 'Basic' }])[0]
+		changed.path = 'changed.md'
+		const unchanged = createManagerFiles(data, [], [])[0]
+		unchanged.path = 'unchanged.md'
+		h.fake.files = [tfile('changed.md'), tfile('unchanged.md')]
+		h.fake.ownFiles = [changed, unchanged]
+
+		const report = await h.orchestrator.runDryRun({ everyFile: true })
+		expect(report.filesTotal).toBe(2)
+		expect(report.filesChanged).toBe(1)
 	})
 })
 
@@ -958,6 +996,77 @@ describe('previewScan', () => {
 		h.fake.initialiseFiles = () => Promise.reject(new ScanCancelledError())
 		await expect(h.orchestrator.previewScan()).rejects.toBeInstanceOf(ScanCancelledError)
 	})
+
+	it('plans and sends changed media when wholeVault is true', async () => {
+		const h = makeHarness()
+		const record = { path: 'pic.png', hash: 'h', mtime: 1, size: 1 }
+		const plan = vi.fn(async () => ({
+			resent: ['pic.png'],
+			paths: new Set(['pic.png']),
+			issues: []
+		}))
+		const refresh = vi.fn(async () => {
+			h.fake.resentMedia = ['pic.png']
+			h.fake.mediaRecordsChanged = true
+			h.fake.mediaRecords = { 'pic.png': record }
+		})
+		const sync = vi.fn(async () => undefined)
+		h.fake.planChangedMedia = plan
+		h.fake.refreshChangedMedia = refresh
+		h.fake.syncToAnkiWeb = sync
+
+		const preview = await h.orchestrator.previewScan()
+		expect(preview.status).toBe('ready')
+		if (preview.status !== 'ready') {
+			throw new Error('expected ready preview')
+		}
+		expect(plan).toHaveBeenCalledTimes(1)
+		expect(preview.summary.resentMedia).toEqual(['pic.png'])
+		expect(refresh).not.toHaveBeenCalled()
+
+		const report = await preview.commit()
+		expect(refresh).toHaveBeenCalledTimes(1)
+		expect(sync).toHaveBeenCalledTimes(1)
+		expect(report.outcome).toBe('completed')
+		expect(report.resentMedia).toEqual(['pic.png'])
+		expect(h.committed).toHaveLength(1)
+	})
+
+	it('leaves media alone when scanning a specific file', async () => {
+		const h = makeHarness()
+		const plan = vi.fn(async () => ({
+			resent: ['pic.png'],
+			paths: new Set(['pic.png']),
+			issues: []
+		}))
+		h.fake.planChangedMedia = plan
+
+		const preview = await h.orchestrator.previewScan(tfile('note.md'))
+		expect(preview.status).toBe('empty')
+		expect(plan).not.toHaveBeenCalled()
+	})
+
+	it('merges file parseIssues and media issues into summary.issues', async () => {
+		const h = makeHarness()
+		armReadyChanges(h)
+		h.fake.ownFiles[0].parseIssues = [{ file: 'a.md', line: 5, error: 'syntax issue', kind: 'parse' }]
+		h.fake.planChangedMedia = () =>
+			Promise.resolve({
+				resent: [],
+				paths: new Set(),
+				issues: [{ file: 'img.png', error: 'media issue', kind: 'media' }]
+			})
+
+		const preview = await h.orchestrator.previewScan()
+		expect(preview.status).toBe('ready')
+		if (preview.status !== 'ready') {
+			throw new Error('expected ready preview')
+		}
+		expect(preview.summary.issues).toEqual([
+			{ file: 'a.md', line: 5, error: 'syntax issue', kind: 'parse' },
+			{ file: 'img.png', error: 'media issue', kind: 'media' }
+		])
+	})
 })
 
 describe('runPreviewSync', () => {
@@ -1020,6 +1129,26 @@ describe('runPreviewSync', () => {
 		expect(modal.calls).toHaveLength(2)
 		modal.calls[1].callbacks.onCancel()
 		await second
+	})
+
+	it('assigns the report to lastReport on confirm', async () => {
+		const modal = captureModal()
+		const h = makeHarness({ openPreviewModal: modal.opener })
+		armReadyChanges(h)
+
+		const run = h.orchestrator.runPreviewSync()
+		await tick()
+		expect(modal.calls).toHaveLength(1)
+		modal.calls[0].callbacks.onConfirm()
+		await run
+
+		expect(h.orchestrator.lastReport).toEqual(
+			expect.objectContaining({
+				outcome: 'completed',
+				dryRun: false,
+				added: 1
+			})
+		)
 	})
 
 	it('writes nothing on cancel and releases the guard', async () => {

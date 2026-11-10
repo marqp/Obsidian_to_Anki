@@ -118,7 +118,7 @@ async function harness(
 				}
 			]
 		}
-		if (actions.length === 7) {
+		if (actions.length === 6) {
 			const adds = nested(actions[1]).map((file) => nested(file).length)
 			events.push(`main ${adds.join('+')}`)
 		}

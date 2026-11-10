@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { App } from 'obsidian'
 import { DryRunModal } from '../../src/ui/dry-run-modal'
-import type { DryRunSummary } from '../../src/dry-run'
+import type { DryRunChange, DryRunSummary } from '../../src/dry-run'
 
 interface MockNode {
 	tag?: unknown
@@ -82,6 +82,44 @@ describe('DryRunModal', () => {
 			'- #7'
 		])
 		expect(buttons(modal.contentEl).map((b) => b.text)).toEqual(['Cancel', 'Sync now'])
+	})
+
+	it('renders planned media to send when present', () => {
+		const summary = { ...mixedSummary(), resentMedia: ['pic.png', 'audio.mp3'] }
+		const modal = new DryRunModal(new App(), summary, { onConfirm: vi.fn(), onCancel: vi.fn() })
+		modal.open()
+
+		expect(texts(modal.contentEl, 'p').some((p) => p.includes('Media to send (2): pic.png, audio.mp3'))).toBe(true)
+	})
+
+	it('renders issues section when issues are present', () => {
+		const summary = {
+			...mixedSummary(),
+			issues: [
+				{ file: 'a.md', line: 10, error: 'Missing field', kind: 'parse' },
+				{ file: 'b.md', error: 'Media error', kind: 'media' }
+			]
+		}
+		const modal = new DryRunModal(new App(), summary, { onConfirm: vi.fn(), onCancel: vi.fn() })
+		modal.open()
+
+		expect(texts(modal.contentEl, 'h3')).toEqual(['Issues (2)'])
+		expect(texts(modal.contentEl, 'li')).toContain('a.md:10: Missing field')
+		expect(texts(modal.contentEl, 'li')).toContain('b.md: Media error')
+	})
+
+	it('caps change entries at 200 per group and renders ellipsis indicator', () => {
+		const changes: DryRunChange[] = []
+		for (let i = 0; i < 205; i++) {
+			changes.push({ kind: 'add', file: 'big.md', deck: 'Default', modelName: 'Basic' })
+		}
+		const summary = { ...mixedSummary(), changes }
+		const modal = new DryRunModal(new App(), summary, { onConfirm: vi.fn(), onCancel: vi.fn() })
+		modal.open()
+
+		const groupListItems = texts(modal.contentEl, 'li')
+		expect(groupListItems).toContain('… and 5 more')
+		expect(groupListItems.filter((t) => t.startsWith('+ Default/Basic'))).toHaveLength(200)
 	})
 
 	it('confirms exactly once and never cancels afterwards', () => {

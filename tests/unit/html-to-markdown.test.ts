@@ -182,4 +182,12 @@ describe('embed extensions', () => {
 	it.each([['<img src="FOTO.JPG">'], ['<img src="foto.webp">']])('round-trips %s', (html) => {
 		expect(canonicalHtml(render(md(html)))).toBe(canonicalHtml(html))
 	})
+
+	it('leaves out-of-range numeric entities untouched', () => {
+		expect(() => md('&#1114112;')).not.toThrow()
+		expect(md('&#1114112;')).toBe('&amp;#1114112;')
+		expect(md('&#x110000;')).toBe('&amp;#x110000;')
+		expect(md('&#999999999;')).toBe('&amp;#999999999;')
+		expect(canonicalHtml(render(md('&#1114112;')))).toBe('&#1114112;')
+	})
 })

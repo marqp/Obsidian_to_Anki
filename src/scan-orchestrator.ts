@@ -372,7 +372,9 @@ export class ScanOrchestrator {
 		} finally {
 			progress.close()
 		}
-		if (manager.ownFiles.length === 0) {
+		const wholeVault = file === undefined || file === null
+		const media = wholeVault ? await manager.planChangedMedia() : NO_MEDIA_PLAN
+		if (manager.ownFiles.length === 0 && media.resent.length === 0 && media.issues.length === 0) {
 			return { status: 'empty' }
 		}
 		const summary = await collectDryRunState(manager.ownFiles, {
@@ -381,7 +383,21 @@ export class ScanOrchestrator {
 			orphanFileById: manager.orphanFileById()
 		})
 		summary.filesTotal = totalFiles
-		return { status: 'ready', summary, commit: () => this.commitManagerResults(manager, totalFiles) }
+		summary.resentMedia = [...media.resent]
+		summary.issues = [...manager.ownFiles.flatMap((file) => file.parseIssues), ...summary.issues, ...media.issues]
+		return {
+			status: 'ready',
+			summary,
+			commit: async () => {
+				if (wholeVault) {
+					await manager.refreshChangedMedia()
+				}
+				if (manager.ownFiles.length === 0) {
+					return await this.commitMediaOnly(manager, totalFiles)
+				}
+				return await this.commitManagerResults(manager, totalFiles)
+			}
+		}
 	}
 
 	/**
@@ -429,7 +445,8 @@ export class ScanOrchestrator {
 			openModal(preview.summary, {
 				onConfirm: () => {
 					void commit().then(
-						() => {
+						(report) => {
+							this.latestReport = report
 							this.scanInProgress = false
 							resolve()
 						},
@@ -607,7 +624,8 @@ export class ScanOrchestrator {
 			hasNoteTypeChanges: manager.data.allow_note_type_changes,
 			orphanNoteIds: manager.orphanNoteIds,
 			orphanFileById: manager.orphanFileById(),
-			includeDiff
+			includeDiff,
+			everyFile
 		})
 		summary.filesTotal = totalFiles
 		// The full comparison covers what the plan reports, and names the note files.

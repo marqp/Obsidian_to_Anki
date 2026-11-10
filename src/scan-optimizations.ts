@@ -92,7 +92,7 @@ export function findOrphanedNoteIds(
 	return Array.from(orphans)
 }
 
-export const ANKI_ID_LINE_REGEXP = /(?:<!--)?ID: (\d+)/
+export const ANKI_ID_LINE_REGEXP = /(?:^|\s|<!--)ID: (\d+)/m
 
 /**
  * Extract the Anki note ID from a line of text. Returns null when the line
@@ -111,13 +111,11 @@ export function extractNoteIdFromLine(line: string): number | null {
  * when the cursor line has no ID.
  */
 export function findFirstNoteId(content: string): number | null {
-	for (const line of content.split('\n')) {
-		const id = extractNoteIdFromLine(line)
-		if (id !== null) {
-			return id
-		}
+	const match = content.match(ANKI_ID_LINE_REGEXP)
+	if (!match) {
+		return null
 	}
-	return null
+	return parseInt(match[1], 10)
 }
 
 /**

@@ -5,6 +5,7 @@ import {
 	describeConnectionFailure,
 	launchAnki,
 	probeAnkiStatus,
+	realEnvironment,
 	resolveAnkiLaunchTarget,
 	type LaunchEnvironment
 } from '../../src/anki-launch'
@@ -112,17 +113,21 @@ describe('resolveAnkiLaunchTarget on three platforms', () => {
 	it('returns null on unknown platforms', () => {
 		expect(resolveAnkiLaunchTarget(testEnvironment({ platform: 'other' as NodeJS.Platform }))).toBeNull()
 	})
+
+	it('realEnvironment.pathOnPath checks process.env.PATH and returns false for nonexistent binary', () => {
+		expect(realEnvironment.pathOnPath('nonexistent_anki_binary_xyz_123')).toBe(false)
+	})
 })
 
 describe('launchAnki fail-fast behavior', () => {
 	it('skips everything when auto-launch is disabled', async () => {
-		const spawner = { spawn: vi.fn(() => ({ unref: () => {} })) }
+		const spawner = { spawn: vi.fn(() => ({ unref: () => {}, on: vi.fn() })) }
 		expect(await launchAnki(false, { spawner })).toBe('skipped-disabled')
 		expect(spawner.spawn).not.toHaveBeenCalled()
 	})
 
 	it('returns no-target when no launch strategy exists', async () => {
-		const spawner = { spawn: vi.fn(() => ({ unref: () => {} })) }
+		const spawner = { spawn: vi.fn(() => ({ unref: () => {}, on: vi.fn() })) }
 		const environment = testEnvironment({ platform: 'other' as NodeJS.Platform })
 		expect(await launchAnki(true, { environment, spawner })).toBe('no-target')
 		expect(spawner.spawn).not.toHaveBeenCalled()
@@ -130,7 +135,7 @@ describe('launchAnki fail-fast behavior', () => {
 
 	it('spawns detached and reports ready after one re-probe', async () => {
 		const unref = vi.fn()
-		const spawner = { spawn: vi.fn(() => ({ unref })) }
+		const spawner = { spawn: vi.fn(() => ({ unref, on: vi.fn() })) }
 		const waitMs = vi.fn(async () => {})
 		const probe = vi.fn(async () => ({ status: 'ready' as const, message: 'ok' }))
 
@@ -152,8 +157,33 @@ describe('launchAnki fail-fast behavior', () => {
 		expect(probe).toHaveBeenCalledTimes(1)
 	})
 
+	it('attaches an error listener before unref so spawn errors do not raise uncaught errors', async () => {
+		let errorHandler: ((err: Error) => void) | undefined
+		const unref = vi.fn()
+		const on = vi.fn((event: string, handler: (err: Error) => void) => {
+			if (event === 'error') {
+				errorHandler = handler
+			}
+		})
+		const spawner = { spawn: vi.fn(() => ({ unref, on })) }
+		const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+		await launchAnki(true, {
+			environment: testEnvironment(),
+			spawner,
+			waitMs: async () => {},
+			probe: async () => ({ status: 'ready', message: 'ok' })
+		})
+
+		expect(on).toHaveBeenCalledWith('error', expect.any(Function))
+		expect(errorHandler).toBeDefined()
+		errorHandler!(new Error('spawn ENOENT'))
+		expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('[Obsidian_to_Anki]'), expect.any(Error))
+		consoleSpy.mockRestore()
+	})
+
 	it('reports pending when the single re-probe still finds Anki down', async () => {
-		const spawner = { spawn: vi.fn(() => ({ unref: () => {} })) }
+		const spawner = { spawn: vi.fn(() => ({ unref: () => {}, on: vi.fn() })) }
 		const outcome = await launchAnki(true, {
 			environment: testEnvironment(),
 			spawner,

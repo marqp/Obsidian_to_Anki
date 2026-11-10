@@ -59,6 +59,20 @@ describe('AllFile.getNoteIdsInFile', () => {
 		].join('\n')
 		expect(makeFile(content).getNoteIdsInFile()).toEqual([111])
 	})
+
+	it('ignores words ending in ID such as COVID: 19', () => {
+		const content = ['COVID: 19', 'START', 'Basic', 'Front: q', 'Back: a', '<!--ID: 999-->', 'END'].join('\n')
+		expect(makeFile(content).getNoteIdsInFile()).toEqual([999])
+	})
+})
+
+describe('AllFile.scanDeletions', () => {
+	it('ignores DELETE lines inside fenced code blocks', () => {
+		const content = ['```', 'DELETE', '<!--ID: 999-->', '```', 'DELETE', '<!--ID: 888-->'].join('\n')
+		const file = makeFile(content)
+		file.scanDeletions()
+		expect(file.notes_to_delete).toEqual([888])
+	})
 })
 
 describe('findOrphanedNoteIds', () => {

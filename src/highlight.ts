@@ -106,7 +106,9 @@ function decodeCodeEntities(text: string): string {
 					numeric.startsWith('x') || numeric.startsWith('X')
 						? parseInt(numeric.slice(1), 16)
 						: parseInt(numeric, 10)
-				return String.fromCodePoint(codePoint)
+				return Number.isNaN(codePoint) || codePoint < 0 || codePoint > 0x10ffff
+					? entity
+					: String.fromCodePoint(codePoint)
 			}
 		}
 	})

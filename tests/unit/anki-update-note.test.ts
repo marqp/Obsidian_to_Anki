@@ -52,7 +52,7 @@ describe('Phase 4: updateNote capability gate', () => {
 		})
 		await manager.requests_1()
 
-		const updateBatch = mainMultiActions(invokeMock)[4]
+		const updateBatch = mainMultiActions(invokeMock)[3]
 		const perFile = (updateBatch.params['actions'] as AnkiConnect.AnkiConnectRequest[])[0]
 		const action = (perFile.params['actions'] as AnkiConnect.AnkiConnectRequest[])[0]
 		expect(action.action).toBe('updateNote')
@@ -61,7 +61,7 @@ describe('Phase 4: updateNote capability gate', () => {
 
 	describe('tags Anki sets while you study', () => {
 		function sentTags(actions: AnkiConnect.AnkiConnectRequest[]): unknown {
-			const perFile = (actions[4].params['actions'] as AnkiConnect.AnkiConnectRequest[])[0]
+			const perFile = (actions[3].params['actions'] as AnkiConnect.AnkiConnectRequest[])[0]
 			const update = (perFile.params['actions'] as AnkiConnect.AnkiConnectRequest[])[0]
 			return (update.params['note'] as { tags: string[] }).tags
 		}
@@ -120,10 +120,20 @@ describe('Phase 4: updateNote capability gate', () => {
 		})
 		await manager.requests_1()
 
-		const updateBatch = mainMultiActions(invokeMock)[4]
+		const updateBatch = mainMultiActions(invokeMock)[3]
 		const perFile = (updateBatch.params['actions'] as AnkiConnect.AnkiConnectRequest[])[0]
 		const action = (perFile.params['actions'] as AnkiConnect.AnkiConnectRequest[])[0]
 		expect(action.action).toBe('updateNoteFields')
 		expect(requests2Payload(invokeMock)).toContain('updateNoteTags')
+	})
+
+	it('does not send getTags in the requests_1 batch', async () => {
+		const { manager, invokeMock } = createManager({
+			supportedActions: []
+		})
+		await manager.requests_1()
+		const actions = mainMultiActions(invokeMock)
+		expect(actions.map((a) => a.action)).not.toContain('getTags')
+		expect(actions).toHaveLength(6)
 	})
 })

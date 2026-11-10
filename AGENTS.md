@@ -142,7 +142,8 @@ CI (`ci.yml`, pnpm): version sync → tsc6 + tsc7 → lint → knip → format:c
   didactic edge case no fixture covers. Measured span-build cost was
   negligible (~0.12ms/file), so cost was not the blocker — regression surface was. The one
   exception: `getNoteIdsInFile` ignores IDs inside fenced code blocks, so a doc example like
-  ` ```<!--ID: 999-->``` ` can never shield a phantom note from orphan deletion. Do not
+  ` ```<!--ID: 999-->``` ` can never shield a phantom note from orphan deletion, and `scanDeletions`
+  ignores DELETE lines inside fenced code blocks as well. Do not
   re-propose primary-scan shielding without re-running the spike matrix (fence-in-card,
   card-in-fence, unclosed fence, inline `::`, E2E fixture audit).
 

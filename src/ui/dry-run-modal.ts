@@ -1,6 +1,6 @@
 import { App, Modal } from 'obsidian'
 import { formatDryRunSummary, type DryRunSummary } from '../dry-run'
-import { formatChangeLine, formatDeckLine, groupDryRunChanges, isZeroingPlan } from '../dry-run-view'
+import { formatChangeLine, formatDeckLine, formatIssueLine, groupDryRunChanges, isZeroingPlan } from '../dry-run-view'
 
 /** Callbacks the preview owner supplies; exactly one fires per modal session. */
 export interface DryRunModalCallbacks {
@@ -31,6 +31,12 @@ export class DryRunModal extends Modal {
 			text: zeroing ? `Delete every Anki card? (${this.summary.wouldDelete})` : 'Approve Anki sync'
 		})
 		contentEl.createEl('p', { text: formatDryRunSummary(this.summary), cls: 'o2a-modal-summary' })
+		if (this.summary.resentMedia && this.summary.resentMedia.length > 0) {
+			contentEl.createEl('p', {
+				text: `Media to send (${this.summary.resentMedia.length}): ${this.summary.resentMedia.join(', ')}`,
+				cls: 'o2a-modal-media'
+			})
+		}
 		if (this.summary.decks.length > 0) {
 			const decks = contentEl.createEl('ul', { cls: 'o2a-modal-decks' })
 			for (const stat of this.summary.decks) {
@@ -51,8 +57,25 @@ export class DryRunModal extends Modal {
 				text: `${group.displayFile} (${group.entries.length})`
 			})
 			const list = details.createEl('ul')
-			for (const entry of group.entries) {
+			const MAX_ENTRIES_PER_GROUP = 200
+			const shown = group.entries.slice(0, MAX_ENTRIES_PER_GROUP)
+			for (const entry of shown) {
 				list.createEl('li', { text: formatChangeLine(entry) })
+			}
+			if (group.entries.length > MAX_ENTRIES_PER_GROUP) {
+				const remaining = group.entries.length - MAX_ENTRIES_PER_GROUP
+				list.createEl('li', { text: `… and ${remaining} more` })
+			}
+		}
+		if (this.summary.issues && this.summary.issues.length > 0) {
+			const issuesContainer = contentEl.createEl('div', { cls: 'o2a-modal-issues' })
+			issuesContainer.createEl('h3', {
+				text: `Issues (${this.summary.issues.length})`,
+				cls: 'o2a-issues-heading'
+			})
+			const issuesList = issuesContainer.createEl('ul', { cls: 'o2a-issues-list' })
+			for (const issue of this.summary.issues) {
+				issuesList.createEl('li', { text: formatIssueLine(issue) })
 			}
 		}
 		const footer = contentEl.createEl('div', { cls: 'o2a-modal-footer' })

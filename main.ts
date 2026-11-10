@@ -41,6 +41,14 @@ const CACHE_WAIT_ATTEMPTS = 50
 /** Why an import or a mask pull refuses to start. */
 const SCAN_RUNNING = 'A scan is running. Try again when it ends.'
 
+export function getActiveMarkdownFile(file: TFile | null): TFile | null {
+	if (file === null || file.extension !== 'md') {
+		new Notice('No active Markdown file to scan.')
+		return null
+	}
+	return file
+}
+
 export default class MyPlugin extends Plugin {
 	declare settings: PluginSettings
 	note_types: Array<string> = []
@@ -77,14 +85,21 @@ export default class MyPlugin extends Plugin {
 			IGNORED_FILE_GLOBS: DEFAULT_IGNORED_FILE_GLOBS
 		}
 		/*Making settings from scratch, so need note types*/
-		this.note_types = (await AnkiConnect.invoke('modelNames')) as Array<string>
-		this.fields_dict = await this.generateFieldsDict()
-		for (const note_type of this.note_types) {
-			settings['CUSTOM_REGEXPS'][note_type] = ''
-			// Reuse the already-fetched field names (a second modelFieldNames
-			// round per model here tripled first-run AnkiConnect traffic).
-			const field_names: string[] = this.fields_dict[note_type]
-			settings['FILE_LINK_FIELDS'][note_type] = field_names[0]
+		try {
+			this.note_types = (await AnkiConnect.invoke('modelNames')) as Array<string>
+			this.fields_dict = await this.generateFieldsDict()
+			for (const note_type of this.note_types) {
+				settings['CUSTOM_REGEXPS'][note_type] = ''
+				// Reuse the already-fetched field names (a second modelFieldNames
+				// round per model here tripled first-run AnkiConnect traffic).
+				const field_names: string[] = this.fields_dict[note_type]
+				settings['FILE_LINK_FIELDS'][note_type] = field_names[0]
+			}
+		} catch (e) {
+			console.error('[Obsidian_to_Anki] could not fetch note types from Anki:', e)
+			new Notice(await describeConnectionFailure(), 10000)
+			this.note_types = []
+			this.fields_dict = {}
 		}
 		return settings
 	}
@@ -102,7 +117,7 @@ export default class MyPlugin extends Plugin {
 
 	async saveDefault(): Promise<void> {
 		const default_sets = await this.getDefaultSettings()
-		this.saveData({
+		await this.saveData({
 			settings: default_sets,
 			'Added Media': [],
 			'File Hashes': {},
@@ -118,7 +133,7 @@ export default class MyPlugin extends Plugin {
 		if (current_data == null || typeof current_data.settings !== 'object' || current_data.settings === null) {
 			new Notice('Need to connect to Anki generate default settings...')
 			const default_sets = await this.getDefaultSettings()
-			this.saveData({
+			await this.saveData({
 				settings: default_sets,
 				'Added Media': [],
 				'File Hashes': {},
@@ -199,7 +214,7 @@ export default class MyPlugin extends Plugin {
 
 	async saveAllData(): Promise<void> {
 		this.syncTransportKey()
-		this.saveData({
+		await this.saveData({
 			settings: this.settings,
 			'Added Media': this.added_media,
 			'Media Records': this.media_records,
@@ -287,7 +302,9 @@ export default class MyPlugin extends Plugin {
 								this.file_hashes,
 								(path) => this.app.vault.getAbstractFileByPath(path) !== null
 							)
-							this.saveAllData()
+							void this.saveAllData().catch((error) => {
+								console.error('[Obsidian_to_Anki] failed to save scan results:', error)
+							})
 						}
 					},
 					{
@@ -462,6 +479,8 @@ export default class MyPlugin extends Plugin {
 			folder: `${scanned === '' ? '' : `${scanned}/`}Importados`,
 			defaultDeck: defaults.Deck,
 			beginNote: syntax['Begin Note'],
+			endNote: syntax['End Note'],
+			targetDeckLine: syntax['Target Deck Line'],
 			reservedWords: this.reservedWords(),
 			dataFor: (deck) => createFileData(data, deck, []),
 			pathExists: (path) => this.app.vault.getAbstractFileByPath(path) !== null,
@@ -579,7 +598,7 @@ export default class MyPlugin extends Plugin {
 	 * one if enabled. Serialised through apiQueue; failures become a Notice.
 	 */
 	restartApiServer(): Promise<void> {
-		this.apiQueue = this.apiQueue.then(() => this.applyApiSettings())
+		this.apiQueue = this.apiQueue.catch(() => undefined).then(() => this.applyApiSettings())
 		return this.apiQueue
 	}
 
@@ -679,7 +698,11 @@ export default class MyPlugin extends Plugin {
 				await orchestrator.scanVault(undefined)
 			},
 			onScanFile: async () => {
-				await orchestrator.scanVault(this.app.workspace.getActiveFile())
+				const file = getActiveMarkdownFile(this.app.workspace.getActiveFile())
+				if (file === null) {
+					return
+				}
+				await orchestrator.scanVault(file)
 			},
 			onDryRun: async () => {
 				await orchestrator.runDryRun()
@@ -707,9 +730,13 @@ export default class MyPlugin extends Plugin {
 			window.clearTimeout(this.apiTimer)
 			this.apiTimer = undefined
 		}
-		await this.apiQueue
+		try {
+			await this.apiQueue
+		} catch {
+			// Ignore API server startup/shutdown failures during unload.
+		}
 		await this.apiServer?.stop()
 		this.apiServer = undefined
-		this.saveAllData()
+		await this.saveAllData()
 	}
 }

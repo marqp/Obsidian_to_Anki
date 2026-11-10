@@ -2,8 +2,13 @@ import type { Editor } from 'obsidian'
 import { extractNoteIdFromLine, findFirstNoteId } from './scan-optimizations'
 
 /** Resolve the Anki note ID for the editor commands: cursor line first, then file. */
-export function resolveNoteId(cursorLine: string, fileValue: string): number | null {
-	return extractNoteIdFromLine(cursorLine) ?? findFirstNoteId(fileValue)
+export function resolveNoteId(cursorLine: string, fileValue: string | (() => string)): number | null {
+	const cursorId = extractNoteIdFromLine(cursorLine)
+	if (cursorId !== null) {
+		return cursorId
+	}
+	const content = typeof fileValue === 'function' ? fileValue() : fileValue
+	return findFirstNoteId(content)
 }
 
 export interface NoteOpenerDeps {
@@ -14,7 +19,7 @@ export interface NoteOpenerDeps {
 /** "View in Browser" / "Edit Note" command body (Wave 3: moved verbatim from main.ts). */
 export async function openNoteInAnki(deps: NoteOpenerDeps, editor: Editor, mode: 'browse' | 'edit'): Promise<void> {
 	const cursorLine = editor.getLine(editor.getCursor().line)
-	const noteId = resolveNoteId(cursorLine, editor.getValue())
+	const noteId = resolveNoteId(cursorLine, () => editor.getValue())
 	if (noteId === null) {
 		deps.notify('No Anki note ID found in the active file.')
 		return
