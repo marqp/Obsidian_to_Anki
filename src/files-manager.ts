@@ -1007,7 +1007,7 @@ export class FileManager {
 			for (let j = 0; j < file_response.length; j++) {
 				const note_response = file_response[j]
 				const noteToEdit = file.notes_to_edit[j]
-				if (!note_response || !noteToEdit) {
+				if (!note_response || !noteToEdit || !Array.isArray(note_response.cards)) {
 					continue
 				}
 				temp.push(...note_response.cards)

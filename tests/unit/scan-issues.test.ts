@@ -181,6 +181,37 @@ describe('parse_requests_1: named batch + ScanIssue collection', () => {
 		expect(manager.ownFiles[1].note_edit_deck_map).toEqual([{ card_ids: [777], deck: 'Default' }])
 	})
 
+	it('tolerates an empty notesInfo entry when a note was deleted in Anki', async () => {
+		const data = createParsedSettings()
+		const { manager } = managerWithFiles(data, ['note.md'], {
+			addedIds: [{ error: null, result: [] }],
+			notesInfo: {
+				error: null,
+				result: [
+					{
+						error: null,
+						result: [{} as never]
+					}
+				]
+			}
+		})
+		manager.ownFiles[0].notes_to_edit = [
+			{
+				identifier: 55,
+				note: {
+					deckName: 'Default',
+					modelName: 'Basic',
+					fields: {},
+					options: { allowDuplicate: true },
+					tags: []
+				}
+			}
+		]
+
+		await expect(manager.requests_1()).resolves.not.toThrow()
+		expect(manager.ownFiles[0].card_ids).toEqual([])
+	})
+
 	it('carries the notes the parser refused into the report of a real scan', async () => {
 		const data = createParsedSettings()
 		const { manager } = managerWithFiles(data, ['a.md'], {
