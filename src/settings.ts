@@ -259,7 +259,7 @@ export class SettingsTab extends PluginSettingTab {
 
 			const row_cells = row.children
 
-			row_cells[0].innerHTML = note_type
+			row_cells[0].textContent = note_type
 			this.setup_custom_regexp(note_type, row_cells)
 			this.setup_link_field(note_type, row_cells)
 			this.setup_context_field(note_type, row_cells)
@@ -392,7 +392,7 @@ export class SettingsTab extends PluginSettingTab {
 		for (const folder of folder_list) {
 			const filtered_list: TFolder[] =
 				folder && folder.children
-					? (folder.children.filter((element) => element.hasOwnProperty('children')) as TFolder[])
+					? folder.children.filter((element): element is TFolder => element instanceof TFolder)
 					: []
 			folder_list.push(...filtered_list)
 		}
@@ -508,7 +508,7 @@ export class SettingsTab extends PluginSettingTab {
 
 			const row_cells = row.children
 
-			row_cells[0].innerHTML = folderPath
+			row_cells[0].textContent = folderPath
 			this.setup_folder_deck(folderPath, row_cells)
 			this.setup_folder_tag(folderPath, row_cells)
 

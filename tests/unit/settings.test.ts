@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { SettingsTab } from '../../src/settings'
-import { App, Setting } from '../mocks/obsidian'
+import { App, Setting, TFolder, TFile } from '../mocks/obsidian'
 import * as AnkiConnect from '../../src/anki'
 
 describe('SettingsTab Folder Table Optimizations', () => {
@@ -210,5 +210,43 @@ describe('SettingsTab Folder Table Optimizations', () => {
 
 		expect(plugin.generateFieldsDict).toHaveBeenCalledTimes(1)
 		addBtnSpy.mockRestore()
+	})
+
+	it('renders note type and folder names using textContent, and get_folders checks instanceof TFolder', () => {
+		const plugin = createMockPlugin({ '<script>folder</script>': 'Deck' }, {})
+		plugin.note_types = ['<b>bold-type</b>']
+		const tab = new SettingsTab(plugin.app, plugin)
+
+		const container = tab.containerEl.createEl('div')
+		tab.setup_note_table(container)
+		tab.setup_folder_table(container)
+
+		const findCells = (nodes: Array<Record<string, unknown>>): Array<Record<string, unknown>> => {
+			const found: Array<Record<string, unknown>> = []
+			for (const node of nodes) {
+				if (node['tag'] === 'td') {
+					found.push(node)
+				}
+				found.push(...findCells((node['children'] as Array<Record<string, unknown>>) ?? []))
+			}
+			return found
+		}
+		const cells = findCells(container['children'] as Array<Record<string, unknown>>)
+		const textContents = cells.map((c) => c['textContent'])
+		expect(textContents).toContain('<b>bold-type</b>')
+		expect(textContents).toContain('<script>folder</script>')
+
+		// get_folders filtering test
+		const root = new TFolder()
+		const subFolder = new TFolder()
+		const nonFolderFile = new TFile()
+		// Attach a 'children' property to the file to test the old flawed check
+		Object.assign(nonFolderFile, { children: [] })
+		root.children = [subFolder, nonFolderFile]
+		plugin.app.vault.getRoot = () => root
+
+		const folders = tab.get_folders()
+		expect(folders).toEqual([subFolder])
+		expect(folders[0]).toBeInstanceOf(TFolder)
 	})
 })
