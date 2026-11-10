@@ -1028,6 +1028,28 @@ describe('previewScan', () => {
 		expect(preview.status).toBe('empty')
 		expect(plan).not.toHaveBeenCalled()
 	})
+
+	it('merges file parseIssues and media issues into summary.issues', async () => {
+		const h = makeHarness()
+		armReadyChanges(h)
+		h.fake.ownFiles[0].parseIssues = [{ file: 'a.md', line: 5, error: 'syntax issue', kind: 'parse' }]
+		h.fake.planChangedMedia = () =>
+			Promise.resolve({
+				resent: [],
+				paths: new Set(),
+				issues: [{ file: 'img.png', error: 'media issue', kind: 'media' }]
+			})
+
+		const preview = await h.orchestrator.previewScan()
+		expect(preview.status).toBe('ready')
+		if (preview.status !== 'ready') {
+			throw new Error('expected ready preview')
+		}
+		expect(preview.summary.issues).toEqual([
+			{ file: 'a.md', line: 5, error: 'syntax issue', kind: 'parse' },
+			{ file: 'img.png', error: 'media issue', kind: 'media' }
+		])
+	})
 })
 
 describe('runPreviewSync', () => {

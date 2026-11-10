@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
 	formatChangeLine,
 	formatDeckLine,
+	formatIssueLine,
 	groupDryRunChanges,
 	isZeroingPlan,
 	type DryRunGroup
@@ -122,5 +123,16 @@ describe('formatChangeLine: what an update changes', () => {
 				deckChanged: true
 			})
 		).toBe('~ #5 D (Back, tags, deck)')
+	})
+})
+
+describe('formatIssueLine', () => {
+	it('formats issue with file, line and error', () => {
+		expect(formatIssueLine({ file: 'note.md', line: 12, error: 'syntax error', kind: 'parse' })).toBe(
+			'note.md:12: syntax error'
+		)
+	})
+	it('formats issue without line', () => {
+		expect(formatIssueLine({ file: 'note.md', error: 'syntax error', kind: 'parse' })).toBe('note.md: syntax error')
 	})
 })

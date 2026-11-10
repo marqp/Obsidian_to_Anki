@@ -1,4 +1,5 @@
 import type { DryRunChange, DryRunDeckStat, DryRunSummary } from './dry-run'
+import type { ScanIssue } from './files-manager'
 
 /**
  * Pure view-model for the dry-run preview modal (no Obsidian imports, so it
@@ -76,4 +77,16 @@ export function formatDeckLine(stat: DryRunDeckStat): string {
 	const cards = stat.cards === 1 ? '1 card' : `${stat.cards} cards`
 	const fresh = stat.new === 1 ? '1 new' : `${stat.new} new`
 	return `${stat.deck} — ${cards} (${fresh})`
+}
+
+/** One human-readable line per issue: file:line: message or file: message. */
+export function formatIssueLine(issue: ScanIssue): string {
+	const location = issue.file
+		? issue.line !== undefined
+			? `${issue.file}:${issue.line}`
+			: issue.file
+		: issue.line !== undefined
+			? `line ${issue.line}`
+			: '(unknown file)'
+	return `${location}: ${issue.error}`
 }

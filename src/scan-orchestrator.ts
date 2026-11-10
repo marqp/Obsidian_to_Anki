@@ -384,6 +384,7 @@ export class ScanOrchestrator {
 		})
 		summary.filesTotal = totalFiles
 		summary.resentMedia = [...media.resent]
+		summary.issues = [...manager.ownFiles.flatMap((file) => file.parseIssues), ...summary.issues, ...media.issues]
 		return {
 			status: 'ready',
 			summary,
