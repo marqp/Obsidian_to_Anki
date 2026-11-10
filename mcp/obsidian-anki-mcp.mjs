@@ -715,9 +715,19 @@ export function runStdio(handle = createHandler(), input = process.stdin, output
 				write({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } })
 				return
 			}
-			const reply = await handle(message)
-			if (reply !== undefined) {
-				write(reply)
+			try {
+				const reply = await handle(message)
+				if (reply !== undefined) {
+					write(reply)
+				}
+			} catch (error) {
+				if (message?.id !== undefined) {
+					write({
+						jsonrpc: '2.0',
+						id: message?.id ?? null,
+						error: { code: -32603, message: String(error?.message ?? error) }
+					})
+				}
 			}
 		})()
 	})

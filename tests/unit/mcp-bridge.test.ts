@@ -373,4 +373,36 @@ describe('stdio transport', () => {
 		expect(replies).toContainEqual({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } })
 		input.end()
 	})
+
+	it('answers with an internal error when a handler throws, only for messages with an id', async () => {
+		const input = new PassThrough()
+		const output = new PassThrough()
+		const throwingHandler = vi.fn(async () => {
+			throw new Error('handler exploded')
+		})
+		runStdio(throwingHandler as never, input, output)
+		const received = new Promise<string[]>((resolve) => {
+			let data = ''
+			output.on('data', (chunk) => {
+				data += chunk
+				const lines = data.split('\n').filter(Boolean)
+				if (lines.length === 1) {
+					resolve(lines)
+				}
+			})
+		})
+		input.write('{"jsonrpc":"2.0","method":"notifications/test"}\n')
+		input.write('{"jsonrpc":"2.0","id":42,"method":"tools/call"}\n')
+		const lines = await received
+		const reply = JSON.parse(lines[0])
+		expect(reply).toEqual({
+			jsonrpc: '2.0',
+			id: 42,
+			error: {
+				code: -32603,
+				message: 'handler exploded'
+			}
+		})
+		input.end()
+	})
 })
