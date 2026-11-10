@@ -445,7 +445,8 @@ export class ScanOrchestrator {
 			openModal(preview.summary, {
 				onConfirm: () => {
 					void commit().then(
-						() => {
+						(report) => {
+							this.latestReport = report
 							this.scanInProgress = false
 							resolve()
 						},

@@ -1114,6 +1114,26 @@ describe('runPreviewSync', () => {
 		await second
 	})
 
+	it('assigns the report to lastReport on confirm', async () => {
+		const modal = captureModal()
+		const h = makeHarness({ openPreviewModal: modal.opener })
+		armReadyChanges(h)
+
+		const run = h.orchestrator.runPreviewSync()
+		await tick()
+		expect(modal.calls).toHaveLength(1)
+		modal.calls[0].callbacks.onConfirm()
+		await run
+
+		expect(h.orchestrator.lastReport).toEqual(
+			expect.objectContaining({
+				outcome: 'completed',
+				dryRun: false,
+				added: 1
+			})
+		)
+	})
+
 	it('writes nothing on cancel and releases the guard', async () => {
 		const modal = captureModal()
 		const h = makeHarness({ openPreviewModal: modal.opener })
