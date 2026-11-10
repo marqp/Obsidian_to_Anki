@@ -998,6 +998,34 @@ describe('collectDryRunState: exact diff', () => {
 	})
 })
 
+describe('collectDryRunState filesChanged with everyFile', () => {
+	it('counts only distinct files with changes or issues when everyFile is true', async () => {
+		const { setTransport } = await import('../../src/anki')
+		setTransport({ invoke: vi.fn(async () => []) })
+		const files = createManagerFiles(createParsedSettings(), [], [{ deckName: 'Default', modelName: 'Basic' }])
+		const otherFiles = createManagerFiles(createParsedSettings(), [], [])
+		const emptyFile = otherFiles[0]
+		emptyFile.path = 'empty.md'
+
+		const allFiles = [files[0], emptyFile]
+
+		const summaryEvery = await collectDryRunState(allFiles, {
+			hasNoteTypeChanges: false,
+			orphanNoteIds: [],
+			everyFile: true
+		})
+		expect(summaryEvery.filesTotal).toBe(2)
+		expect(summaryEvery.filesChanged).toBe(1)
+
+		const summaryNormal = await collectDryRunState(allFiles, {
+			hasNoteTypeChanges: false,
+			orphanNoteIds: [],
+			everyFile: false
+		})
+		expect(summaryNormal.filesChanged).toBe(2)
+	})
+})
+
 describe('formatDryRunSummary', () => {
 	it('emits the machine-readable one-liner', () => {
 		const summary: DryRunSummary = {

@@ -624,7 +624,8 @@ export class ScanOrchestrator {
 			hasNoteTypeChanges: manager.data.allow_note_type_changes,
 			orphanNoteIds: manager.orphanNoteIds,
 			orphanFileById: manager.orphanFileById(),
-			includeDiff
+			includeDiff,
+			everyFile
 		})
 		summary.filesTotal = totalFiles
 		// The full comparison covers what the plan reports, and names the note files.

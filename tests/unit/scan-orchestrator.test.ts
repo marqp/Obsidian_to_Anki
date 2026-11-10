@@ -88,6 +88,7 @@ interface FakeManager {
 	convertedCount: number
 	data: ParsedSettings
 	orphanFileById: () => Map<number, string>
+	findMediaDifferences: (paths: Set<string>) => Promise<ScanIssue[]>
 }
 
 interface Harness {
@@ -131,7 +132,8 @@ function makeHarness(overrides: Partial<ScanEnvironment> = {}, scanDirs: string[
 		failedDeleteCount: 0,
 		convertedCount: 0,
 		data,
-		orphanFileById: () => new Map<number, string>()
+		orphanFileById: () => new Map<number, string>(),
+		findMediaDifferences: () => Promise.resolve([])
 	}
 	const env: ScanEnvironment = {
 		app: new App(),
@@ -647,6 +649,21 @@ describe('changed media', () => {
 		expect(findMediaDifferences).toHaveBeenCalledWith(paths)
 		expect(report.issues).toEqual([compared])
 		expect(report.resentMedia).toEqual(['sent.png'])
+	})
+
+	it('an everyFile dry-run counts only distinct changed files in filesChanged', async () => {
+		const h = makeHarness()
+		const data = createParsedSettings()
+		const changed = createManagerFiles(data, [], [{ deckName: 'Default', modelName: 'Basic' }])[0]
+		changed.path = 'changed.md'
+		const unchanged = createManagerFiles(data, [], [])[0]
+		unchanged.path = 'unchanged.md'
+		h.fake.files = [tfile('changed.md'), tfile('unchanged.md')]
+		h.fake.ownFiles = [changed, unchanged]
+
+		const report = await h.orchestrator.runDryRun({ everyFile: true })
+		expect(report.filesTotal).toBe(2)
+		expect(report.filesChanged).toBe(1)
 	})
 })
 
