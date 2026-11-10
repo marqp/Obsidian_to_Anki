@@ -122,3 +122,9 @@
 .o2a-tab-panel {
   min-width: 0;
 }
+
+.o2a-modal-media {
+  margin: 8px 0;
+  color: var(--text-normal);
+  font-size: var(--font-ui-small, 13px);
+}

@@ -55,6 +55,8 @@ export interface DryRunSummary {
 	changes: DryRunChange[]
 	/** Notes the sync would leave alone and report, because their type differs. */
 	issues: ScanIssue[]
+	/** Changed media files to send to Anki. */
+	resentMedia?: string[]
 }
 
 /** Cards the preview would touch in one deck (Anki `type === 0` counts as new). */

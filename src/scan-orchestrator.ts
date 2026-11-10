@@ -372,7 +372,9 @@ export class ScanOrchestrator {
 		} finally {
 			progress.close()
 		}
-		if (manager.ownFiles.length === 0) {
+		const wholeVault = file === undefined || file === null
+		const media = wholeVault ? await manager.planChangedMedia() : NO_MEDIA_PLAN
+		if (manager.ownFiles.length === 0 && media.resent.length === 0 && media.issues.length === 0) {
 			return { status: 'empty' }
 		}
 		const summary = await collectDryRunState(manager.ownFiles, {
@@ -381,7 +383,20 @@ export class ScanOrchestrator {
 			orphanFileById: manager.orphanFileById()
 		})
 		summary.filesTotal = totalFiles
-		return { status: 'ready', summary, commit: () => this.commitManagerResults(manager, totalFiles) }
+		summary.resentMedia = [...media.resent]
+		return {
+			status: 'ready',
+			summary,
+			commit: async () => {
+				if (wholeVault) {
+					await manager.refreshChangedMedia()
+				}
+				if (manager.ownFiles.length === 0) {
+					return await this.commitMediaOnly(manager, totalFiles)
+				}
+				return await this.commitManagerResults(manager, totalFiles)
+			}
+		}
 	}
 
 	/**

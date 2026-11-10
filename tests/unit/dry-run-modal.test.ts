@@ -84,6 +84,14 @@ describe('DryRunModal', () => {
 		expect(buttons(modal.contentEl).map((b) => b.text)).toEqual(['Cancel', 'Sync now'])
 	})
 
+	it('renders planned media to send when present', () => {
+		const summary = { ...mixedSummary(), resentMedia: ['pic.png', 'audio.mp3'] }
+		const modal = new DryRunModal(new App(), summary, { onConfirm: vi.fn(), onCancel: vi.fn() })
+		modal.open()
+
+		expect(texts(modal.contentEl, 'p').some((p) => p.includes('Media to send (2): pic.png, audio.mp3'))).toBe(true)
+	})
+
 	it('confirms exactly once and never cancels afterwards', () => {
 		const onConfirm = vi.fn()
 		const onCancel = vi.fn()

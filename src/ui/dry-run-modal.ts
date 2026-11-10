@@ -31,6 +31,12 @@ export class DryRunModal extends Modal {
 			text: zeroing ? `Delete every Anki card? (${this.summary.wouldDelete})` : 'Approve Anki sync'
 		})
 		contentEl.createEl('p', { text: formatDryRunSummary(this.summary), cls: 'o2a-modal-summary' })
+		if (this.summary.resentMedia && this.summary.resentMedia.length > 0) {
+			contentEl.createEl('p', {
+				text: `Media to send (${this.summary.resentMedia.length}): ${this.summary.resentMedia.join(', ')}`,
+				cls: 'o2a-modal-media'
+			})
+		}
 		if (this.summary.decks.length > 0) {
 			const decks = contentEl.createEl('ul', { cls: 'o2a-modal-decks' })
 			for (const stat of this.summary.decks) {
