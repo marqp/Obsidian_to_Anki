@@ -32,7 +32,7 @@ function testNote() {
 function managerWithFiles(
 	data: ParsedSettings,
 	paths: string[],
-	batchByIndex: { addedIds: unknown[]; notesInfo: unknown; tagList: unknown }
+	batchByIndex: { addedIds: unknown[]; notesInfo: unknown }
 ) {
 	const manager = new FileManager(testApp(), data, [], {}, [])
 	for (const path of paths) {
@@ -44,7 +44,6 @@ function managerWithFiles(
 		{ error: null, result: [] },
 		{ error: null, result: batchByIndex.addedIds },
 		batchByIndex.notesInfo,
-		batchByIndex.tagList,
 		{ error: null, result: [] },
 		{ error: null, result: [] },
 		{ error: null, result: [] }
@@ -72,7 +71,6 @@ function managerWithAddBatch(data: ParsedSettings, addedIdsBatch: unknown) {
 	const multiResponse = [
 		{ error: null, result: [] },
 		addedIdsBatch,
-		{ error: null, result: [] },
 		{ error: null, result: [] },
 		{ error: null, result: [] },
 		{ error: null, result: [] },
@@ -129,8 +127,7 @@ describe('parse_requests_1: named batch + ScanIssue collection', () => {
 		const data = createParsedSettings()
 		const { manager } = managerWithFiles(data, ['note.md'], {
 			addedIds: [{ error: null, result: [] }],
-			notesInfo: { error: 'notesInfo failed', result: null },
-			tagList: { error: null, result: [] }
+			notesInfo: { error: 'notesInfo failed', result: null }
 		})
 		vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
@@ -139,9 +136,8 @@ describe('parse_requests_1: named batch + ScanIssue collection', () => {
 		expect(manager.scanIssues).toEqual([
 			{ file: '', kind: 'notes-info', error: 'AnkiConnect [parse]: notesInfo failed' }
 		])
-		// Deck maps stay empty but ID stamping, tag list and requests_2 ran.
+		// Deck maps stay empty but ID stamping and requests_2 ran.
 		expect(manager.ownFiles[0].note_edit_deck_map).toEqual([])
-		expect(manager.ownFiles[0].tags).toEqual([])
 	})
 
 	it('isolates one bad file notesInfo and still processes the other file', async () => {
@@ -160,8 +156,7 @@ describe('parse_requests_1: named batch + ScanIssue collection', () => {
 						result: [{ noteId: 55, modelName: 'Cloze', tags: [], fields: {}, cards: [777] }]
 					}
 				]
-			},
-			tagList: { error: null, result: [] }
+			}
 		})
 		manager.ownFiles[1].notes_to_edit = [
 			{
@@ -186,29 +181,11 @@ describe('parse_requests_1: named batch + ScanIssue collection', () => {
 		expect(manager.ownFiles[1].note_edit_deck_map).toEqual([{ card_ids: [777], deck: 'Default' }])
 	})
 
-	it('isolates a tagList failure and still completes the scan', async () => {
-		const data = createParsedSettings()
-		const { manager } = managerWithFiles(data, ['note.md'], {
-			addedIds: [{ error: null, result: [] }],
-			notesInfo: { error: null, result: [] },
-			tagList: { error: 'no tags today', result: null }
-		})
-		vi.spyOn(console, 'error').mockImplementation(() => undefined)
-
-		await manager.requests_1()
-
-		expect(manager.scanIssues).toEqual([
-			{ file: '', kind: 'tag-list', error: 'AnkiConnect [parse]: no tags today' }
-		])
-		expect(manager.ownFiles[0].tags).toEqual([])
-	})
-
 	it('carries the notes the parser refused into the report of a real scan', async () => {
 		const data = createParsedSettings()
 		const { manager } = managerWithFiles(data, ['a.md'], {
 			addedIds: [{ error: null, result: [] }],
-			notesInfo: { error: null, result: [{ error: null, result: [] }] },
-			tagList: { error: null, result: [] }
+			notesInfo: { error: null, result: [{ error: null, result: [] }] }
 		})
 		const issue = { file: 'a.md', kind: 'unknown-note-type' as const, error: 'unknown', line: 2 }
 		manager.ownFiles[0].parseIssues = [issue]
@@ -227,7 +204,6 @@ describe('parse_requests_1: named batch + ScanIssue collection', () => {
 		await manager.requests_1()
 
 		expect(manager.ownFiles[0].note_ids).toEqual([])
-		expect(manager.ownFiles[0].tags).toEqual([])
 		expect(manager.scanIssues).toEqual([
 			{ file: '', kind: 'add-notes', error: 'AnkiConnect [parse]: collection is closed' }
 		])

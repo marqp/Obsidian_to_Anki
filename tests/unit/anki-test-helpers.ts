@@ -101,7 +101,6 @@ export function createManager(options: ManagerOptions) {
 		{ error: null, result: [] },
 		{ error: null, result: [{ error: null, result: [] }] },
 		{ error: null, result: [{ error: null, result: [noteInfo] }] },
-		{ error: null, result: ['noteTag'] },
 		{ error: null, result: [{ error: null, result: [] }] },
 		{ error: null, result: [null] },
 		{ error: null, result: [] }

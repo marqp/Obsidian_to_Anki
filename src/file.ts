@@ -164,7 +164,6 @@ abstract class AbstractFile {
 
 	note_ids: Array<number | null> = []
 	card_ids: number[] = []
-	tags: string[] = []
 
 	formatter: FormatConverter
 

@@ -72,13 +72,9 @@ interface Requests1Result {
 		error: string | null
 		result: notesInfoResponse[]
 	}
-	2: {
-		error: string | null
-		result: string[]
-	}
+	2: unknown
 	3: unknown
-	4: unknown
-	5: {
+	4: {
 		error: string | null
 		result: Array<{
 			error: string | null
@@ -90,16 +86,15 @@ interface Requests1Result {
  * The requests_1 batch with names instead of positional indexes, so
  * reordering the batch in requests_1() can no longer silently desync
  * parse_requests_1(). Built once from the raw wire shape (the single cast
- * stays the documented trust boundary). Entries 3/4 (updates, deletes) stay
+ * stays the documented trust boundary). Entries 2/3 (updates, deletes) stay
  * `unknown` and are read defensively by actionErrors().
  */
 interface Requests1Batch {
 	addedIds: Requests1Result[0]
 	notesInfo: Requests1Result[1]
-	tagList: Requests1Result[2]
-	updates: Requests1Result[3]
-	deletes: Requests1Result[4]
-	media: Requests1Result[5]
+	updates: Requests1Result[2]
+	deletes: Requests1Result[3]
+	media: Requests1Result[4]
 }
 
 /** A single note/batch failure collected during parse_requests_1. */
@@ -692,8 +687,6 @@ export class FileManager {
 		}
 		requests.push(AnkiConnect.multi(temp))
 		temp = []
-		console.info('Requesting tag list...')
-		requests.push(AnkiConnect.getTags())
 		console.info('Requesting update of fields of existing notes')
 		for (const file of this.ownFiles) {
 			temp.push(file.getNoteUpdates(this.useUpdateNote))
@@ -952,10 +945,9 @@ export class FileManager {
 		const batch: Requests1Batch = {
 			addedIds: response[0],
 			notesInfo: response[1],
-			tagList: response[2],
-			updates: response[3],
-			deletes: response[4],
-			media: response[5]
+			updates: response[2],
+			deletes: response[3],
+			media: response[4]
 		}
 		if (batch.media.result.length >= 1 && batch.media.result[0].error != null) {
 			this.notifier.notify('Please update AnkiConnect! The way the script has added media files has changed.')
@@ -996,14 +988,6 @@ export class FileManager {
 			note_info_array_by_file = []
 			this.scanIssues.push({ file: '', kind: 'notes-info', error: issueMessage(error) })
 			this.assumeNotesChanged(this.ownFiles)
-		}
-		let tag_list: string[]
-		try {
-			tag_list = AnkiConnect.parse(batch.tagList)
-		} catch (error) {
-			console.error('Error: ', error)
-			tag_list = []
-			this.scanIssues.push({ file: '', kind: 'tag-list', error: issueMessage(error) })
 		}
 		for (let i = 0; i < note_info_array_by_file.length; i++) {
 			const file = this.ownFiles[i]
@@ -1052,7 +1036,6 @@ export class FileManager {
 		}
 		for (let i = 0; i < this.ownFiles.length; i++) {
 			const ownFile = this.ownFiles[i]
-			ownFile.tags = tag_list
 			// Edited while its chunk's IDs were written: that was reported, and writing now would lose the edit.
 			if (this.unsavedFiles.has(ownFile)) {
 				continue

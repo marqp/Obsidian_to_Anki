@@ -32,7 +32,6 @@ function multiResponseForNote1() {
 		{ error: null, result: [] },
 		{ error: null, result: [{ error: null, result: [] }] },
 		{ error: null, result: [{ error: null, result: [noteInfo] }] },
-		{ error: null, result: [] },
 		{ error: null, result: [{ error: null, result: [] }] },
 		{ error: null, result: [null] },
 		{ error: null, result: [] }

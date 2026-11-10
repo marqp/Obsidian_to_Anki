@@ -59,7 +59,7 @@ describe('requests_1 media batch', () => {
 		// ownFiles is normally narrowed by initialiseFiles; drive the batch directly.
 		manager.files = []
 		const empty = { error: null, result: [] }
-		const multiResponse = [empty, empty, empty, empty, empty, empty, { error: null, result: mediaResult }]
+		const multiResponse = [empty, empty, empty, empty, empty, { error: null, result: mediaResult }]
 		const invokeMock = vi.fn(async (action: string) => {
 			if (action === 'apiReflect') {
 				return { scopes: ['actions'], actions: ['updateNote', 'updateNoteModel'] }

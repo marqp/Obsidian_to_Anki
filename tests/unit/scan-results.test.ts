@@ -61,7 +61,6 @@ function setup(edits: DryRunNoteSpec[], daemon: Daemon, data: ParsedSettings = c
 				{ result: [], error: null },
 				daemon.addedIds ?? { result: [{ result: [], error: null }], error: null },
 				{ result: [{ result: daemon.notesInfo ?? [], error: null }], error: null },
-				{ result: [], error: null },
 				daemon.updates ?? { result: [{ result: [], error: null }], error: null },
 				daemon.deletes ?? { result: [ok], error: null },
 				{ result: [], error: null }
