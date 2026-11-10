@@ -198,7 +198,8 @@ const RETRYABLE_ISSUES: ReadonlySet<ScanIssue['kind']> = new Set<ScanIssue['kind
 	'update-tags',
 	'convert-note',
 	// The fix is outside the file: adding the image changes nothing a hash would see.
-	'occlusion-image-missing'
+	'occlusion-image-missing',
+	'file-changed'
 ])
 
 /**

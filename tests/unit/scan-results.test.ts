@@ -349,4 +349,11 @@ describe('getHashes: only clean files are marked as synced', () => {
 
 		expect(manager.getHashes()).toEqual({})
 	})
+
+	it('keeps a file edited during sync (file-changed) out of the commit', async () => {
+		const { manager, file } = setup([], {})
+		manager.scanIssues = [{ file: file.path, kind: 'file-changed', error: 'file changed on disk' }]
+
+		expect(manager.getHashes()).toEqual({})
+	})
 })
