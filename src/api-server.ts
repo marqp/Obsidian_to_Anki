@@ -161,6 +161,7 @@ async function readJsonBody(req: IncomingMessage, maxBytes = MAX_BODY_BYTES): Pr
 		const buffer = chunk as Buffer
 		size += buffer.length
 		if (size > maxBytes) {
+			req.resume()
 			throw new HttpError(413, 'Request body too large.')
 		}
 		chunks.push(buffer)
@@ -280,6 +281,7 @@ export class LocalApiServer {
 			// 127.0.0.1 explicitly: never expose the vault on the LAN.
 			server.listen(this.config.port, '127.0.0.1', () => {
 				server.off('error', reject)
+				server.on('error', (e) => console.error('[Obsidian_to_Anki] local API server error:', e))
 				this.server = server
 				resolve()
 			})
@@ -327,11 +329,19 @@ export class LocalApiServer {
 			await this.route(req, res, route)
 		} catch (error) {
 			if (error instanceof HttpError) {
-				send(res, error.status, { error: error.message })
+				if (!res.headersSent) {
+					send(res, error.status, { error: error.message })
+				} else {
+					res.end()
+				}
 				return
 			}
 			console.error('[Obsidian_to_Anki] local API error:', error)
-			send(res, 500, { error: error instanceof Error ? error.message : 'Internal error.' })
+			if (!res.headersSent) {
+				send(res, 500, { error: error instanceof Error ? error.message : 'Internal error.' })
+			} else {
+				res.end()
+			}
 		}
 	}
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { request } from 'http'
+import { request, IncomingMessage, ServerResponse } from 'http'
 import {
 	API_VERSION,
 	LocalApiServer,
@@ -504,6 +504,47 @@ describe('LocalApiServer lifecycle', () => {
 		const first = await start()
 		const second = new LocalApiServer({ port: first.port, token: TOKEN, handlers: makeHandlers() })
 		await expect(second.start()).rejects.toThrow(/EADDRINUSE/)
+	})
+
+	it('keeps a permanent error listener on the underlying server', async () => {
+		const s = await start()
+		const underlying = (s as unknown as { server: import('http').Server }).server
+		expect(underlying.listenerCount('error')).toBeGreaterThanOrEqual(1)
+		const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+		underlying.emit('error', new Error('test socket error'))
+		expect(consoleSpy).toHaveBeenCalledWith('[Obsidian_to_Anki] local API server error:', expect.any(Error))
+	})
+
+	it('drains the request stream with req.resume() when body exceeds maxBytes', async () => {
+		const resumeSpy = vi.spyOn(IncomingMessage.prototype, 'resume')
+		const s = await start()
+		const reply = await call(s.port, 'POST', '/scan', { body: JSON.stringify({ x: 'a'.repeat(20_000) }) })
+		expect(reply.status).toBe(413)
+		expect(resumeSpy).toHaveBeenCalled()
+	})
+
+	it('calls res.end() instead of send when headers are already sent', async () => {
+		const s = await start()
+		const endSpy = vi.fn()
+		const mockRes = {
+			headersSent: true,
+			end: endSpy,
+			setHeader: vi.fn(),
+			writeHead: vi.fn(() => {
+				throw new Error('ERR_HTTP_HEADERS_SENT')
+			})
+		} as unknown as ServerResponse
+		const mockReq = {
+			headers: { host: `127.0.0.1:${s.port}`, authorization: `Bearer ${TOKEN}` },
+			url: '/status',
+			method: 'GET'
+		} as unknown as IncomingMessage
+
+		const internal = s as unknown as { handle(req: IncomingMessage, res: ServerResponse): Promise<void> }
+		vi.spyOn(s as unknown as { route(): Promise<void> }, 'route').mockRejectedValue(new Error('late error'))
+
+		await expect(internal.handle(mockReq, mockRes)).resolves.toBeUndefined()
+		expect(endSpy).toHaveBeenCalled()
 	})
 })
 
