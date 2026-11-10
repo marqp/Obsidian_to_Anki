@@ -59,6 +59,11 @@ describe('AllFile.getNoteIdsInFile', () => {
 		].join('\n')
 		expect(makeFile(content).getNoteIdsInFile()).toEqual([111])
 	})
+
+	it('ignores words ending in ID such as COVID: 19', () => {
+		const content = ['COVID: 19', 'START', 'Basic', 'Front: q', 'Back: a', '<!--ID: 999-->', 'END'].join('\n')
+		expect(makeFile(content).getNoteIdsInFile()).toEqual([999])
+	})
 })
 
 describe('AllFile.scanDeletions', () => {

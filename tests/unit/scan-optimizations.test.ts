@@ -6,6 +6,8 @@ import {
 	FRAME_BUDGET_MS,
 	createFileData,
 	createYielder,
+	extractNoteIdFromLine,
+	findFirstNoteId,
 	getFileContentHash,
 	getStoredHash,
 	isFileUnchanged,
@@ -219,4 +221,16 @@ test('getFileContentHash matches the ts-md5 hashes stored by earlier versions', 
 	for (const sample of samples) {
 		assert.equal(getFileContentHash(sample), Md5.hashStr(sample))
 	}
+})
+
+test('extractNoteIdFromLine matches only real ID lines, not words ending in ID like COVID: 19', () => {
+	assert.equal(extractNoteIdFromLine('COVID: 19'), null)
+	assert.equal(extractNoteIdFromLine('ID: 1234'), 1234)
+	assert.equal(extractNoteIdFromLine('<!--ID: 1234-->'), 1234)
+	assert.equal(extractNoteIdFromLine('  ID: 1234'), 1234)
+})
+
+test('findFirstNoteId matches the first real note ID across multiple lines without splitting', () => {
+	assert.equal(findFirstNoteId('COVID: 19\nID: 999\nCOVID: 20'), 999)
+	assert.equal(findFirstNoteId('COVID: 19\nno ids here'), null)
 })

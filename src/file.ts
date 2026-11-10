@@ -273,7 +273,7 @@ abstract class AbstractFile {
 		const fenceSpans = spans(c.OBS_DISPLAY_CODE_REGEXP, this.file)
 		const ignore = deleteSpans.concat(fenceSpans)
 		const ids: number[] = []
-		for (const match of this.file.matchAll(/(?:<!--)?ID: (\d+)/g)) {
+		for (const match of this.file.matchAll(/(?<=^|\s|<!--)ID: (\d+)/gm)) {
 			const position = match.index ?? 0
 			if (ignore.some(([start, end]) => position >= start && position < end)) {
 				continue
