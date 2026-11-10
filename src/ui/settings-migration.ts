@@ -31,10 +31,16 @@ export function migrateSettings(settings: PluginSettings): MigrationResult {
 	// Legacy single scan directory -> directory list (then drop the old key).
 	if (Object.prototype.hasOwnProperty.call(settings.Defaults, 'Scan Directory')) {
 		const oldValue = settings.Defaults['Scan Directory']
-		if (typeof oldValue === 'string' && oldValue.trim() !== '') {
-			settings.Defaults['Scan Directories'] = [oldValue]
-		} else {
-			settings.Defaults['Scan Directories'] = []
+		const current = settings.Defaults['Scan Directories']
+		const isMissingOrEmpty =
+			!Object.prototype.hasOwnProperty.call(settings.Defaults, 'Scan Directories') ||
+			(Array.isArray(current) && current.length === 0)
+		if (isMissingOrEmpty) {
+			if (typeof oldValue === 'string' && oldValue.trim() !== '') {
+				settings.Defaults['Scan Directories'] = [oldValue]
+			} else {
+				settings.Defaults['Scan Directories'] = []
+			}
 		}
 		delete settings.Defaults['Scan Directory']
 		markDirty()
@@ -62,7 +68,7 @@ export function migrateSettings(settings: PluginSettings): MigrationResult {
 		markDirty()
 	}
 	if (!Array.isArray(settings.IGNORED_FILE_GLOBS)) {
-		settings.IGNORED_FILE_GLOBS = DEFAULT_IGNORED_FILE_GLOBS
+		settings.IGNORED_FILE_GLOBS = [...DEFAULT_IGNORED_FILE_GLOBS]
 		markDirty()
 	}
 
