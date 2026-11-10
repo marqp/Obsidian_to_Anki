@@ -479,6 +479,8 @@ export default class MyPlugin extends Plugin {
 			folder: `${scanned === '' ? '' : `${scanned}/`}Importados`,
 			defaultDeck: defaults.Deck,
 			beginNote: syntax['Begin Note'],
+			endNote: syntax['End Note'],
+			targetDeckLine: syntax['Target Deck Line'],
 			reservedWords: this.reservedWords(),
 			dataFor: (deck) => createFileData(data, deck, []),
 			pathExists: (path) => this.app.vault.getAbstractFileByPath(path) !== null,
